@@ -1,0 +1,15 @@
+.{
+    .name = .setu,
+    // year.month.day (no zero padding: semver)
+    .version = "2026.10.19",
+    .fingerprint = 0x7deee0e42718577f,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE.txt",
+        "README.rst",
+    },
+}
