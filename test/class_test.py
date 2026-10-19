@@ -460,6 +460,15 @@ def test_module_constants():
     assert not hasattr(sc, 'lower_case') and not hasattr(sc, 'other')
 
 
+def test_new_only():
+    '''A class with only `__new__` takes its arguments there; the stub declares `__new__`.'''
+    assert sc.Pair(1).pair == (1, 1)
+    assert sc.Pair(1, b=2).pair == (1, 2)
+    assert str(inspect.signature(sc.Pair)) == '(a, b=None)'
+    with pytest.raises(TypeError):
+        sc.Pair()
+
+
 def test_stub_matches_module():
     '''`setu_classes.pyi` lists every class; `__text_signature__`s come from the Zig source.'''
     import pathlib
@@ -475,6 +484,7 @@ def test_stub_matches_module():
     assert 'def buffer_len(data: Buffer | None = None) -> int | None:' in stub
     assert 'def buffer_fill(buf: Buffer, value: int) -> int:' in stub
     assert 'def seq_sum(values: Sequence[int]) -> int:' in stub
+    assert '    def __new__(cls, a: int, b: int | None = None) -> Self: ...' in stub
     assert 'def seq_buffer_len(bufs: Sequence[Buffer] | None = None) -> int | None:' in stub
     assert '\nANSWER: int\nNEGATIVE: int\nALL_ONES: int\nRED: int\nGREEN: int\nBLUE: int\n' in stub
     assert '    @classmethod\n    def from_pair(cls, x: int, y: int)' in stub

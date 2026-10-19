@@ -563,6 +563,27 @@ pub const Watch = struct {
 };
 pub const WatchType = setu.Class(Watch, @embedFile("classes.zig"));
 
+/// Two ints set in `__new__` only (no `__init__`): the stub declares `__new__`.
+///
+/// Type
+///     b: int | None - `a` when not given
+pub const Pair = struct {
+    a: i64 = 0,
+    b: i64 = 0,
+
+    /// Sets `a` and `b` (`b` defaults to `a`).
+    pub fn __new__(self: *Pair, a: i64, b: ?i64) void {
+        self.a = a;
+        self.b = b orelse a;
+    }
+
+    /// `(a, b)`.
+    pub fn get_pair(self: *const Pair) struct { i64, i64 } {
+        return .{ self.a, self.b };
+    }
+};
+pub const PairType = setu.Class(Pair, @embedFile("classes.zig"));
+
 /// The classes, bases first (also the stub order).
 pub const classes = .{
     VecType,
@@ -576,4 +597,5 @@ pub const classes = .{
     DynType,
     SlotType,
     WatchType,
+    PairType,
 };

@@ -236,15 +236,20 @@ fn resultOf(comptime f: anytype) type {
     return if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
 }
 
-/// `__init__` from the parameters of the `__init__` / `__new__` hook. Types come from the
-/// class doc's `Type` section, else from the Zig types.
+/// `__init__` from the parameters of the `__init__` hook, else `__new__` (`def __new__(cls, ...) -> Self`)
+/// from those of the `__new__` hook: where Python passes the arguments. Types come from the class
+/// doc's `Type` section, else from the Zig types.
 fn init(comptime C: type) []const u8 {
     const T = C.Data;
     const hook: []const u8 = if (@hasDecl(T, "__init__")) "__init__" else if (@hasDecl(T, "__new__")) "__new__" else "";
     if (hook.len == 0) return "";
     const f = @field(T, hook);
-    if (takesCallArgs(f)) return "\n    def __init__(self, *args: Any, **kwargs: Any) -> None: ...\n";
-    return "\n" ++ signature(f, "self", "__init__", hook, C.decl_source, C.class_doc, "None", "    ") ++ " ...\n";
+    const new = std.mem.eql(u8, hook, "__new__");
+    const first = if (new) "cls" else "self";
+    const R = if (new) "Self" else "None";
+    if (takesCallArgs(f)) return "\n    def " ++ hook ++ "(" ++ first ++ ", *args: Any, **kwargs: Any) -> " ++ R ++
+        ": ...\n";
+    return "\n" ++ signature(f, first, hook, hook, C.decl_source, C.class_doc, R, "    ") ++ " ...\n";
 }
 
 /// Does the hook `f` take the raw arguments (`self, setu.CallArgs`)?
