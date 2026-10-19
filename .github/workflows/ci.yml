@@ -1,0 +1,46 @@
+name: ci
+
+# Push to dev first; merge/push to main only after this passes.
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Python 3.15t (free-threaded)
+        id: py_ft
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.15t
+          allow-prereleases: true
+
+      - name: Python 3.15 (GIL)
+        id: py_gil
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+          allow-prereleases: true
+
+      - name: Install tools
+        run: |
+          "${{ steps.py_ft.outputs.python-path }}" -m pip install pytest ruff mypy
+          "${{ steps.py_gil.outputs.python-path }}" -m pip install pytest
+
+      - name: tools/check.sh
+        env:
+          PY_FT: ${{ steps.py_ft.outputs.python-path }}
+          PY_GIL: ${{ steps.py_gil.outputs.python-path }}
+        run: tools/check.sh

@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+pythonpath = ["test"]  # after `zig build develop`, tests run straight from the checkout
+testpaths = ["test"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+
+[tool.ruff.format]
+quote-style = "preserve"
