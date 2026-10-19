@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Runs every Setu check: zig fmt, int casts, ruff, `zig build test`, then for both 3.15 builds
-# `zig build develop`, `check_abi.py` and pytest, then `mypy --strict` + `stubtest` on the test stubs.
+# Runs every Setu check: zig fmt, int casts, ruff, `zig build test`, the `setu-build-sync` /
+# `setu-build-check` steps on the wheel fixture `test/wheel/`, then for both 3.15 builds `zig build develop`,
+# `check_abi.py`, pytest and the wheels `tools/setu_build.py` builds (`check_wheels.py`), then
+# `mypy --strict` + `stubtest` on the test stubs. All offline.
 # Interpreters: PY_FT=... / PY_GIL=...; compiler: ZIG=...
 set -euo pipefail
 
@@ -35,6 +37,10 @@ step "ruff"
 step "zig build test"
 "$ZIG" build test --summary all
 
+step "setu-build-sync + setu-build-check (test/wheel)"
+# What a project using Setu runs: copy Setu's `tools/setu_build.py` into its `tools/`, then compare.
+(cd test/wheel && "$ZIG" build setu-build-sync && "$ZIG" build setu-build-check)
+
 for py in "$PY_FT" "$PY_GIL"; do
     if [[ $("$py" -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED") or 0)') == 1 ]]; then
         flag=-Dfree-threaded=true
@@ -45,6 +51,8 @@ for py in "$PY_FT" "$PY_GIL"; do
     "$ZIG" build develop "$flag"
     "$py" tools/check_abi.py
     "$py" -m pytest "${PYTEST_ARGS[@]}"
+    "$py" tools/check_wheels.py --all # glibc + musl, cp315t + cp315
+    "$py" tools/check_wheels.py       # `build_wheel` (PEP 517) for this interpreter
 done
 
 step "mypy --strict + stubtest ($PY_FT)"

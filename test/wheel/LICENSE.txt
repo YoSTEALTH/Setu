@@ -1,0 +1,1 @@
+CC0 1.0 Universal, like Setu itself: see ../../LICENSE.txt for the full text.
