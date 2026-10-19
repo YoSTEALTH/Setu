@@ -4,26 +4,30 @@
 //! Types come from the doc's `Type` section (`name: type  # note` or `name: type - note`;
 //! `return: type` for the result), else from the Zig type: `bool`, ints -> `int`, floats ->
 //! `float`, `[]const u8` -> `str`, `py.Bytes` -> `bytes`, `py.Path` -> `str | bytes | os.PathLike`,
+//! `py.Buffer` / `py.WritableBuffer` -> `Buffer`, `py.Sequence(T)` -> `Sequence[T]` (both `collections.abc`),
 //! slices -> `list[T]`, tuples -> `tuple[T, U]`, `void` -> `None`, `?T` -> `T | None = None`,
 //! `py.Rest` -> `*name` (parameters before it: positional-only, then `/`), `py.KwOnly` -> `*`, `py.Kwargs` ->
-//! `**name`, an argument struct's field with a default -> `= ...` (`= None` for `null`), `*Object` and anything
-//! else -> `Any`. Bare generics in a `Type` section get their arguments
-//! (`os.PathLike` -> `os.PathLike[str] | os.PathLike[bytes]`, `list` -> `list[Any]`, ...).
+//! `**name`, an argument struct's field with a default -> `= ...` (`= None` for `null`), `*T` / `*const T` (a
+//! `setu.Class` instance) -> the class name, `*Object` and anything else -> `Any`. Bare generics in a `Type`
+//! section get their arguments (`os.PathLike` -> `os.PathLike[str] | os.PathLike[bytes]`, `list` -> `list[Any]`,
+//! ...).
 //! Classes without `basetype` are `@final`, the others with instance data
 //! `@disjoint_base` (PEP 800); `type_params` makes them generic (`class Name[T]:`, PEP 695).
 //! Protocol hooks (`__eq__`, `__add__`, `__len__`, ...) become positional-only `def`s, typed like
 //! methods (`*T` / `*const T` -> the class); class methods get `@classmethod`, static ones
 //! `@staticmethod`, class attributes `NAME: ClassVar[int]`. The text needs `Any`, `ClassVar`,
-//! `Generator`, `Self`, `disjoint_base` and `final` imported, plus whatever names the `Type`
-//! sections use.
+//! `Generator`, `Self`, `disjoint_base` and `final` imported (`Buffer` / `Sequence` too, for those parameters),
+//! plus whatever names the `Type` sections use.
 //!
 //! Example
-//!     const text = setu.stub.functions(math, @embedFile("math.zig")) ++
+//!     const text = setu.stub.constants(math) ++ setu.stub.functions(math, @embedFile("math.zig")) ++
 //!         setu.stub.class(PointType);
 
 const std = @import("std");
 const py = @import("py.zig");
 const class_zig = @import("class.zig");
+
+const shortName = class_zig.shortName;
 
 /// `def name(...) -> R:` with its docstring, for every exported `pub fn` of `M`.
 pub fn functions(comptime M: type, comptime source: []const u8) []const u8 {
@@ -32,6 +36,14 @@ pub fn functions(comptime M: type, comptime source: []const u8) []const u8 {
     for (@typeInfo(M).@"struct".decl_names) |name| {
         if (py.isExported(M, name)) out = out ++ "\n" ++ function(@field(M, name), null, name, source, "");
     }
+    return out;
+}
+
+/// `NAME: int` for every module constant of `M` (`py.constants`: UPPER_CASE `pub const` ints and
+/// enum fields).
+pub fn constants(comptime M: type) []const u8 {
+    var out: []const u8 = "";
+    for (py.constants(M)) |k| out = out ++ k.name ++ ": int\n";
     return out;
 }
 
@@ -132,7 +144,7 @@ fn hooks(comptime C: type) []const u8 {
     } else if (@hasDecl(T, "__next__")) out = out ++ "\n    def __iter__(self) -> Self: ...\n";
     if (@hasDecl(T, "__next__")) {
         const Next = resultOf(T.__next__);
-        out = out ++ hookDef(C, "__next__", .{ .ret = typeOf(C, @typeInfo(Next).optional.child) });
+        out = out ++ hookDef(C, "__next__", .{ .ret = pyType(@typeInfo(Next).optional.child) });
     }
     // One `nb_<op>` slot gives `__<op>__` and `__r<op>__`; a missing half is unsupported.
     for (class_zig.number_ops) |op| {
@@ -200,7 +212,7 @@ fn never(comptime name: []const u8, comptime n: usize, comptime extra: []const [
 }
 
 /// `def name(self, a: A, /) -> R: ...` for the protocol hook `name` of `C`: types from its doc's
-/// `Type` section, else `over`, else the Zig types (see `typeOf`).
+/// `Type` section, else `over`, else the Zig types (see `pyType`).
 fn hookDef(comptime C: type, comptime name: []const u8, comptime over: Override) []const u8 {
     const f = @field(C.Data, name);
     const src = py.fnSource(C.decl_source, name);
@@ -208,12 +220,12 @@ fn hookDef(comptime C: type, comptime name: []const u8, comptime over: Override)
     var params: []const []const u8 = &.{"self"};
     for (types[1..], 1..) |P, i| {
         const p = src.params[i];
-        const ty = docType(src.doc, p) orelse if (i - 1 < over.types.len) over.types[i - 1] else typeOf(C, P.?);
+        const ty = docType(src.doc, p) orelse if (i - 1 < over.types.len) over.types[i - 1] else pyType(P.?);
         params = params ++ .{p ++ ": " ++ ty};
     }
     params = params ++ over.extra;
     if (params.len > 1) params = params ++ .{"/"};
-    const R = docType(src.doc, "return") orelse (over.ret orelse typeOf(C, resultOf(f)));
+    const R = docType(src.doc, "return") orelse (over.ret orelse pyType(resultOf(f)));
     const ignore = if (over.ignore) |code| "  # type: ignore[" ++ code ++ "]" else "";
     return "\n" ++ defLine("    ", over.name orelse name, params, R) ++ " ..." ++ ignore ++ "\n";
 }
@@ -222,12 +234,6 @@ fn hookDef(comptime C: type, comptime name: []const u8, comptime over: Override)
 fn resultOf(comptime f: anytype) type {
     const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
     return if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
-}
-
-/// `pyType`, with the instance data of `C` (`*T` / `*const T`) as the class itself.
-fn typeOf(comptime C: type, comptime P: type) []const u8 {
-    if (P == *C.Data or P == *const C.Data) return shortName(C.name);
-    return pyType(P);
 }
 
 /// `__init__` from the parameters of the `__init__` / `__new__` hook. Types come from the
@@ -376,6 +382,9 @@ fn withArgs(comptime ty: []const u8) []const u8 {
 pub fn pyType(comptime T: type) []const u8 {
     if (T == py.Bytes) return "bytes";
     if (T == py.Path) return "str | bytes | os.PathLike[str] | os.PathLike[bytes]";
+    if (T == py.Buffer or T == py.WritableBuffer) return "Buffer";
+    if (comptime py.isSequence(T)) return "Sequence[" ++ pyType(T.Item) ++ "]";
+    if (comptime class_zig.isInstancePtr(T)) return shortName(class_zig.Instance(@typeInfo(T).pointer.child).name);
     return switch (@typeInfo(T)) {
         .bool => "bool",
         .int, .comptime_int => "int",
@@ -433,10 +442,4 @@ pub fn format(comptime text: []const u8) []const u8 {
         prev = line;
     }
     return out;
-}
-
-/// The last dotted part of `name` (`"pkg.Point"` -> `"Point"`).
-fn shortName(comptime name: []const u8) []const u8 {
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return name;
-    return name[dot + 1 ..];
 }

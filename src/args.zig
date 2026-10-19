@@ -8,6 +8,8 @@ const py = @import("py.zig");
 const convert = @import("convert.zig");
 const raiseTypeError = @import("raise.zig").raiseTypeError;
 const source_zig = @import("source.zig");
+const class_zig = @import("class.zig");
+const stub = @import("stub.zig");
 
 const Object = py.Object;
 const Error = py.Error;
@@ -17,23 +19,24 @@ const none = py.none;
 const fromPythonAs = convert.fromPythonAs;
 const Bytes = convert.Bytes;
 const Path = convert.Path;
+const Buffer = convert.Buffer;
+const WritableBuffer = convert.WritableBuffer;
+const releases = convert.releases;
 const fnSource = source_zig.fnSource;
 const structBody = source_zig.structBody;
 const fieldDefaults = source_zig.fieldDefaults;
 const pyDefault = source_zig.pyDefault;
 
-/// Releases the arguments of `plist[0..count]` in `tuple` that hold a reference (`Path`),
-/// after the call or when a later argument failed to convert.
+/// Releases the arguments of `plist` in `tuple` that hold a reference or a lock (`Path`,
+/// `Buffer`, `Sequence(T)`, ...; see `releases`), after the call or when a later argument failed
+/// to convert.
 pub fn releaseArgs(comptime F: type, comptime plist: []const Param, tuple: *std.meta.ArgsTuple(F)) void {
-    inline for (plist) |p| {
-        if (p.T == Path) {
-            const v = if (p.field) |field| @field(tuple.*[p.arg], field) else tuple.*[p.arg];
-            v.deinit();
-        } else if (p.T == ?Path) {
-            const v = if (p.field) |field| @field(tuple.*[p.arg], field) else tuple.*[p.arg];
+    inline for (plist) |p| if (comptime releases(p.T)) {
+        const v = if (p.field) |field| @field(tuple.*[p.arg], field) else tuple.*[p.arg];
+        if (@typeInfo(p.T) == .optional) {
             if (v) |x| x.deinit();
-        }
-    }
+        } else v.deinit();
+    };
 }
 
 /// `*args`: the positional arguments, borrowed for the duration of the call.
@@ -206,10 +209,11 @@ pub fn paramList(
 }
 
 /// Is the parameter type `T` an argument struct (a `struct`, but not a tuple or a Setu
-/// value type like `Bytes` / `Path`)?
+/// value type like `Bytes` / `Path` / `Buffer`)?
 fn isArgStruct(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct" or @typeInfo(T).@"struct".is_tuple) return false;
-    return T != Bytes and T != Path and T != Rest and T != KwOnly and T != Kwargs;
+    return T != Bytes and T != Path and T != Buffer and T != WritableBuffer and !convert.isSequence(T) and
+        T != Rest and T != KwOnly and T != Kwargs;
 }
 
 /// `self` as the type `P` of a method's first parameter: `*Object` as is, the type object
@@ -252,14 +256,22 @@ inline fn fillOne(comptime p: Param, comptime fname: []const u8, slot: ?*Object)
         return v catch |err| {
             const T = if (@typeInfo(p.T) == .optional) @typeInfo(p.T).optional.child else p.T;
             const want: ?[]const u8 = if (T == []const u8 or T == [:0]const u8)
-                "str"
+                "`str`"
             else if (T == Bytes)
-                "bytes"
+                "`bytes`"
+            else if (T == Buffer)
+                "a bytes-like object"
+            else if (T == WritableBuffer)
+                "a writable bytes-like object"
+            else if (comptime class_zig.isInstancePtr(T))
+                "`" ++ comptime class_zig.shortName(class_zig.Instance(@typeInfo(T).pointer.child).name) ++ "`"
+            else if (comptime convert.isSequence(T))
+                "a sequence of `" ++ comptime stub.pyType(T.Item) ++ "`"
             else
                 null;
             if (want) |w| if (c.PyErr_ExceptionMatches(c.PyExc_TypeError) != 0) {
                 c.PyErr_Clear();
-                return raiseTypeError("{s}() argument '{s}' must be `{s}`", .{ fname, p.name, w });
+                return raiseTypeError("{s}() argument '{s}' must be {s}", .{ fname, p.name, w });
             };
             return err;
         };

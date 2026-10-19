@@ -89,6 +89,30 @@ pub fn raiseErrno(errno: c_int) Error {
     return error.PythonError;
 }
 
+/// `res` when it is `>= 0`, else `OSError` for the errno `-res` (`raiseErrno`): for the result of
+/// a liburing call or a raw syscall, which is a negative errno on failure.
+///
+/// Example
+///     >>> return py.checkErrno(c.io_uring_submit(ring));
+///     >>> try py.checkErrno(@as(i32, 3))
+///     3
+///     >>> try py.checkErrno(@as(i32, -11))
+///     BlockingIOError: [Errno 11] Resource temporarily unavailable
+///     >>> try py.checkErrno(@as(i64, -1 << 40))
+///     OverflowError: result -1099511627776 is out of errno range
+///
+/// Note
+///     - `res` is any signed int type, and so is the result.
+///     - An errno is a C `int`, so a result below `-INT_MAX` raises `OverflowError`.
+pub fn checkErrno(res: anytype) Error!@TypeOf(res) {
+    const T = @TypeOf(res);
+    if (@typeInfo(T) != .int or @typeInfo(T).int.signedness != .signed)
+        @compileError("`checkErrno` takes a signed int, not " ++ @typeName(T));
+    if (res >= 0) return res;
+    if (res < -std.math.maxInt(c_int)) return raiseOverflowError("result {d} is out of errno range", .{res});
+    return raiseErrno(@intCast(-res)); // cast: `-res` is in 1..INT_MAX (checked above)
+}
+
 /// Raises `TypeError` with a formatted message (`raiseTypeError(...)`).
 pub fn raiseTypeError(comptime fmt: []const u8, args: anytype) Error {
     return raise(c.PyExc_TypeError, fmt, args);

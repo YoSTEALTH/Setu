@@ -12,7 +12,10 @@
 //!
 //! Supported parameter types: integers, floats, `bool`, `[]const u8` / `[:0]const u8` (a
 //! `str` as UTF-8, borrowed for the call), `Bytes` (a `bytes`), `Path` (`str` / `bytes` /
-//! `os.PathLike`, released after the call), `*Object` (raw).
+//! `os.PathLike`, released after the call), `Buffer` / `WritableBuffer` (a bytes-like object,
+//! read-only / writable, locked for the call), `Sequence(T)` (a list / tuple / ... of `T`, freed
+//! after the call), `*T` / `*const T` (an instance of the `setu.Class` of
+//! the struct `T`, or of a subclass; `TypeError` otherwise), `*Object` (raw).
 //! `?T` parameters are optional: omitted or `None` gives `null`
 //! (for a raw `?*Object`, only omitted gives `null`; `None` is passed through).
 //! Arguments are positional or keyword, by parameter name; a leading `Rest`
@@ -97,6 +100,7 @@ pub const raiseWith = raise_zig.raiseWith;
 pub const raiseOSError = raise_zig.raiseOSError;
 pub const raiseNoMemory = raise_zig.raiseNoMemory;
 pub const raiseErrno = raise_zig.raiseErrno;
+pub const checkErrno = raise_zig.checkErrno;
 pub const raiseTypeError = raise_zig.raiseTypeError;
 pub const raiseValueError = raise_zig.raiseValueError;
 pub const raiseIndexError = raise_zig.raiseIndexError;
@@ -113,8 +117,13 @@ pub const toPython = convert.toPython;
 pub const new = convert.new;
 pub const Bytes = convert.Bytes;
 pub const Path = convert.Path;
+pub const Buffer = convert.Buffer;
+pub const WritableBuffer = convert.WritableBuffer;
+pub const Sequence = convert.Sequence;
+pub const isSequence = convert.isSequence;
 
 pub const releaseArgs = args_zig.releaseArgs;
+pub const releases = convert.releases;
 pub const Rest = args_zig.Rest;
 pub const Kwargs = args_zig.Kwargs;
 pub const KwOnly = args_zig.KwOnly;
@@ -144,6 +153,10 @@ pub const leadCount = args_zig.leadCount;
 pub const hasKwargs = export_zig.hasKwargs;
 pub const paramText = export_zig.paramText;
 pub const getter = export_zig.getter;
+pub const Constant = export_zig.Constant;
+pub const constants = export_zig.constants;
+pub const addConstants = export_zig.addConstants;
+pub const isUpperName = export_zig.isUpperName;
 
 /// Pointer to a type's extra instance data (`Py_tp_extra_basicsize`).
 pub fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {

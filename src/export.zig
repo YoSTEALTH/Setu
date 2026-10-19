@@ -1,6 +1,6 @@
 //! PyOZ-style export: the C-ABI trampolines and method table entries for `pub fn`s
-//! (`exportFns`, `methodDef`, `getter`), with `__text_signature__` docstrings.
-//! Re-exported by `py.zig`.
+//! (`exportFns`, `methodDef`, `getter`), with `__text_signature__` docstrings, and a file's
+//! constants (`addConstants`). Re-exported by `py.zig`.
 
 const std = @import("std");
 const c = @import("capi.zig");
@@ -157,6 +157,63 @@ pub fn isExported(comptime M: type, comptime name: []const u8) bool {
     if (@typeInfo(@TypeOf(@field(M, name))) != .@"fn") return false;
     for (name) |ch| if (std.ascii.isUpper(ch)) return false;
     return true;
+}
+
+/// A module constant: an UPPER_CASE `pub const` int, or an UPPER_CASE field of a `pub` enum.
+pub const Constant = struct {
+    name: [:0]const u8,
+    value: i128,
+};
+
+/// The module constants of the namespace `M` (see `Constant`), in source order: what
+/// `addConstants` adds and `setu.stub.constants` declares.
+///
+/// Example
+///     >>> pub const IOSQE_IO_LINK = 1 << 2;
+///     >>> pub const io_uring_op = enum(u8) { IORING_OP_NOP, IORING_OP_READV };
+///     >>> constants(@This())
+///     .{ .{ "IOSQE_IO_LINK", 4 }, .{ "IORING_OP_NOP", 0 }, .{ "IORING_OP_READV", 1 } }
+pub fn constants(comptime M: type) []const Constant {
+    @setEvalBranchQuota(1_000_000);
+    var out: []const Constant = &.{};
+    for (@typeInfo(M).@"struct".decl_names) |name| {
+        const V = @TypeOf(@field(M, name));
+        if (V == type) {
+            const E = @field(M, name);
+            if (@typeInfo(E) != .@"enum") continue;
+            for (@typeInfo(E).@"enum".field_names) |f| {
+                if (isUpperName(f)) out = out ++ .{Constant{ .name = f, .value = @backingInt(@field(E, f)) }};
+            }
+        } else if ((@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) and isUpperName(name)) {
+            out = out ++ .{Constant{ .name = name, .value = @field(M, name) }};
+        }
+    }
+    return out;
+}
+
+/// Adds the constants of `M` (see `constants`) to `module` as ints, by name. For the module's
+/// `Py_mod_exec`.
+///
+/// Example
+///     >>> py.addConstants(module, @import("const.zig")) catch return -1;
+///     >>> liburing.IOSQE_IO_LINK
+///     4
+pub fn addConstants(module: *Object, comptime M: type) py.Error!void {
+    inline for (comptime constants(M)) |k| {
+        const v = try py.new(if (k.value < 0) @as(i64, k.value) else @as(u64, k.value));
+        defer py.decref(v);
+        if (c.PyModule_AddObjectRef(module, k.name, v) < 0) return error.PythonError;
+    }
+}
+
+/// Is `name` UPPER_CASE: a letter, and no lowercase ones (`IOSQE_IO_LINK`, `O_RDONLY`)?
+pub fn isUpperName(comptime name: []const u8) bool {
+    var letter = false;
+    for (name) |ch| {
+        if (std.ascii.isLower(ch)) return false;
+        if (std.ascii.isUpper(ch)) letter = true;
+    }
+    return letter;
 }
 
 /// How many exported `pub fn`s `M` has (sizes the method table at comptime).

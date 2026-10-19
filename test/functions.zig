@@ -1,0 +1,191 @@
+//! The module functions and constants of `setu_classes` (`setu_classes.zig`), for the parameter types
+//! that are not classes of their own (instances of a `setu.Class`, buffers, sequences),
+//! `py.checkErrno` and `py.addConstants`. `class_test.py` drives them.
+
+const std = @import("std");
+const setu = @import("setu");
+const classes = @import("classes.zig");
+
+const c = setu.c;
+const py = setu.py;
+const Object = c.Object;
+const Error = py.Error;
+const Labeled = classes.Labeled;
+const Vec = classes.Vec;
+const VecType = classes.VecType;
+
+/// The squared length of `v` (a `Vec`, or a subclass).
+///
+/// Example
+///     >>> vec_norm2(Vec(3, 4))
+///     25
+///     >>> vec_norm2((3, 4))
+///     TypeError: vec_norm2() argument 'v' must be `Vec`
+pub fn vec_norm2(v: *const Vec) i64 {
+    return v.x * v.x + v.y * v.y;
+}
+
+/// Multiplies the coordinates of `v` by `k`, in place.
+///
+/// Example
+///     >>> v = Vec(1, 2)
+///     >>> vec_scale(v, 3)
+///     >>> v
+///     Vec(3, 6)
+pub fn vec_scale(v: *Vec, k: i64) void {
+    v.x *= k;
+    v.y *= k;
+}
+
+/// `v` itself: the object back from its instance data (`VecType.object`).
+///
+/// Type
+///     return: Vec
+///
+/// Example
+///     >>> v = Vec()
+///     >>> vec_self(v) is v
+///     True
+pub fn vec_self(v: *const Vec) *Object {
+    const obj = VecType.object(v);
+    py.incref(obj);
+    return obj;
+}
+
+/// The label of `v`, or `None` without one (`v` is `None` or not given).
+///
+/// Type
+///     return: object
+///
+/// Example
+///     >>> label_of(Labeled('a'))
+///     'a'
+///     >>> label_of(None)
+pub fn label_of(v: ?*const Labeled) *Object {
+    const label = if (v) |d| d.label orelse py.none() else py.none();
+    py.incref(label);
+    return label;
+}
+
+/// The sum of the bytes of `data` (any bytes-like object).
+///
+/// Example
+///     >>> buffer_sum(b'abc')
+///     294
+///     >>> buffer_sum(memoryview(b'abc')[1:])
+///     197
+pub fn buffer_sum(data: py.Buffer) u64 {
+    var total: u64 = 0;
+    for (data.data) |b| total += b;
+    return total;
+}
+
+/// The length of `data`, or `None` without one.
+///
+/// Example
+///     >>> buffer_len(bytearray(5))
+///     5
+///     >>> buffer_len(None)
+pub fn buffer_len(data: ?py.Buffer) ?usize {
+    return if (data) |d| d.data.len else null;
+}
+
+/// Sets every byte of `buf` (a writable bytes-like object) to `value`; returns how many.
+///
+/// Example
+///     >>> b = bytearray(3)
+///     >>> buffer_fill(b, 7)
+///     3
+///     >>> b
+///     bytearray(b'\x07\x07\x07')
+pub fn buffer_fill(buf: py.WritableBuffer, value: u8) usize {
+    @memset(buf.data, value);
+    return buf.data.len;
+}
+
+/// The sum of `values` (a list, tuple, range, ... of `u32`s).
+///
+/// Example
+///     >>> seq_sum([1, 2, 3])
+///     6
+///     >>> seq_sum(range(4))
+///     6
+pub fn seq_sum(values: py.Sequence(u32)) u64 {
+    var total: u64 = 0;
+    for (values.items) |v| total += v;
+    return total;
+}
+
+/// `parts` joined: `b''.join(parts)`.
+///
+/// Type
+///     return: bytes
+///
+/// Example
+///     >>> seq_join([b'ab', b'c'])
+///     b'abc'
+pub fn seq_join(parts: py.Sequence(py.Bytes)) Error!*Object {
+    var n: usize = 0;
+    for (parts.items) |p| n += p.data.len;
+    // cast: the parts are in memory, so their total fits `isize`
+    const out = c.PyBytes_FromStringAndSize(null, @intCast(n)) orelse return error.PythonError;
+    var at: [*]u8 = c.PyBytes_AsString(out).?;
+    for (parts.items) |p| {
+        @memcpy(at[0..p.data.len], p.data);
+        at += p.data.len;
+    }
+    return out;
+}
+
+/// The squared lengths of `vs` (`Vec`s), added up.
+///
+/// Example
+///     >>> seq_norm2([Vec(3, 4), Vec(1, 0)])
+///     26
+pub fn seq_norm2(vs: py.Sequence(*const Vec)) i64 {
+    var total: i64 = 0;
+    for (vs.items) |v| total += vec_norm2(v);
+    return total;
+}
+
+/// The total length of `bufs` (bytes-like objects), or `None` without them.
+///
+/// Example
+///     >>> seq_buffer_len([b'ab', bytearray(3)])
+///     5
+pub fn seq_buffer_len(bufs: ?py.Sequence(py.Buffer)) ?usize {
+    const list = bufs orelse return null;
+    var n: usize = 0;
+    for (list.items) |b| n += b.data.len;
+    return n;
+}
+
+/// `res` itself when it is `>= 0`, else `OSError` for the errno `-res` (`py.checkErrno`).
+///
+/// Example
+///     >>> check_errno(3)
+///     3
+///     >>> check_errno(-2)
+///     FileNotFoundError: [Errno 2] No such file or directory
+pub fn check_errno(res: i64) Error!i64 {
+    return py.checkErrno(res);
+}
+
+// --- module constants (`py.addConstants`) -------------------------------------------------
+
+/// A small constant.
+pub const ANSWER = 42;
+/// A negative one.
+pub const NEGATIVE: i32 = -5;
+/// One past `i64`: an int `PyModule_AddIntConstant` could not take.
+pub const ALL_ONES: u64 = std.math.maxInt(u64);
+/// Not UPPER_CASE, so not exported.
+pub const lower_case = 7;
+
+/// Its UPPER_CASE fields are module constants (`RED`, ...); `other` is not.
+pub const Color = enum(u8) {
+    RED = 1,
+    GREEN,
+    BLUE = 9,
+    other,
+};

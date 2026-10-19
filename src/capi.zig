@@ -206,6 +206,10 @@ pub const Py_mod_doc: u16 = 101;
 pub const Py_mod_methods: u16 = 103;
 pub const Py_mod_abi: u16 = 109;
 
+/// `Py_mod_gil` value: the module needs the GIL (3.15t enables it on import); for state that is not
+/// thread-safe.
+pub const Py_MOD_GIL_USED: u64 = 0;
+/// `Py_mod_gil` value: the module is safe to run without the GIL.
 pub const Py_MOD_GIL_NOT_USED: u64 = 1;
 pub const Py_MOD_MULTIPLE_INTERPRETERS_NOT_SUPPORTED: u64 = 0;
 
@@ -298,6 +302,9 @@ pub extern fn PyTuple_Size(*Object) ssize;
 pub extern fn PyTuple_GetItem(*Object, ssize) ?*Object;
 pub extern fn PyTuple_New(ssize) ?*Object;
 pub extern fn PySequence_Tuple(*Object) ?*Object;
+pub extern fn PySequence_Check(*Object) c_int;
+pub extern fn PyMem_Malloc(usize) ?*anyopaque;
+pub extern fn PyMem_Free(?*anyopaque) void;
 pub extern fn PyTuple_SetItem(*Object, ssize, *Object) c_int;
 pub extern fn PyList_New(ssize) ?*Object;
 pub extern fn PyList_GetItem(*Object, ssize) ?*Object;
@@ -378,6 +385,7 @@ pub extern fn PyModule_AddIntConstant(*Object, [*:0]const u8, c_long) c_int;
 pub extern fn PyModule_AddStringConstant(*Object, [*:0]const u8, [*:0]const u8) c_int;
 
 pub extern var PyExc_TypeError: *Object;
+pub extern var PyExc_BufferError: *Object;
 pub extern var PyExc_ValueError: *Object;
 pub extern var PyExc_IndexError: *Object;
 pub extern var PyExc_RuntimeError: *Object;

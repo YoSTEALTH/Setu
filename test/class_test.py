@@ -1,5 +1,6 @@
 '''`setu.Class` protocol hooks, through the test extension `setu_classes` (`test/classes.zig`).'''
 
+import array
 import gc
 import copy
 import inspect
@@ -215,7 +216,7 @@ def test_static_and_class_methods():
     assert Vec.dot(Vec(1, 2), Vec(3, 4)) == 11
     assert Vec(0, 0).dot(Vec(1, 2), Vec(3, 4)) == 11  # also through an instance
     assert isinstance(inspect.getattr_static(Vec, 'dot'), staticmethod)
-    with pytest.raises(TypeError, match='two `Vec`s'):
+    with pytest.raises(TypeError, match=r"^dot\(\) argument 'a' must be `Vec`$"):
         Vec.dot(1, 2)
     assert Vec.from_pair(1, 2) == Vec(1, 2)
     assert isinstance(inspect.getattr_static(Vec, 'from_pair'), types.ClassMethodDescriptorType)
@@ -344,6 +345,121 @@ def test_subclass_keeps_hooks():
     assert s + Vec(1, 1) == Vec(2, 3)
 
 
+def test_class_parameters():
+    '''A `*T` / `*const T` / `?*T` parameter takes an instance of the class or a subclass.'''
+
+    class Sub(Vec):
+        pass
+
+    assert sc.vec_norm2(Vec(3, 4)) == 25
+    assert sc.vec_norm2(Labeled('a')) == 0  # a Setu subclass
+    assert sc.vec_norm2(Sub(1, 1)) == 2  # a Python subclass
+    v = Vec(1, 2)
+    sc.vec_scale(v, 3)  # `*Vec`: changes the instance
+    assert v == Vec(3, 6)
+    assert sc.vec_self(v) is v
+    s = Sub()
+    assert sc.vec_self(s) is s
+    assert Vec.dot(Vec(1, 2), Vec(3, 4)) == 11
+    assert sc.label_of(Labeled('x')) == 'x'
+    assert sc.label_of(None) is None
+    assert sc.label_of() is None
+    with pytest.raises(TypeError, match=r"^vec_norm2\(\) argument 'v' must be `Vec`$"):
+        sc.vec_norm2((3, 4))
+    with pytest.raises(TypeError, match="must be `Vec`"):
+        sc.vec_norm2(None)
+    with pytest.raises(TypeError, match=r"^label_of\(\) argument 'v' must be `Labeled`$"):
+        sc.label_of(Vec())  # the base is not the subclass
+    with pytest.raises(TypeError, match=r"^dot\(\) argument 'b' must be `Vec`$"):
+        Vec.dot(Vec(), 1)
+    assert str(inspect.signature(sc.label_of)) == '(v=None)'
+
+
+def test_buffer_parameters():
+    '''`py.Buffer` takes any bytes-like object, `py.WritableBuffer` a writable one; both are released.'''
+    assert sc.buffer_sum(b'abc') == 294
+    assert sc.buffer_sum(bytearray(b'abc')) == 294
+    assert sc.buffer_sum(memoryview(b'abc')[1:]) == 197
+    assert sc.buffer_sum(array.array('H', [1, 2])) == 3
+    assert sc.buffer_sum(b'') == 0
+    assert sc.buffer_len(b'xy') == 2
+    assert sc.buffer_len(None) is None
+    assert sc.buffer_len() is None
+    b = bytearray(3)
+    assert sc.buffer_fill(b, 7) == 3
+    assert b == b'\x07\x07\x07'
+    b.extend(b'z')  # released after the call, so it can resize
+    with memoryview(b) as m:
+        sc.buffer_fill(m[1:3], 1)
+    assert b == b'\x07\x01\x01z'
+    with pytest.raises(OverflowError):
+        sc.buffer_fill(b, 300)  # `value` fails after `buf` was taken
+    b.append(0)  # released on that error too
+    sc.buffer_sum(b)
+    b.append(0)
+    with pytest.raises(TypeError, match=r"^buffer_sum\(\) argument 'data' must be a bytes-like object$"):
+        sc.buffer_sum('abc')
+    for read_only in (b'abc', memoryview(b'abc'), 'abc'):
+        with pytest.raises(TypeError, match=r"^buffer_fill\(\) argument 'buf' must be a writable bytes-like object$"):
+            sc.buffer_fill(read_only, 1)
+    with pytest.raises(BufferError, match='not C-contiguous'):
+        sc.buffer_fill(memoryview(bytearray(4))[::2], 1)
+    with pytest.raises(BufferError, match='not C-contiguous'):
+        sc.buffer_sum(memoryview(b'abcd')[::2])
+
+
+def test_sequence_parameters():
+    '''`py.Sequence(T)` takes any sequence, converting each item like a `T` parameter.'''
+    assert sc.seq_sum([1, 2, 3]) == 6
+    assert sc.seq_sum((1, 2)) == 3
+    assert sc.seq_sum(range(4)) == 6
+    assert sc.seq_sum([]) == 0
+    assert sc.seq_join([b'ab', b'c']) == b'abc'
+    assert sc.seq_join(()) == b''
+    assert sc.seq_norm2([Vec(3, 4), Labeled('a'), Vec(1, 0)]) == 26
+    b = bytearray(3)
+    assert sc.seq_buffer_len([b'ab', b]) == 5
+    assert sc.seq_buffer_len(None) is None
+    b.append(1)  # the item buffers are released after the call
+    with pytest.raises(TypeError, match=r"^seq_buffer_len\(\) argument 'bufs' must be a sequence of `Buffer`$"):
+        sc.seq_buffer_len([b, 'x'])
+    b.append(1)  # and when a later item fails
+    for bad in (1, {1, 2}, ['a'], [1.5]):
+        with pytest.raises(TypeError, match=r"^seq_sum\(\) argument 'values' must be a sequence of `int`$"):
+            sc.seq_sum(bad)
+    with pytest.raises(OverflowError, match=r'^`seq_sum\(values\)` item = -2 is out of range 0\.\.4294967295$'):
+        sc.seq_sum([1, -2])
+    with pytest.raises(TypeError, match='must be a sequence of `bytes`'):
+        sc.seq_join([b'a', 'b'])
+    with pytest.raises(TypeError, match='must be a sequence of `Vec`'):
+        sc.seq_norm2([Vec(), 1])
+
+
+def test_check_errno():
+    '''`py.checkErrno` passes a result `>= 0` through and raises the errno of a negative one.'''
+    assert sc.check_errno(0) == 0
+    assert sc.check_errno(2**40) == 2**40
+    with pytest.raises(FileNotFoundError) as e:
+        sc.check_errno(-2)
+    assert e.value.errno == 2 and e.value.strerror
+    with pytest.raises(BlockingIOError):
+        sc.check_errno(-11)
+    with pytest.raises(PermissionError):
+        sc.check_errno(-1)
+    with pytest.raises(OSError) as e:
+        sc.check_errno(-(2**31 - 1))
+    assert e.value.errno == 2**31 - 1
+    with pytest.raises(OverflowError, match=r'^result -2147483648 is out of errno range$'):
+        sc.check_errno(-(2**31))
+
+
+def test_module_constants():
+    '''`py.addConstants` adds the UPPER_CASE `pub const` ints and enum fields of a file.'''
+    assert (sc.ANSWER, sc.NEGATIVE, sc.ALL_ONES) == (42, -5, 2**64 - 1)
+    assert (sc.RED, sc.GREEN, sc.BLUE) == (1, 2, 9)
+    assert not hasattr(sc, 'lower_case') and not hasattr(sc, 'other')
+
+
 def test_stub_matches_module():
     '''`setu_classes.pyi` lists every class; `__text_signature__`s come from the Zig source.'''
     import pathlib
@@ -354,6 +470,13 @@ def test_stub_matches_module():
     assert 'class Bag[T]:' in stub
     assert '    DIMS: ClassVar[int]\n' in stub
     assert '    @staticmethod\n    def dot(a: Vec, b: Vec) -> int:' in stub
+    assert 'def vec_scale(v: Vec, k: int) -> None:' in stub
+    assert 'def label_of(v: Labeled | None = None) -> object:' in stub
+    assert 'def buffer_len(data: Buffer | None = None) -> int | None:' in stub
+    assert 'def buffer_fill(buf: Buffer, value: int) -> int:' in stub
+    assert 'def seq_sum(values: Sequence[int]) -> int:' in stub
+    assert 'def seq_buffer_len(bufs: Sequence[Buffer] | None = None) -> int | None:' in stub
+    assert '\nANSWER: int\nNEGATIVE: int\nALL_ONES: int\nRED: int\nGREEN: int\nBLUE: int\n' in stub
     assert '    @classmethod\n    def from_pair(cls, x: int, y: int)' in stub
     assert '    def __eq__(self, other: object, /) -> bool: ...' in stub
     assert '    def __iadd__(self, other: Vec, /) -> Self: ...' in stub

@@ -2,7 +2,7 @@
 //!
 //! Targets CPython 3.15 / 3.15t only (no backports), using what 3.15 offers:
 //! PEP 793 module export (`PyModExport_<name>` + `PySlot`), PEP 697 type data
-//! (`Py_tp_extra_basicsize`), free-threading (`Py_MOD_GIL_NOT_USED`,
+//! (`Py_tp_extra_basicsize`), free-threading (`Py_MOD_GIL_NOT_USED` / `Py_MOD_GIL_USED`,
 //! `PyCriticalSection`). No `Python.h`: the C API is declared by hand in
 //! `capi.zig`, with every object opaque.
 //!
@@ -21,6 +21,7 @@ pub const stub = @import("stub.zig");
 const class = @import("class.zig");
 
 pub const Class = class.Class;
+pub const Instance = class.Instance;
 pub const CallArgs = class.CallArgs;
 pub const Options = class.Options;
 pub const Send = class.Send;

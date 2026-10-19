@@ -1,10 +1,12 @@
 //! Python <-> Zig value conversion: `fromPython` for arguments, `toPython` / `new` for
-//! results, and the `Bytes` / `Path` argument types. Re-exported by `py.zig`.
+//! results, and the `Bytes` / `Path` / `Buffer` / `WritableBuffer` / `Sequence(T)` argument types.
+//! Re-exported by `py.zig`.
 
 const std = @import("std");
 const c = @import("capi.zig");
 const py = @import("py.zig");
 const raise = @import("raise.zig");
+const class_zig = @import("class.zig");
 
 const Object = py.Object;
 const Error = py.Error;
@@ -13,21 +15,25 @@ const decref = py.decref;
 const newNone = py.newNone;
 const raiseTypeError = raise.raiseTypeError;
 const raiseOverflowError = raise.raiseOverflowError;
+const raiseNoMemory = raise.raiseNoMemory;
 const setError = raise.setError;
 
 /// Converts a Python argument to `T`: `bool` (truthiness), an integer type, a float
 /// type, `[]const u8` / `[:0]const u8` (a `str`'s UTF-8, borrowed from it), `Bytes` (a
-/// `bytes`' contents, borrowed), `Path` (a new reference: `deinit` it), or `*Object` as is.
+/// `bytes`' contents, borrowed), `Path` / `Buffer` / `WritableBuffer` / `Sequence(T)` (`deinit`
+/// them; see `releases`), `*U` / `*const U` (the instance data of a `setu.Class(U, ...)` instance
+/// or subclass, borrowed), or `*Object` as is.
 ///
 /// Example
 ///     >>> const fd = try fromPython(i32, arg);
 ///     >>> const on = try fromPython(bool, arg);
 ///     >>> const host = try fromPython([:0]const u8, arg); // valid while `arg` lives
+///     >>> const v = try fromPython(*const Vec, arg); // `VecType.object(v)` is `arg`
 ///
 /// Note
 ///     - An integer that does not fit raises `OverflowError` (`300 is out of range 0..255`);
 ///       `fromPythonAs` names the argument in it.
-///     - A wrong type for `str` / `bytes` raises `TypeError` (`expected `str``).
+///     - A wrong type for `str` / `bytes` / a class raises `TypeError` (`expected `str``).
 pub fn fromPython(comptime T: type, obj: *Object) Error!T {
     return fromPythonAs(T, obj, "");
 }
@@ -52,6 +58,9 @@ pub fn fromPythonAs(comptime T: type, obj: *Object, comptime what: []const u8) E
         return .{ .data = ptr.?[0..@intCast(n)] }; // cast: a size, never < 0
     }
     if (T == Path) return Path.from(obj);
+    if (T == Buffer) return Buffer.from(obj);
+    if (T == WritableBuffer) return WritableBuffer.from(obj);
+    if (comptime isSequence(T)) return T.fromAs(obj, what);
     switch (@typeInfo(T)) {
         .bool => {
             const r = c.PyObject_IsTrue(obj);
@@ -79,6 +88,7 @@ pub fn fromPythonAs(comptime T: type, obj: *Object, comptime what: []const u8) E
                 const s = c.PyUnicode_AsUTF8AndSize(obj, &n) orelse return error.PythonError;
                 return s[0..@intCast(n) :0]; // cast: a size, never < 0
             }
+            if (comptime class_zig.isInstancePtr(T)) return class_zig.Instance(@typeInfo(T).pointer.child).from(obj);
             if (T != *Object) @compileError("unsupported parameter type " ++ @typeName(T));
             return obj;
         },
@@ -283,3 +293,179 @@ pub const Path = struct {
         decref(self.obj);
     }
 };
+
+/// A read-only bytes-like argument: `bytes`, `bytearray`, `memoryview`, `array.array`, `mmap`,
+/// anything with the buffer protocol (`PyBUF_SIMPLE`). `data` points into the object, which stays
+/// locked (a `bytearray` can not resize) until `deinit`; as a parameter it is released after the call.
+///
+/// Example
+///     >>> pub fn checksum(data: py.Buffer) u32
+///     >>> checksum(b'abc')
+///     294
+///     >>> checksum(memoryview(bytearray(b'abc'))[1:])
+///     197
+///     >>> checksum('abc')
+///     TypeError: checksum() argument 'data' must be a bytes-like object
+pub const Buffer = struct {
+    /// The bytes, valid until `deinit`.
+    data: []const u8,
+    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
+    view: c.Buffer,
+
+    /// The bytes of `obj`; `TypeError` for an object without the buffer protocol.
+    pub fn from(obj: *Object) Error!Buffer {
+        const view = try getBuffer(obj, c.PyBUF_SIMPLE);
+        return .{ .data = viewBytes(&view), .view = view };
+    }
+
+    /// Releases the view (`PyBuffer_Release`).
+    pub fn deinit(self: Buffer) void {
+        var view = self.view;
+        c.PyBuffer_Release(&view);
+    }
+};
+
+/// A writable bytes-like argument: `bytearray`, a `memoryview` of one, `array.array`, a writable
+/// `mmap`, ... (`PyBUF_WRITABLE`). Like `Buffer`, locked and released after the call.
+///
+/// Example
+///     >>> pub fn fill(buf: py.WritableBuffer, value: u8) void
+///     >>> b = bytearray(3)
+///     >>> fill(b, 7)
+///     >>> b
+///     bytearray(b'\x07\x07\x07')
+///     >>> fill(b'abc', 7)
+///     TypeError: fill() argument 'buf' must be a writable bytes-like object
+pub const WritableBuffer = struct {
+    /// The bytes, valid (and writable) until `deinit`.
+    data: []u8,
+    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
+    view: c.Buffer,
+
+    /// The bytes of `obj`; `TypeError` for an object without the buffer protocol or a read-only
+    /// one (`bytes`), `BufferError` for one that is not contiguous.
+    pub fn from(obj: *Object) Error!WritableBuffer {
+        const view = getBuffer(obj, c.PyBUF_WRITABLE) catch |err| {
+            if (c.PyErr_ExceptionMatches(c.PyExc_BufferError) == 0) return err;
+            const raised = c.PyErr_GetRaisedException();
+            if (!readOnly(obj)) {
+                c.PyErr_SetRaisedException(raised);
+                return err;
+            }
+            py.decref(raised);
+            return raiseTypeError("expected a writable bytes-like object", .{});
+        };
+        return .{ .data = viewBytes(&view), .view = view };
+    }
+
+    /// Releases the view (`PyBuffer_Release`).
+    pub fn deinit(self: WritableBuffer) void {
+        var view = self.view;
+        c.PyBuffer_Release(&view);
+    }
+};
+
+/// `PyObject_GetBuffer(obj, flags)`.
+fn getBuffer(obj: *Object, flags: c_int) Error!c.Buffer {
+    var view: c.Buffer = undefined;
+    if (c.PyObject_GetBuffer(obj, &view, flags) < 0) return error.PythonError;
+    return view;
+}
+
+/// Is `obj` a read-only buffer (the reason `PyBUF_WRITABLE` failed)? Clears its own error.
+fn readOnly(obj: *Object) bool {
+    var view = getBuffer(obj, c.PyBUF_SIMPLE) catch {
+        c.PyErr_Clear();
+        return false;
+    };
+    defer c.PyBuffer_Release(&view);
+    return view.readonly != 0;
+}
+
+/// The bytes `view` describes (one contiguous block: `PyBUF_SIMPLE` / `PyBUF_WRITABLE`).
+fn viewBytes(view: *const c.Buffer) []u8 {
+    const len: usize = @intCast(view.len); // cast: a size, never < 0
+    if (len == 0) return &.{};
+    const ptr: [*]u8 = @ptrCast(view.buf.?);
+    return ptr[0..len];
+}
+
+/// A sequence argument (`list`, `tuple`, `range`, ...: what `PySequence_Check` accepts) as a Zig
+/// slice: each item converted like a parameter of type `T` (an int, float, `bool`, `Bytes`,
+/// `[]const u8`, `*U` of a `setu.Class`, `Buffer`, `*Object`, ...). As a parameter it is released
+/// after the call.
+///
+/// Example
+///     >>> pub fn total(values: py.Sequence(u32)) u64
+///     >>> total([1, 2, 3])
+///     6
+///     >>> total((1, 2, 3))
+///     6
+///     >>> total([1, -2])
+///     OverflowError: `total(values)` item = -2 is out of range 0..4294967295
+///     >>> total(1)
+///     TypeError: total() argument 'values' must be a sequence of `int`
+///
+/// Note
+///     - The items are read from a tuple copy (`PySequence_Tuple`), held until `deinit`: a
+///       borrowed item (`Bytes`, `[]const u8`, `*U`) stays valid even if the list changes.
+///     - `items` lives in `PyMem_Malloc` memory (none for an empty sequence).
+pub fn Sequence(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        /// The item type.
+        pub const Item = T;
+
+        /// The converted items, valid until `deinit`.
+        items: []T,
+        /// The tuple the items come from (it keeps them alive).
+        tuple: *Object,
+
+        /// The items of `obj`; `TypeError` for an object that is not a sequence.
+        pub fn from(obj: *Object) Error!Self {
+            return fromAs(obj, "");
+        }
+
+        /// `from`, with `what` (as in `fromPythonAs`) naming the items in an `OverflowError`.
+        pub fn fromAs(obj: *Object, comptime what: []const u8) Error!Self {
+            if (c.PySequence_Check(obj) == 0) return raiseTypeError("expected a sequence", .{});
+            const tuple = c.PySequence_Tuple(obj) orelse return error.PythonError;
+            errdefer decref(tuple);
+            const n: usize = @intCast(c.PyTuple_Size(tuple)); // cast: a size, never < 0
+            if (n == 0) return .{ .items = &.{}, .tuple = tuple };
+            const size = std.math.mul(usize, n, @sizeOf(T)) catch return raiseNoMemory();
+            const mem = c.PyMem_Malloc(size) orelse return raiseNoMemory();
+            const items = @as([*]T, @ptrCast(@alignCast(mem)))[0..n];
+            for (items, 0..) |*item, i| {
+                const o = c.PyTuple_GetItem(tuple, @intCast(i)).?; // cast: an index < `n`
+                item.* = fromPythonAs(T, o, if (what.len == 0) "item" else what ++ " item") catch |err| {
+                    if (comptime releases(T)) for (items[0..i]) |done| done.deinit();
+                    c.PyMem_Free(mem);
+                    return err;
+                };
+            }
+            return .{ .items = items, .tuple = tuple };
+        }
+
+        /// Releases the items (when `T` needs it), frees `items` and drops the tuple.
+        pub fn deinit(self: Self) void {
+            if (comptime releases(T)) for (self.items) |item| item.deinit();
+            if (self.items.len > 0) c.PyMem_Free(@ptrCast(self.items.ptr));
+            decref(self.tuple);
+        }
+    };
+}
+
+/// Is `T` a `Sequence(...)`?
+pub fn isSequence(comptime T: type) bool {
+    if (@typeInfo(T) != .@"struct" or !@hasDecl(T, "Item")) return false;
+    return T == Sequence(T.Item);
+}
+
+/// Does an argument of type `T` (or `?T`) need a `deinit` after the call: a Setu argument type
+/// that holds a reference or a lock (`Path`, `Buffer`, `WritableBuffer`, `Sequence(...)`)?
+pub fn releases(comptime T: type) bool {
+    const U = if (@typeInfo(T) == .optional) @typeInfo(T).optional.child else T;
+    return U == Path or U == Buffer or U == WritableBuffer or isSequence(U);
+}

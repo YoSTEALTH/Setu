@@ -218,6 +218,81 @@ pub const Poll = union(enum) {
 /// Where a `__poll__` awaitable is (Setu's own field next to the instance data).
 const Phase = enum(u8) { fresh, waiting, done };
 
+/// What a `Class` of the struct `T` stores per instance: `T`, plus the phase of a `__poll__`
+/// awaitable.
+fn Stored(comptime T: type) type {
+    const poll = @hasDecl(T, "__poll__");
+    return struct {
+        user: T = .{},
+        phase: if (poll) Phase else void = if (poll) .fresh else {},
+    };
+}
+
+/// Is the parameter type `P` an instance of a `setu.Class` (`*T` / `*const T`, `T` a struct)?
+pub fn isInstancePtr(comptime P: type) bool {
+    const info = @typeInfo(P);
+    if (info != .pointer or info.pointer.size != .one) return false;
+    return @typeInfo(info.pointer.child) == .@"struct";
+}
+
+/// The type object and instance layout of the `Class` made from the struct `T`, found by `T`
+/// alone: what a `*T` parameter (`py.fromPython`) or `setu.stub` uses to reach the class.
+///
+/// Example
+///     >>> pub fn norm2(v: *const Vec) i64  // `Instance(Vec).from(arg)` gives `v`
+///     >>> norm2(Vec(3, 4))
+///     25
+///     >>> norm2((3, 4))
+///     TypeError: norm2() argument 'v' must be `Vec`
+pub fn Instance(comptime T: type) type {
+    return struct {
+        /// The Python type name (`pkg.Name`).
+        pub const name = typeName(T);
+        /// The type object, set by `Class(T, ...).create`.
+        pub var tp: ?*c.TypeObject = null;
+
+        /// Where `Stored(T)` sits in an instance: `PyObject_GetTypeData`'s offset, which is the
+        /// same for every instance (the base's size, aligned; Python subclasses add after it), so
+        /// it is looked up once. Threads may race to set it, all with the same value (atomic, so
+        /// no torn reads).
+        var offset: usize = 0;
+
+        /// `Stored(T)` of `obj` (an instance of the type or a subclass).
+        pub fn stored(obj: *Object) *Stored(T) {
+            var off = @atomicLoad(usize, &offset, .monotonic);
+            if (off == 0) {
+                off = @intFromPtr(py.typeData(Stored(T), obj, tp.?)) - @intFromPtr(obj);
+                @atomicStore(usize, &offset, off, .monotonic);
+            }
+            return @ptrFromInt(@intFromPtr(obj) + off);
+        }
+
+        /// The instance data of `obj` (an instance of the type or a subclass).
+        pub fn data(obj: *Object) *T {
+            return &stored(obj).user;
+        }
+
+        /// The instance whose data is `d` (what `data` gave): `data`'s inverse.
+        pub fn object(d: *const T) *Object {
+            const off = @atomicLoad(usize, &offset, .monotonic);
+            std.debug.assert(off != 0); // set by the `data` call that gave `d`
+            return @ptrFromInt(@intFromPtr(d) - @offsetOf(Stored(T), "user") - off);
+        }
+
+        /// Is `obj` an instance of the type (or a subclass)?
+        pub fn check(obj: *Object) bool {
+            return py.isInstance(obj, tp.?);
+        }
+
+        /// The instance data of `obj`, or `TypeError` (`expected `Name``) for another type.
+        pub fn from(obj: *Object) Error!*T {
+            const t = tp orelse return py.raiseRuntimeError("`{s}` is not created yet", .{name});
+            if (!py.isInstance(obj, t)) return py.raiseTypeError("expected `{s}`", .{comptime shortName(name)});
+            return data(obj);
+        }
+    };
+}
+
 /// How a field of the instance data holds Python objects.
 const Owned = enum { none, one, array };
 
@@ -298,12 +373,7 @@ pub const settings = [_][]const u8{
 /// Is the declaration `name` of `T` a class attribute: an UPPER_CASE `pub const` int,
 /// float, `bool` or string?
 pub fn isClassAttr(comptime T: type, comptime name: []const u8) bool {
-    var letter = false;
-    for (name) |ch| {
-        if (std.ascii.isLower(ch)) return false;
-        if (std.ascii.isUpper(ch)) letter = true;
-    }
-    if (!letter) return false;
+    if (!py.isUpperName(name)) return false;
     const V = @TypeOf(@field(T, name));
     return switch (@typeInfo(V)) {
         .int, .comptime_int, .float, .comptime_float, .bool => true,
@@ -343,7 +413,7 @@ pub fn isAccessor(comptime T: type, comptime name: []const u8) bool {
 }
 
 /// The last dotted part of `name` (`"pkg.Point"` -> `"Point"`).
-fn shortName(comptime name: []const u8) []const u8 {
+pub fn shortName(comptime name: []const u8) []const u8 {
     const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return name;
     return name[dot + 1 ..];
 }
@@ -432,38 +502,22 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         /// The `///` doc above the struct.
         pub const class_doc = py.docAbove(source, at);
 
-        /// The type object, set by `create`.
+        /// The type object, set by `create` (also `Instance(T).tp`).
         pub var tp: ?*c.TypeObject = null;
 
-        /// What the type stores per instance: `T`, plus the phase of a `__poll__` awaitable.
-        const Stored = struct {
-            user: T = .{},
-            phase: if (poll) Phase else void = if (poll) .fresh else {},
-        };
-
-        /// Where `Stored` sits in an instance: `PyObject_GetTypeData`'s offset, which is the
-        /// same for every instance (the base's size, aligned), so it is looked up once.
-        /// Threads may race to set it, all with the same value (atomic, so no torn reads).
-        var offset: usize = 0;
-
-        fn stored(obj: *Object) *Stored {
-            var off = @atomicLoad(usize, &offset, .monotonic);
-            if (off == 0) {
-                off = @intFromPtr(py.typeData(Stored, obj, tp.?)) - @intFromPtr(obj);
-                @atomicStore(usize, &offset, off, .monotonic);
-            }
-            return @ptrFromInt(@intFromPtr(obj) + off);
-        }
+        const stored = Instance(T).stored;
 
         /// The instance data of `obj` (an instance of this type or a subclass).
-        pub fn data(obj: *Object) *T {
-            return &stored(obj).user;
-        }
+        pub const data = Instance(T).data;
+
+        /// The instance whose data is `d` (what `data` gave, or a `*T` parameter).
+        ///
+        /// Example
+        ///     >>> pub fn keep(v: *Vec) void { py.incref(VecType.object(v)); ... }
+        pub const object = Instance(T).object;
 
         /// Is `obj` an instance of this type (or a subclass)?
-        pub fn check(obj: *Object) bool {
-            return py.isInstance(obj, tp.?);
-        }
+        pub const check = Instance(T).check;
 
         /// A new instance from Zig, with the bases' fields at their defaults and its own
         /// set to `value`. Works for types Python can not instantiate, too.
@@ -495,6 +549,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             }
             const t: *c.TypeObject = @ptrCast(c.PyType_FromSlots(&type_slots) orelse return error.PythonError);
             tp = t; // keeps the reference from `PyType_FromSlots` for the process lifetime
+            Instance(T).tp = t;
             inline for (info.decl_names) |n| if (comptime isClassAttr(T, n)) {
                 const V = @TypeOf(@field(T, n));
                 const value = switch (@typeInfo(V)) {
@@ -755,7 +810,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         fn mpSubscript(obj: *Object, key: *Object) callconv(.c) ?*Object {
             const K = @typeInfo(@TypeOf(T.__getitem__)).@"fn".param_types[1].?;
             const what = "`" ++ comptime shortName(name) ++ "[key]`";
-            const k = if (K == *Object) key else py.fromPythonAs(K, key, what) catch return null;
+            const k = if (K == *Object) key else argAs(K, key, what) catch return null;
             return py.toPython(callSelf(T.__getitem__, obj, .{k}));
         }
 
@@ -764,13 +819,17 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             return @typeInfo(@TypeOf(f)).@"fn".param_types[i].?;
         }
 
-        /// `obj` as the hook parameter type `P`: `*Object` as is, an instance's data for `*T` /
-        /// `*const T` (else `TypeError`), `null` for `None` with a `?P`, else `fromPythonAs`.
+        /// `obj` as the hook parameter type `P`: `*Object` as is, an instance's data for `*U` /
+        /// `*const U` (`U` this or another class; else `TypeError`), `null` for `None` with a `?P`,
+        /// else `fromPythonAs`.
         fn argAs(comptime P: type, obj: *Object, comptime what: []const u8) Error!P {
             if (P == *Object or P == ?*Object) return obj;
-            if (P == *T or P == *const T) {
-                if (check(obj)) return data(obj);
-                return py.raiseTypeError("{s} must be `{s}`", .{ what, comptime shortName(name) });
+            if (comptime py.releases(P)) @compileError(what ++ ": a `" ++ @typeName(P) ++
+                "` hook parameter is never released; take `*Object` and convert it in the hook");
+            if (comptime isInstancePtr(P)) {
+                const I = Instance(@typeInfo(P).pointer.child);
+                if (I.check(obj)) return I.data(obj);
+                return py.raiseTypeError("{s} must be `{s}`", .{ what, comptime shortName(I.name) });
             }
             if (@typeInfo(P) == .optional) {
                 if (obj == py.none()) return null;
@@ -1117,7 +1176,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                         py.setString(c.PyExc_AttributeError, "can not delete `{s}`", .{prop});
                         return -1;
                     };
-                    const arg = py.fromPythonAs(U, v, "`" ++ shortName(name) ++ "." ++ prop ++ "`") catch return -1;
+                    const arg = argAs(U, v, "`" ++ shortName(name) ++ "." ++ prop ++ "`") catch return -1;
                     const result = s(selfOf(s, obj), arg);
                     if (@typeInfo(@TypeOf(result)) == .error_union) result catch return -1;
                     return 0;
@@ -1210,7 +1269,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 c.Slot.func(c.Py_tp_dealloc, @ptrCast(&tpDealloc)),
             };
             // a subclass with no fields of its own adds no instance data (CPython wants a size > 0)
-            if (@sizeOf(Stored) > 0) s = s ++ .{c.Slot.size(c.Py_tp_extra_basicsize, @sizeOf(Stored))};
+            if (@sizeOf(Stored(T)) > 0) s = s ++ .{c.Slot.size(c.Py_tp_extra_basicsize, @sizeOf(Stored(T)))};
             if (type_doc.len > 0) s = s ++ .{c.Slot.data(c.Py_tp_doc, type_doc.ptr)};
             if (Base != void) s = s ++ .{c.Slot{ .id = c.Py_tp_base }}; // set in `create`
             if (instantiable) s = s ++ .{c.Slot.func(c.Py_tp_new, @ptrCast(&tpNew))};

@@ -124,18 +124,11 @@ pub const Vec = struct {
 
     /// The dot product of two vectors.
     ///
-    /// Type
-    ///     a: Vec
-    ///     b: Vec
-    ///
     /// Example
     ///     >>> Vec.dot(Vec(1, 2), Vec(3, 4))
     ///     11
-    pub fn dot(a: *Object, b: *Object) Error!i64 {
-        if (!VecType.check(a) or !VecType.check(b)) return py.raiseTypeError("expected two `Vec`s", .{});
-        const u = VecType.data(a);
-        const v = VecType.data(b);
-        return u.x * v.x + u.y * v.y;
+    pub fn dot(a: *const Vec, b: *const Vec) i64 {
+        return a.x * b.x + a.y * b.y;
     }
 };
 pub const VecType = setu.Class(Vec, @embedFile("classes.zig"));
