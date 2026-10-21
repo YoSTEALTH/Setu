@@ -1,6 +1,6 @@
 '''Checks `tools/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
 `setu_classes`): run by `tools/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
-since every one of them must import the same `cp314-abi3.abi3t` wheel.
+since every one of them must import the same `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel.
 
     python3.15t tools/check_wheels.py --all   # the release wheels: glibc + musl
     python3.14 tools/check_wheels.py          # the PEP 517 `build_wheel` hook
@@ -35,7 +35,7 @@ PLATFORMS = {
     'manylinux_2_28_x86_64': 'libc.so.6',
     'musllinux_1_2_x86_64': 'libc.musl-x86_64.so.1',
 }
-TAG = 'cp314-abi3.abi3t'  # every wheel: CPython 3.14+, with and without the GIL
+TAG = 'cp314.cp315-abi3.abi3t.cp314t.cp315t'  # every wheel: CPython 3.14+, with and without the GIL
 
 
 def fail(msg):
@@ -67,8 +67,14 @@ def check_wheel(path, platform):
         if any(n.endswith(('.zig', '.h')) for n in names):
             fail(f'{name}: ships sources')
         wheel = z.read(f'{dist}/WHEEL').decode()
-        tags = [f'Tag: cp314-{abi}-{platform}' for abi in ('abi3', 'abi3t')]  # the expanded tag set
-        if any(f'\n{t}\n' not in wheel for t in tags) or 'Root-Is-Purelib: false' not in wheel:
+        tags = [  # the expanded tag set: every python x abi, nothing else
+            f'Tag: {python}-{abi}-{platform}'
+            for python in ('cp314', 'cp315')
+            for abi in ('abi3', 'abi3t', 'cp314t', 'cp315t')
+        ]
+        if sorted(t for t in wheel.splitlines() if t.startswith('Tag: ')) != sorted(tags):
+            fail(f'{name}: WHEEL is\n{wheel}')
+        if 'Root-Is-Purelib: false' not in wheel:
             fail(f'{name}: WHEEL is\n{wheel}')
         meta = z.read(f'{dist}/METADATA').decode()
         for line in (f'Name: {NAME}', f'Version: {VERSION}', 'Requires-Python: >=3.14', 'License-Expression: CC0-1.0'):

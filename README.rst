@@ -2,9 +2,10 @@ Setu
 ====
 
 Setu (सेतु, "bridge"): a generic Zig <-> CPython binding layer. One build loads on
-CPython 3.14, 3.14t, 3.15, 3.15t and later: a single ``<name>.so`` in one ``cp314-abi3.abi3t`` wheel
-per platform (the 3.15 stable ABI for free-threading, PEP 803, plus a 3.14 entry point). PEP 697
-type data, critical sections. No ``Python.h``: the C API is declared by hand in ``src/capi.zig``.
+CPython 3.14, 3.14t, 3.15, 3.15t and later: a single ``<name>.so`` in one
+``cp314.cp315-abi3.abi3t.cp314t.cp315t`` wheel per platform (the 3.15 stable ABI for free-threading,
+PEP 803, plus a 3.14 entry point). Any pip installs it on 3.14, 3.14t, 3.15 and 3.15t; 3.16t and later
+need pip 26.2+ (``abi3t``). PEP 697 type data, critical sections. No ``Python.h``: the C API is declared by hand in ``src/capi.zig``.
 Zig 0.17.0, Linux.
 
 Setu is mainly for the Shakti and Liburing projects, which use it as a dependency (it never imports

@@ -1,7 +1,7 @@
 //! Setu (सेतु, "bridge"): The generic Zig ⇄ CPython binding layer.
 //!
-//! One binary for CPython 3.14, 3.14t, 3.15, 3.15t and later (a `cp314-abi3.abi3t` wheel): only
-//! the 3.15 stable ABI for free-threading (abi3t, PEP 803) that 3.14 also exports is used.
+//! One binary for CPython 3.14, 3.14t, 3.15, 3.15t and later (a `cp314.cp315-abi3.abi3t.cp314t.cp315t`
+//! wheel): only the 3.15 stable ABI for free-threading (abi3t, PEP 803) that 3.14 also exports is used.
 //! `py.exportModule` gives both entry points (PEP 793 `PyModExport_<name>` for 3.15+,
 //! `PyInit_<name>` for 3.14), types come from `PyType_Spec` with PEP 697 type data, and
 //! free-threading is on (`Py_MOD_GIL_NOT_USED` / `Py_MOD_GIL_USED`, `PyCriticalSection`).

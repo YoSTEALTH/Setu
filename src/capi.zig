@@ -1,5 +1,5 @@
 //! The slice of the CPython C API that Setu uses, declared by hand: one binary for CPython 3.14,
-//! 3.14t, 3.15, 3.15t and later (the `cp314-abi3.abi3t` wheel).
+//! 3.14t, 3.15, 3.15t and later (the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel).
 //!
 //! Every object is opaque: nothing here depends on the layout of `PyObject`, which differs
 //! between the default and free-threaded builds (the one exception is the static `PyModuleDef`

@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: "3.14"
 
-      # pip >= 26.2 on every interpreter: `check_wheels.py` pip-installs the `cp314-abi3.abi3t` wheels
+      # latest pip on every interpreter: `check_wheels.py` pip-installs the wheels (older pips work too)
       - name: Install tools
         run: |
           "${{ steps.py_ft.outputs.python-path }}" -m pip install -U pip pytest ruff mypy

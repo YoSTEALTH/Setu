@@ -90,5 +90,5 @@ pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
 
 /// The extension module's suffix: `<name>.so`, the one name CPython 3.14, 3.14t, 3.15, 3.15t and
 /// later all import (`.abi3.so` is refused by 3.15t, `.abi3t.so` unknown to 3.14). The wheel is
-/// tagged `cp314-abi3.abi3t` (`tools/setu_build.py`).
+/// tagged `cp314.cp315-abi3.abi3t.cp314t.cp315t` (`tools/setu_build.py`).
 pub const ext_suffix = ".so";

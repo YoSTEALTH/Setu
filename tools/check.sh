@@ -2,8 +2,8 @@
 # Runs every Setu check: zig fmt, int casts, ruff, `zig build test`, the `setu-build-sync` /
 # `setu-build-check` steps on the wheel fixture `test/wheel/`, `zig build develop` (the one `setu_classes.so`),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest and the
-# `cp314-abi3.abi3t` wheels `tools/setu_build.py` builds (`check_wheels.py`), then `mypy --strict` (as 3.14
-# and 3.15) + `stubtest` on the test stubs. All offline.
+# `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tools/setu_build.py` builds (`check_wheels.py`), then
+# `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
 # Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=...; compiler: ZIG=...
 set -euo pipefail
 
