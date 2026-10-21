@@ -69,12 +69,11 @@ pub fn fromPythonAs(comptime T: type, obj: *Object, comptime what: []const u8) E
         },
         .int => |info| {
             if (info.bits > 64) @compileError("unsupported parameter type " ++ @typeName(T) ++ " (more than 64 bits)");
-            var v: i128 = 0; // room for every `u64` and `i64` value, so only those can be out of range
-            const flags = c.Py_ASNATIVEBYTES_NATIVE_ENDIAN | c.Py_ASNATIVEBYTES_ALLOW_INDEX;
-            const n = c.PyLong_AsNativeBytes(obj, &v, @sizeOf(i128), flags);
-            if (n < 0) return error.PythonError;
-            if (n <= @sizeOf(i128)) if (std.math.cast(T, v)) |r| return r;
-            return outOfRange(T, obj, if (n <= @sizeOf(i128)) v else null, n, what);
+            // Fast path: an `i64` (most ints) in range; the rest out of line (`intArg`), so an inlined
+            // call does not merge the paths' `Error!T` through the stack (a store-forwarding stall).
+            const small = c.PyLong_AsLongLong(obj);
+            if (small != -1 or c.PyErr_Occurred() == null) if (std.math.cast(T, small)) |r| return r;
+            return @call(.never_inline, intArg, .{ T, obj, small, what });
         },
         .float => {
             const v = c.PyFloat_AsDouble(obj);
@@ -94,6 +93,22 @@ pub fn fromPythonAs(comptime T: type, obj: *Object, comptime what: []const u8) E
         },
         else => @compileError("unsupported parameter type " ++ @typeName(T)),
     }
+}
+
+/// `fromPythonAs` of an int, past its fast path: `PyLong_AsLongLong(obj)` gave `small` out of `T`'s
+/// range, or failed (`OverflowError`: past 64 bits, read as bytes).
+fn intArg(comptime T: type, obj: *Object, small: c_longlong, comptime what: []const u8) Error!T {
+    if (small != -1 or c.PyErr_Occurred() == null) {
+        return std.math.cast(T, small) orelse outOfRange(T, obj, small, @sizeOf(i64), what);
+    }
+    if (c.PyErr_ExceptionMatches(c.PyExc_OverflowError) == 0) return error.PythonError;
+    c.PyErr_Clear();
+    var v: i128 = 0; // room for every `u64` and `i64` value, so only those can be out of range
+    const flags = c.Py_ASNATIVEBYTES_NATIVE_ENDIAN | c.Py_ASNATIVEBYTES_ALLOW_INDEX;
+    const n = c.PyLong_AsNativeBytes(obj, &v, @sizeOf(i128), flags);
+    if (n < 0) return error.PythonError;
+    if (n <= @sizeOf(i128)) if (std.math.cast(T, v)) |r| return r;
+    return outOfRange(T, obj, if (n <= @sizeOf(i128)) v else null, n, what);
 }
 
 /// Raises `OverflowError` for the int `obj` (`value`, or `null` past 128 bits: `n` bytes),
@@ -288,6 +303,13 @@ pub const Path = struct {
         return .{ .obj = out.?, .path = ptr.?[0..@intCast(n) :0] }; // cast: a size, never < 0
     }
 
+    /// The same path, kept until its own `deinit` (a new reference to `obj`): a parameter kept past
+    /// the call, like `Buffer.take` (also for the items of a `Sequence(Path)`).
+    pub fn take(self: Path) Error!Path {
+        incref(self.obj);
+        return self;
+    }
+
     /// Drops the `bytes` object.
     pub fn deinit(self: Path) void {
         decref(self.obj);
@@ -296,7 +318,8 @@ pub const Path = struct {
 
 /// A read-only bytes-like argument: `bytes`, `bytearray`, `memoryview`, `array.array`, `mmap`,
 /// anything with the buffer protocol (`PyBUF_SIMPLE`). `data` points into the object, which stays
-/// locked (a `bytearray` can not resize) until `deinit`; as a parameter it is released after the call.
+/// locked (a `bytearray` can not resize) until `deinit`; as a parameter it is released after the call,
+/// unless `take` keeps it.
 ///
 /// Example
 ///     >>> pub fn checksum(data: py.Buffer) u32
@@ -314,8 +337,21 @@ pub const Buffer = struct {
 
     /// The bytes of `obj`; `TypeError` for an object without the buffer protocol.
     pub fn from(obj: *Object) Error!Buffer {
-        const view = try getBuffer(obj, c.PyBUF_SIMPLE);
-        return .{ .data = viewBytes(&view), .view = view };
+        var b: Buffer = undefined;
+        try fill(obj, &b);
+        return b;
+    }
+
+    /// `from`, into `out` (an argument's place): see `WritableBuffer.fill`.
+    pub inline fn fill(obj: *Object, out: *Buffer) Error!void {
+        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_SIMPLE) < 0) return error.PythonError;
+        out.data = viewBytes(&out.view);
+    }
+
+    /// A view of its own on the same object, locked until its `deinit`: a parameter kept past the
+    /// call (Setu releases the parameter's view as usual). See `WritableBuffer.take`.
+    pub fn take(self: Buffer) Error!Buffer {
+        return from(try viewObject(&self.view));
     }
 
     /// Releases the view (`PyBuffer_Release`).
@@ -326,7 +362,7 @@ pub const Buffer = struct {
 };
 
 /// A writable bytes-like argument: `bytearray`, a `memoryview` of one, `array.array`, a writable
-/// `mmap`, ... (`PyBUF_WRITABLE`). Like `Buffer`, locked and released after the call.
+/// `mmap`, ... (`PyBUF_WRITABLE`). Like `Buffer`, locked and released after the call, unless `take` keeps it.
 ///
 /// Example
 ///     >>> pub fn fill(buf: py.WritableBuffer, value: u8) void
@@ -344,18 +380,54 @@ pub const WritableBuffer = struct {
 
     /// The bytes of `obj`; `TypeError` for an object without the buffer protocol or a read-only
     /// one (`bytes`), `BufferError` for one that is not contiguous.
+    ///
     pub fn from(obj: *Object) Error!WritableBuffer {
-        const view = getBuffer(obj, c.PyBUF_WRITABLE) catch |err| {
-            if (c.PyErr_ExceptionMatches(c.PyExc_BufferError) == 0) return err;
-            const raised = c.PyErr_GetRaisedException();
-            if (!readOnly(obj)) {
-                c.PyErr_SetRaisedException(raised);
-                return err;
-            }
-            py.decref(raised);
-            return raiseTypeError("expected a writable bytes-like object", .{});
-        };
-        return .{ .data = viewBytes(&view), .view = view };
+        var b: WritableBuffer = undefined;
+        try fill(obj, &b);
+        return b;
+    }
+
+    /// `from`, into `out`: Setu fills a parameter where it lives in the arguments tuple (and
+    /// releases it there). A copy of the view right after CPython wrote it reads it with loads
+    /// wider than CPython's stores: a store-forwarding stall, +10-18 ns per buffer argument.
+    pub inline fn fill(obj: *Object, out: *WritableBuffer) Error!void {
+        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_WRITABLE) < 0) return notWritable(obj, error.PythonError);
+        out.data = viewBytes(&out.view);
+    }
+
+    /// The error for `from`'s failed `PyObject_GetBuffer`: `TypeError` for a read-only buffer,
+    /// else `err` as raised.
+    fn notWritable(obj: *Object, err: Error) Error {
+        @branchHint(.cold);
+        if (c.PyErr_ExceptionMatches(c.PyExc_BufferError) == 0) return err;
+        const raised = c.PyErr_GetRaisedException();
+        if (!readOnly(obj)) {
+            c.PyErr_SetRaisedException(raised);
+            return err;
+        }
+        py.decref(raised);
+        return raiseTypeError("expected a writable bytes-like object", .{});
+    }
+
+    /// A view of its own on the same object, locked until its `deinit`: a parameter kept past the
+    /// call, for memory the kernel writes later (an io_uring read until its completion). Until then
+    /// the object can not resize (`BufferError`) and stays alive (the view holds it). Setu releases
+    /// the parameter's own view after the call as usual, so a parameter costs nothing extra unless taken.
+    ///
+    /// Example
+    ///     >>> pub fn hold(ring: *Ring, buf: py.WritableBuffer) void {
+    ///     ...     ring.buf = try buf.take(); // `ring.buf.deinit()` at the completion
+    ///     ... }
+    ///     >>> b = bytearray(5)
+    ///     >>> hold(ring, b)
+    ///     >>> b.append(1)
+    ///     BufferError: Existing exports of data: object cannot be re-sized
+    ///
+    /// Note
+    ///     - Each `take` is a view of its own, released by its own `deinit` (the same `data`).
+    ///     - `BufferError` for a view without an object (`PyBuffer_FillInfo(NULL)`): nothing to lock.
+    pub fn take(self: WritableBuffer) Error!WritableBuffer {
+        return from(try viewObject(&self.view));
     }
 
     /// Releases the view (`PyBuffer_Release`).
@@ -393,7 +465,7 @@ fn viewBytes(view: *const c.Buffer) []u8 {
 /// A sequence argument (`list`, `tuple`, `range`, ...: what `PySequence_Check` accepts) as a Zig
 /// slice: each item converted like a parameter of type `T` (an int, float, `bool`, `Bytes`,
 /// `[]const u8`, `*U` of a `setu.Class`, `Buffer`, `*Object`, ...). As a parameter it is released
-/// after the call.
+/// after the call, unless `take` keeps it.
 ///
 /// Example
 ///     >>> pub fn total(values: py.Sequence(u32)) u64
@@ -448,6 +520,37 @@ pub fn Sequence(comptime T: type) type {
             return .{ .items = items, .tuple = tuple };
         }
 
+        /// A copy of its own, kept until its `deinit`: the items (a `Buffer` item with a view of its own,
+        /// `take`), their memory and the tuple. For a parameter kept past the call (Setu releases the
+        /// parameter as usual).
+        ///
+        /// Example
+        ///     >>> pub fn register(ring: *Ring, bufs: py.Sequence(py.WritableBuffer)) void {
+        ///     ...     ring.bufs = try bufs.take(); // the `iovec`s point into `bufs.items[i].data`
+        ///     ... }
+        ///     >>> b = bytearray(5)
+        ///     >>> register(ring, [b])
+        ///     >>> b.append(1)
+        ///     BufferError: Existing exports of data: object cannot be re-sized
+        pub fn take(self: Self) Error!Self {
+            const n = self.items.len;
+            if (n == 0) {
+                incref(self.tuple);
+                return .{ .items = &.{}, .tuple = self.tuple };
+            }
+            const mem = c.PyMem_Malloc(n * @sizeOf(T)) orelse return raiseNoMemory(); // `from` checked the size
+            const items = @as([*]T, @ptrCast(@alignCast(mem)))[0..n];
+            for (items, self.items, 0..) |*item, old, i| {
+                item.* = if (comptime releases(T)) old.take() catch |err| {
+                    for (items[0..i]) |done| done.deinit();
+                    c.PyMem_Free(mem);
+                    return err;
+                } else old;
+            }
+            incref(self.tuple);
+            return .{ .items = items, .tuple = self.tuple };
+        }
+
         /// Releases the items (when `T` needs it), frees `items` and drops the tuple.
         pub fn deinit(self: Self) void {
             if (comptime releases(T)) for (self.items) |item| item.deinit();
@@ -455,6 +558,11 @@ pub fn Sequence(comptime T: type) type {
             decref(self.tuple);
         }
     };
+}
+
+/// The object a view locks (`view.obj`), for `take`; `BufferError` without one.
+fn viewObject(view: *const c.Buffer) Error!*Object {
+    return view.obj orelse raise.raise(c.PyExc_BufferError, "a buffer without an object can not be kept", .{});
 }
 
 /// Is `T` a `Sequence(...)`?

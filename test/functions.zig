@@ -160,6 +160,33 @@ pub fn seq_buffer_len(bufs: ?py.Sequence(py.Buffer)) ?usize {
     return n;
 }
 
+/// What `hold` keeps (`take`) until the next `hold`.
+var held: struct {
+    buf: ?py.WritableBuffer = null,
+    data: ?py.Buffer = null,
+    bufs: ?py.Sequence(py.Buffer) = null,
+} = .{};
+
+/// Releases what the last call kept, then keeps `buf`, `data` and `bufs` (`take`): locked until the
+/// next call. `hold()` only releases.
+///
+/// Example
+///     >>> b = bytearray(3)
+///     >>> hold(b)
+///     >>> b.append(1)
+///     BufferError: Existing exports of data: object cannot be re-sized
+///     >>> hold()
+///     >>> b.append(1)
+pub fn hold(buf: ?py.WritableBuffer, data: ?py.Buffer, bufs: ?py.Sequence(py.Buffer)) Error!void {
+    if (held.buf) |b| b.deinit();
+    if (held.data) |d| d.deinit();
+    if (held.bufs) |l| l.deinit();
+    held = .{};
+    if (buf) |b| held.buf = try b.take();
+    if (data) |d| held.data = try d.take();
+    if (bufs) |l| held.bufs = try l.take();
+}
+
 /// `res` itself when it is `>= 0`, else `OSError` for the errno `-res` (`py.checkErrno`).
 ///
 /// Example
@@ -169,6 +196,17 @@ pub fn seq_buffer_len(bufs: ?py.Sequence(py.Buffer)) ?usize {
 ///     FileNotFoundError: [Errno 2] No such file or directory
 pub fn check_errno(res: i64) Error!i64 {
     return py.checkErrno(res);
+}
+
+/// `big` and `small` back: an `i64` takes the fast path, a larger `u64` the one past it.
+///
+/// Example
+///     >>> int_pair(2**64 - 1, -128)
+///     (18446744073709551615, -128)
+///     >>> int_pair(-1, 0)
+///     OverflowError: `int_pair(big)` = -1 is out of range 0..18446744073709551615
+pub fn int_pair(big: u64, small: i8) struct { u64, i8 } {
+    return .{ big, small };
 }
 
 // --- module constants (`py.addConstants`) -------------------------------------------------

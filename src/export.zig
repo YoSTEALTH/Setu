@@ -86,9 +86,9 @@ fn KwTrampoline(
                 );
                 return null;
             }
-            if (comptime count > 0) for (0..positional) |i| {
-                slots[i] = argv[i];
-            };
+            inline for (0..count) |i| { // unrolled: a loop here is a `memcpy` call for a few pointers
+                if (i < positional) slots[i] = argv[i];
+            }
             var extra: ?*Object = null; // `**kwargs`: the keywords no parameter takes
             defer if (extra) |d| py.decref(d);
             if (comptime count == 0 and !has_kwargs) {

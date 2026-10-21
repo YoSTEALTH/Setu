@@ -32,11 +32,18 @@ const pyDefault = source_zig.pyDefault;
 /// to convert.
 pub fn releaseArgs(comptime F: type, comptime plist: []const Param, tuple: *std.meta.ArgsTuple(F)) void {
     inline for (plist) |p| if (comptime releases(p.T)) {
-        const v = if (p.field) |field| @field(tuple.*[p.arg], field) else tuple.*[p.arg];
+        const v = if (p.field) |field| &@field(tuple.*[p.arg], field) else &tuple.*[p.arg];
         if (@typeInfo(p.T) == .optional) {
-            if (v) |x| x.deinit();
-        } else v.deinit();
+            if (v.*) |*x| releaseOne(x);
+        } else releaseOne(v);
     };
+}
+
+/// Releases the argument `v` points to, in place: a buffer's view where `fillOne` filled it (a copy
+/// of a view written just before is a store-forwarding stall, see `WritableBuffer.fill`).
+inline fn releaseOne(v: anytype) void {
+    const T = @TypeOf(v.*);
+    if (T == Buffer or T == WritableBuffer) c.PyBuffer_Release(&v.view) else v.deinit();
 }
 
 /// `*args`: the positional arguments, borrowed for the duration of the call.
@@ -237,48 +244,67 @@ pub fn fillArgs(
     tuple: *std.meta.ArgsTuple(F),
 ) Error!void {
     inline for (plist, 0..) |p, at| {
-        const v: p.T = fillOne(p, fname, slots[at]) catch |err| {
+        const out = if (p.field) |field| &@field(tuple.*[p.arg], field) else &tuple.*[p.arg];
+        fillOne(p, fname, slots[at], out) catch |err| {
             releaseArgs(F, plist[0..at], tuple);
             return err;
         };
-        if (p.field) |field| {
-            @field(tuple.*[p.arg], field) = v;
-        } else tuple.*[p.arg] = v;
     }
 }
 
-/// The value of the parameter `p` of `fname` from its argument `slot` (`null`: not given).
-inline fn fillOne(comptime p: Param, comptime fname: []const u8, slot: ?*Object) Error!p.T {
-    if (p.kind == .kw_only) return .{};
+/// Sets `out` (its place in the arguments tuple) to the value of the parameter `p` of `fname` from its
+/// argument `slot` (`null`: not given). A buffer is filled in place (`fill`), not copied there.
+inline fn fillOne(comptime p: Param, comptime fname: []const u8, slot: ?*Object, out: *p.T) Error!void {
+    if (p.kind == .kw_only) return;
+    const optional = @typeInfo(p.T) == .optional;
+    const T = if (optional) @typeInfo(p.T).optional.child else p.T;
     if (slot) |o| {
+        if (T == Buffer or T == WritableBuffer) {
+            if (optional and o == none()) {
+                out.* = null;
+                return;
+            }
+            const target: *T = if (optional) blk: {
+                out.* = @as(T, undefined);
+                break :blk &out.*.?;
+            } else out;
+            return T.fill(o, target) catch |err| argError(p, fname, T, err);
+        }
         const what = "`" ++ fname ++ "(" ++ p.name ++ ")`";
-        const v = if (@typeInfo(p.T) == .optional) optionalArg(p.T, o, what) else fromPythonAs(p.T, o, what);
-        return v catch |err| {
-            const T = if (@typeInfo(p.T) == .optional) @typeInfo(p.T).optional.child else p.T;
-            const want: ?[]const u8 = if (T == []const u8 or T == [:0]const u8)
-                "`str`"
-            else if (T == Bytes)
-                "`bytes`"
-            else if (T == Buffer)
-                "a bytes-like object"
-            else if (T == WritableBuffer)
-                "a writable bytes-like object"
-            else if (comptime class_zig.isInstancePtr(T))
-                "`" ++ comptime class_zig.shortName(class_zig.Instance(@typeInfo(T).pointer.child).name) ++ "`"
-            else if (comptime convert.isSequence(T))
-                "a sequence of `" ++ comptime stub.pyType(T.Item) ++ "`"
-            else
-                null;
-            if (want) |w| if (c.PyErr_ExceptionMatches(c.PyExc_TypeError) != 0) {
-                c.PyErr_Clear();
-                return raiseTypeError("{s}() argument '{s}' must be {s}", .{ fname, p.name, w });
-            };
-            return err;
-        };
+        const v = if (optional) optionalArg(p.T, o, what) else fromPythonAs(p.T, o, what);
+        out.* = v catch |err| return argError(p, fname, T, err);
+        return;
     }
-    if (p.value) |d| return @as(*const p.T, @ptrCast(@alignCast(d))).*;
-    if (p.field == null and @typeInfo(p.T) == .optional) return null;
-    return raiseTypeError("{s}() missing required argument '{s}'", .{ fname, p.name });
+    if (p.value) |d| {
+        out.* = @as(*const p.T, @ptrCast(@alignCast(d))).*;
+    } else if (p.field == null and optional) {
+        out.* = null;
+    } else return raiseTypeError("{s}() missing required argument '{s}'", .{ fname, p.name });
+}
+
+/// The error for the argument of the parameter `p` (of type `T`, or `?T`) that failed with `err`: a
+/// `TypeError` naming the type wanted (`f() argument 'x' must be `str``), else `err` as raised.
+fn argError(comptime p: Param, comptime fname: []const u8, comptime T: type, err: Error) Error {
+    @branchHint(.cold);
+    const want: ?[]const u8 = if (T == []const u8 or T == [:0]const u8)
+        "`str`"
+    else if (T == Bytes)
+        "`bytes`"
+    else if (T == Buffer)
+        "a bytes-like object"
+    else if (T == WritableBuffer)
+        "a writable bytes-like object"
+    else if (comptime class_zig.isInstancePtr(T))
+        "`" ++ comptime class_zig.shortName(class_zig.Instance(@typeInfo(T).pointer.child).name) ++ "`"
+    else if (comptime convert.isSequence(T))
+        "a sequence of `" ++ comptime stub.pyType(T.Item) ++ "`"
+    else
+        null;
+    if (want) |w| if (c.PyErr_ExceptionMatches(c.PyExc_TypeError) != 0) {
+        c.PyErr_Clear();
+        return raiseTypeError("{s}() argument '{s}' must be {s}", .{ fname, p.name, w });
+    };
+    return err;
 }
 
 /// Keyword lookup for the parameter `names`: the index of a keyword, or `null` if no

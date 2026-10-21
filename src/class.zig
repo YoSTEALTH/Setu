@@ -322,7 +322,7 @@ pub fn Instance(comptime T: type) type {
         }
 
         /// The instance data of `obj`, or `TypeError` (`expected `Name``) for another type.
-        pub fn from(obj: *Object) Error!*T {
+        pub inline fn from(obj: *Object) Error!*T {
             const t = tp orelse return py.raiseRuntimeError("`{s}` is not created yet", .{name});
             if (!py.isInstance(obj, t)) return py.raiseTypeError("expected `{s}`", .{comptime shortName(name)});
             return data(obj);
@@ -541,6 +541,9 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
 
         /// The type object, set by `create` (also `Instance(T).tp`).
         pub var tp: ?*c.TypeObject = null;
+        /// `tp`'s `tp_free`, set by `create`: `tpDealloc` frees an instance of `tp` itself without a
+        /// `PyType_GetSlot` (a Python subclass may have another one, so it still looks that up).
+        var own_free: ?c.FreeFunc = null;
 
         const stored = Instance(T).stored;
 
@@ -589,6 +592,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             const t: *c.TypeObject = @ptrCast(made);
             tp = t; // keeps the new reference for the process lifetime
             Instance(T).tp = t;
+            own_free = @ptrCast(@alignCast(c.PyType_GetSlot(t, c.Py_tp_free).?));
             inline for (info.decl_names) |n| if (comptime isClassAttr(T, n)) {
                 const V = @TypeOf(@field(T, n));
                 const value = switch (@typeInfo(V)) {
@@ -753,7 +757,9 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             if (weakref) c.PyObject_ClearWeakRefs(obj);
             clearAll(obj); // with the `__dict__`
             delAll(obj);
-            const free: c.FreeFunc = @ptrCast(@alignCast(c.PyType_GetSlot(t, c.Py_tp_free).?));
+            const free: c.FreeFunc = if (t == tp) own_free.? else @ptrCast(@alignCast(
+                c.PyType_GetSlot(t, c.Py_tp_free).?,
+            ));
             free(obj);
             py.decref(@ptrCast(t));
         }

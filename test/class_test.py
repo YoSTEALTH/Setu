@@ -466,6 +466,30 @@ def test_sequence_parameters():
         sc.seq_norm2([Vec(), 1])
 
 
+def test_take():
+    '''A parameter kept with `take` stays locked (and alive) past the call, until the caller releases it.'''
+    b, d, items = bytearray(3), bytearray(2), [bytearray(1), b'x']
+    refs = [sys.getrefcount(b), sys.getrefcount(d)]
+    sc.hold(b, d, items)
+    for o in (b, d, items[0]):
+        with pytest.raises(BufferError):
+            o.append(1)
+    del o
+    sc.hold()
+    items[0].append(1)
+    b.append(1)
+    d.append(1)
+    assert [sys.getrefcount(b), sys.getrefcount(d)] == refs
+    sc.hold(memoryview(b))  # `buf` only; a `memoryview` locks its `bytearray` too
+    with pytest.raises(BufferError):
+        b.append(1)
+    sc.hold()
+    b.append(1)
+    with pytest.raises(TypeError):
+        sc.hold(b, 'x')  # a later argument fails: `hold` is not called, nothing taken
+    b.append(1)
+
+
 def test_check_errno():
     '''`py.checkErrno` passes a result `>= 0` through and raises the errno of a negative one.'''
     assert sc.check_errno(0) == 0
@@ -482,6 +506,38 @@ def test_check_errno():
     assert e.value.errno == 2**31 - 1
     with pytest.raises(OverflowError, match=r'^result -2147483648 is out of errno range$'):
         sc.check_errno(-(2**31))
+
+
+def test_int_parameters():
+    '''Ints convert to the exact parameter type, from `int` or `__index__`, else `OverflowError` / `TypeError`.'''
+
+    class Index:
+        def __index__(self):
+            return 7
+
+    assert sc.int_pair(0, -1) == (0, -1)
+    assert sc.int_pair(2**63, 127) == (2**63, 127)
+    assert sc.int_pair(2**64 - 1, -128) == (2**64 - 1, -128)
+    assert sc.int_pair(Index(), Index()) == (7, 7)
+    assert sc.int_pair(True, False) == (1, 0)
+    for big, small, message in [
+        (-1, 0, r'`int_pair\(big\)` = -1 is out of range 0\.\.18446744073709551615'),
+        (2**64, 0, r'`int_pair\(big\)` = 18446744073709551616 is out of range 0\.\.18446744073709551615'),
+        (-(2**63) - 1, 0, r'`int_pair\(big\)` = -9223372036854775809 is out of range'),
+        (0, 128, r'`int_pair\(small\)` = 128 is out of range -128\.\.127'),
+        (0, -(2**63), r'`int_pair\(small\)` = -9223372036854775808 is out of range -128\.\.127'),
+    ]:
+        with pytest.raises(OverflowError, match=f'^{message}'):
+            sc.int_pair(big, small)
+    with pytest.raises(TypeError):
+        sc.int_pair('1', 0)
+    with pytest.raises(TypeError):
+        sc.int_pair(1.0, 0)
+    o = Ordered(1)
+    o.rank = -(2**63)
+    assert o.rank == -(2**63)
+    with pytest.raises(OverflowError, match=r'^`Ordered.rank` = 9223372036854775808 is out of range'):
+        o.rank = 2**63
 
 
 def test_module_constants():

@@ -169,6 +169,22 @@ pub const Ordered = struct {
     pub fn __lt__(self: *const Ordered, other: *const Ordered) bool {
         return self.rank < other.rank;
     }
+
+    /// The rank (an int property).
+    ///
+    /// Example
+    ///     >>> o = Ordered(1)
+    ///     >>> o.rank = 3
+    ///     >>> o.rank
+    ///     3
+    pub fn get_rank(self: *const Ordered) i64 {
+        return self.rank;
+    }
+
+    /// Sets the rank.
+    pub fn set_rank(self: *Ordered, value: i64) void {
+        self.rank = value;
+    }
 };
 pub const OrderedType = setu.Class(Ordered, @embedFile("classes.zig"));
 

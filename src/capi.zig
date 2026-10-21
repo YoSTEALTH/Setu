@@ -376,6 +376,7 @@ pub extern fn PyCriticalSection_End(*CriticalSection) void;
 
 pub extern fn PyLong_FromLongLong(c_longlong) ?*Object;
 pub extern fn PyLong_FromUnsignedLongLong(c_ulonglong) ?*Object;
+pub extern fn PyLong_AsLongLong(*Object) c_longlong;
 /// Copies the int `obj` into `buffer` (`n` bytes, two's complement); returns the bytes the
 /// value needs (more than `n`: it did not fit), or -1 with an exception set.
 pub extern fn PyLong_AsNativeBytes(obj: *Object, buffer: *anyopaque, n: ssize, flags: c_int) ssize;

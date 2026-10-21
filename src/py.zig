@@ -55,17 +55,17 @@ pub fn decref(o: ?*Object) void {
 
 /// Borrowed `None` (immortal).
 pub fn none() *Object {
-    return c.Py_GetConstantBorrowed(c.Py_CONSTANT_NONE);
+    return constant(c.Py_CONSTANT_NONE);
 }
 
 /// Borrowed `True` (immortal).
 pub fn trueObj() *Object {
-    return c.Py_GetConstantBorrowed(c.Py_CONSTANT_TRUE);
+    return constant(c.Py_CONSTANT_TRUE);
 }
 
 /// Borrowed `False` (immortal).
 pub fn falseObj() *Object {
-    return c.Py_GetConstantBorrowed(c.Py_CONSTANT_FALSE);
+    return constant(c.Py_CONSTANT_FALSE);
 }
 
 /// A new reference to `None` (for returning it).
@@ -77,7 +77,20 @@ pub fn newNone() *Object {
 
 /// Borrowed `NotImplemented` (immortal).
 pub fn notImplemented() *Object {
-    return c.Py_GetConstantBorrowed(c.Py_CONSTANT_NOT_IMPLEMENTED);
+    return constant(c.Py_CONSTANT_NOT_IMPLEMENTED);
+}
+
+/// `Py_GetConstantBorrowed(id)`, looked up once: the constant is immortal and static, so its
+/// address never changes (racing threads store the same value).
+fn constant(comptime id: c_uint) *Object {
+    const S = struct {
+        const which = id; // captured, so each constant gets its own `obj`
+        var obj: ?*Object = null;
+    };
+    if (@atomicLoad(?*Object, &S.obj, .monotonic)) |o| return o;
+    const o = c.Py_GetConstantBorrowed(id);
+    @atomicStore(?*Object, &S.obj, o, .monotonic);
+    return o;
 }
 
 /// A new reference to `NotImplemented`: what a comparison or number hook returns for an
@@ -165,7 +178,9 @@ pub fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {
     return @ptrCast(@alignCast(c.PyObject_GetTypeData(obj, tp).?));
 }
 
-/// `isinstance(obj, tp)` without going through `__instancecheck__`.
+/// `isinstance(obj, tp)` without going through `__instancecheck__` (the exact type without a
+/// `PyType_IsSubtype` call).
 pub fn isInstance(obj: *Object, tp: *c.TypeObject) bool {
-    return c.PyType_IsSubtype(c.Py_TYPE(obj), tp) != 0;
+    const t = c.Py_TYPE(obj);
+    return t == tp or c.PyType_IsSubtype(t, tp) != 0;
 }
