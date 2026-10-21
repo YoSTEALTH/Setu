@@ -29,7 +29,7 @@ SETU = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(SETU, 'test', 'wheel')
 SCRIPT = os.path.join(FIXTURE, 'tools', 'setu_build.py')
 NAME = 'setu_classes'
-VERSION = '1.2.3'  # `test/wheel/build.zig.zon`
+VERSION = '1.2.3.post4'  # `test/wheel/build.zig.zon` `1.2.3-4`, in its PEP 440 form
 # `--all`: platform tag -> the libc the extension must link
 PLATFORMS = {
     'manylinux_2_28_x86_64': 'libc.so.6',
@@ -142,6 +142,15 @@ def check_hook(out):
     spec.loader.exec_module(backend)
     if backend.get_requires_for_build_wheel() != []:
         fail('get_requires_for_build_wheel() is not []')
+    for ver, want in (('2026.10.20', '2026.10.20'), ('2026.10.20-2', '2026.10.20.post2'), ('1.2.3-4', '1.2.3.post4')):
+        if backend.pep440(ver) != want:
+            fail(f'pep440({ver!r}) is {backend.pep440(ver)!r}, expected {want!r}')
+    for ver in ('2026.10.20.3', '2026.10.20-rc.1', '2026.10.20+1', '2026.10'):
+        try:
+            backend.pep440(ver)
+        except SystemExit:
+            continue
+        fail(f'pep440({ver!r}) did not raise')
     path = os.path.join(out, backend.build_wheel(out))
     libs = check_wheel(path, 'linux_x86_64')
     check_import(path)

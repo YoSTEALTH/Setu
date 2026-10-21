@@ -52,6 +52,7 @@ bumping Setu); `zig build setu-build-check` fails if the copy differs (run it in
 
 ## Releases
 
-Tags are `v<year>.<month>.<day>` (the `build.zig.zon` version). Each tag's notes say whether
+Versions are `<year>.<month>.<day>[-<n>]`, no zero padding: `2026.10.20` for a day's first release, then
+`2026.10.20-2`, `2026.10.20-3`, ... Tags are `v<version>` (the `build.zig.zon` version). Each tag's notes say whether
 `tools/setu_build.py` changed since the previous tag: if it did, projects run `zig build setu-build-sync`
 after bumping to it. `git diff --quiet <previous tag> <tag> -- tools/setu_build.py` tells (exit 1: changed).

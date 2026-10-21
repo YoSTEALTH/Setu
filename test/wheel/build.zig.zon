@@ -1,7 +1,7 @@
 .{
     .name = .setu_classes,
     // what `tools/setu_build.py` puts in the wheel's name and metadata
-    .version = "1.2.3",
+    .version = "1.2.3-4",
     .fingerprint = 0x5f934cb8855ca064,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
