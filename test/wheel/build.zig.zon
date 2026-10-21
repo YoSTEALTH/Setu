@@ -12,7 +12,7 @@
         "build.zig.zon",
         "src",
         "tools",
-        "README.rst",
+        "README.md",
         "LICENSE.txt",
     },
 }

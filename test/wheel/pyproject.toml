@@ -4,7 +4,7 @@
 [project]
 name = "setu_classes"
 description = "Setu's test extension, packaged by tools/setu_build.py for the wheel checks."
-readme = { file = "README.rst", content-type = "text/x-rst" }
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.14"
 license = "CC0-1.0"
 license-files = ["LICENSE.txt"]

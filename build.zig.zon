@@ -11,6 +11,6 @@
         "src",
         "tools/setu_build.py", // the wheel build backend projects copy (their check.sh compares)
         "LICENSE.txt",
-        "README.rst",
+        "README.md",
     },
 }
