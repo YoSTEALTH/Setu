@@ -563,6 +563,32 @@ pub const Watch = struct {
 };
 pub const WatchType = setu.Class(Watch, @embedFile("classes.zig"));
 
+/// An awaitable (`__poll__`) that waits once in the event loop, then gives `result`.
+pub const Later = struct {
+    result: ?*Object = null,
+
+    /// Keeps `result`.
+    ///
+    /// Type
+    ///     result: object
+    pub fn __init__(self: *Later, result: *Object) void {
+        py.incref(result);
+        self.result = result;
+    }
+
+    /// Pending on the first send, then ready with `result`.
+    ///
+    /// Type
+    ///     return: object
+    pub fn __poll__(self: *Later, sent: ?*Object) setu.Poll {
+        if (sent == null) return .pending;
+        const r = self.result orelse py.none();
+        py.incref(r);
+        return .{ .ready = r };
+    }
+};
+pub const LaterType = setu.Class(Later, @embedFile("classes.zig"));
+
 /// Two ints set in `__new__` only (no `__init__`): the stub declares `__new__`.
 ///
 /// Type
@@ -597,5 +623,6 @@ pub const classes = .{
     DynType,
     SlotType,
     WatchType,
+    LaterType,
     PairType,
 };

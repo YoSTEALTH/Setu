@@ -5,30 +5,28 @@
 //!
 //!   zig build setu-build-sync    copy Setu's tools/setu_build.py into tools/
 //!   zig build setu-build-check   check that tools/setu_build.py is Setu's copy
-//!   zig build --prefix <dir>     the extension and its stubs into <dir>/lib/ (what the script runs)
+//!   zig build --prefix <dir>     the extension, its stubs and `py.typed` into <dir>/lib/ (what the script runs)
 
 const std = @import("std");
 const setu_build = @import("setu");
 
-/// Takes the options `tools/setu_build.py` passes (`-Dfree-threaded`, `-Drelease`, `-Dstrip`,
-/// `-Dtarget`) and installs Setu's test extension and stubs from the `setu` dependency.
+/// Takes the options `tools/setu_build.py` passes (`-Drelease`, `-Dstrip`, `-Dtarget`) and installs Setu's test extension and stubs from the `setu` dependency.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
     const strip = b.option(bool, "strip", "Strip debug symbols from the extension") orelse false;
-    const free_threaded = b.option(bool, "free-threaded", "Build for free-threaded 3.15t (default: true)") orelse
-        true;
 
     const setu_dep = b.dependency("setu", .{
         .target = target,
         .optimize = optimize,
         .strip = strip,
-        .@"free-threaded" = free_threaded,
     });
-    const name = b.fmt("setu_classes{s}", .{setu_build.defaultSuffix(b, target.result, free_threaded)});
+    const name = "setu_classes" ++ setu_build.ext_suffix;
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(setu_dep.namedLazyPath("setu_classes"), .lib, name).step);
     b.getInstallStep().dependOn(
         &b.addInstallFileWithDir(setu_dep.namedLazyPath("setu_classes.pyi"), .lib, "setu_classes.pyi").step,
     );
+    // `src/setu_classes/` has a `py.typed` too: the wheel must still hold one (the built copy).
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("src/setu_classes/py.typed"), .lib, "py.typed").step);
     setu_build.addSetuBuildSteps(b, setu_dep);
 }

@@ -34,13 +34,30 @@ jobs:
           python-version: "3.15"
           allow-prereleases: true
 
+      - name: Python 3.14t (free-threaded)
+        id: py314_ft
+        uses: actions/setup-python@v7
+        with:
+          python-version: 3.14t
+
+      - name: Python 3.14 (GIL)
+        id: py314_gil
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # pip >= 26.2 on every interpreter: `check_wheels.py` pip-installs the `cp314-abi3.abi3t` wheels
       - name: Install tools
         run: |
-          "${{ steps.py_ft.outputs.python-path }}" -m pip install pytest ruff mypy
-          "${{ steps.py_gil.outputs.python-path }}" -m pip install pytest
+          "${{ steps.py_ft.outputs.python-path }}" -m pip install -U pip pytest ruff mypy
+          "${{ steps.py_gil.outputs.python-path }}" -m pip install -U pip pytest
+          "${{ steps.py314_ft.outputs.python-path }}" -m pip install -U pip pytest
+          "${{ steps.py314_gil.outputs.python-path }}" -m pip install -U pip pytest
 
       - name: tools/check.sh
         env:
           PY_FT: ${{ steps.py_ft.outputs.python-path }}
           PY_GIL: ${{ steps.py_gil.outputs.python-path }}
+          PY314_FT: ${{ steps.py314_ft.outputs.python-path }}
+          PY314_GIL: ${{ steps.py314_gil.outputs.python-path }}
         run: tools/check.sh

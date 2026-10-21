@@ -1,10 +1,11 @@
 //! Setu (सेतु, "bridge"): The generic Zig ⇄ CPython binding layer.
 //!
-//! Targets CPython 3.15 / 3.15t only (no backports), using what 3.15 offers:
-//! PEP 793 module export (`PyModExport_<name>` + `PySlot`), PEP 697 type data
-//! (`Py_tp_extra_basicsize`), free-threading (`Py_MOD_GIL_NOT_USED` / `Py_MOD_GIL_USED`,
-//! `PyCriticalSection`). No `Python.h`: the C API is declared by hand in
-//! `capi.zig`, with every object opaque.
+//! One binary for CPython 3.14, 3.14t, 3.15, 3.15t and later (a `cp314-abi3.abi3t` wheel): only
+//! the 3.15 stable ABI for free-threading (abi3t, PEP 803) that 3.14 also exports is used.
+//! `py.exportModule` gives both entry points (PEP 793 `PyModExport_<name>` for 3.15+,
+//! `PyInit_<name>` for 3.14), types come from `PyType_Spec` with PEP 697 type data, and
+//! free-threading is on (`Py_MOD_GIL_NOT_USED` / `Py_MOD_GIL_USED`, `PyCriticalSection`).
+//! No `Python.h`: the C API is declared by hand in `capi.zig`, with every object opaque.
 //!
 //!     const setu = @import("setu");
 //!     const c = setu.c;   // the C API

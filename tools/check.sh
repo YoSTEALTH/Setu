@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Runs every Setu check: zig fmt, int casts, ruff, `zig build test`, the `setu-build-sync` /
-# `setu-build-check` steps on the wheel fixture `test/wheel/`, then for both 3.15 builds `zig build develop`,
-# `check_abi.py`, pytest and the wheels `tools/setu_build.py` builds (`check_wheels.py`), then
-# `mypy --strict` + `stubtest` on the test stubs. All offline.
-# Interpreters: PY_FT=... / PY_GIL=...; compiler: ZIG=...
+# `setu-build-check` steps on the wheel fixture `test/wheel/`, `zig build develop` (the one `setu_classes.so`),
+# then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest and the
+# `cp314-abi3.abi3t` wheels `tools/setu_build.py` builds (`check_wheels.py`), then `mypy --strict` (as 3.14
+# and 3.15) + `stubtest` on the test stubs. All offline.
+# Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=...; compiler: ZIG=...
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PY_FT=${PY_FT:-/opt/python/3.15t/bin/python3}
 PY_GIL=${PY_GIL:-/opt/python/3.15/bin/python3}
+PY314_FT=${PY314_FT:-/opt/python/3.14t/bin/python3}
+PY314_GIL=${PY314_GIL:-/opt/python/3.14/bin/python3}
 ZIG=${ZIG:-zig}
 [[ ${1:-} == -- ]] && shift
 PYTEST_ARGS=("$@")
@@ -41,23 +44,21 @@ step "setu-build-sync + setu-build-check (test/wheel)"
 # What a project using Setu runs: copy Setu's `tools/setu_build.py` into its `tools/`, then compare.
 (cd test/wheel && "$ZIG" build setu-build-sync && "$ZIG" build setu-build-check)
 
-for py in "$PY_FT" "$PY_GIL"; do
-    if [[ $("$py" -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED") or 0)') == 1 ]]; then
-        flag=-Dfree-threaded=true
-    else
-        flag=-Dfree-threaded=false
-    fi
-    step "$py ($flag)"
-    "$ZIG" build develop "$flag"
+step "zig build develop"
+"$ZIG" build develop # test/setu_classes.so: one binary for every interpreter below
+
+for py in "$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL"; do
+    step "$py"
     "$py" tools/check_abi.py
+    "$py" tools/check_symbols.py test/setu_classes.so
     "$py" -m pytest "${PYTEST_ARGS[@]}"
-    "$py" tools/check_wheels.py --all # glibc + musl, cp315t + cp315
-    "$py" tools/check_wheels.py       # `build_wheel` (PEP 517) for this interpreter
+    "$py" tools/check_wheels.py --all # glibc + musl, installed and imported here
+    "$py" tools/check_wheels.py       # `build_wheel` (PEP 517)
 done
 
 step "mypy --strict + stubtest ($PY_FT)"
 if "$PY_FT" -c 'import mypy' 2>/dev/null; then
-    "$ZIG" build develop -Dfree-threaded=true
+    (cd test && MYPYPATH=. "$PY_FT" -m mypy --strict --python-version 3.14 setu_classes.pyi)
     (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy --strict setu_classes.pyi)
     (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy.stubtest setu_classes)
 else

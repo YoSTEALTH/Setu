@@ -2,7 +2,6 @@
 //! in `functions.zig`. Built by `zig build develop` into `test/` (with its stubs, `setu_classes.pyi`).
 
 const setu = @import("setu");
-const build_options = @import("build_options");
 const classes = @import("classes.zig");
 const functions = @import("functions.zig");
 
@@ -22,24 +21,11 @@ fn exec(module: *Object) callconv(.c) c_int {
     return 0;
 }
 
-const abi_info: c.ABIInfo = .{
-    .flags = if (build_options.free_threaded) c.PyABIInfo_FREETHREADED else c.PyABIInfo_GIL,
-    .build_version = c.version_3_15,
-    .abi_version = c.version_3_15,
-};
-
-const module_slots = [_]c.Slot{
-    c.Slot.data(c.Py_mod_abi, &abi_info),
-    c.Slot.data(c.Py_mod_name, "setu_classes"),
-    c.Slot.data(c.Py_mod_doc, "Setu class hooks and parameter types, for the tests."),
-    c.Slot.static(c.Py_mod_methods, &module_methods),
-    c.Slot.func(c.Py_mod_exec, @ptrCast(&exec)),
-    c.Slot.uint(c.Py_mod_gil, c.Py_MOD_GIL_NOT_USED),
-    c.Slot.uint(c.Py_mod_multiple_interpreters, c.Py_MOD_MULTIPLE_INTERPRETERS_NOT_SUPPORTED),
-    c.Slot.end,
-};
-
-/// PEP 793 entry point: CPython 3.15 looks up `PyModExport_<name>`.
-export fn PyModExport_setu_classes() callconv(.c) [*]const c.Slot {
-    return &module_slots;
+comptime {
+    py.exportModule(.{
+        .name = "setu_classes",
+        .doc = "Setu class hooks and parameter types, for the tests.",
+        .methods = &module_methods,
+        .exec = &exec,
+    });
 }

@@ -157,6 +157,8 @@ pub const Constant = export_zig.Constant;
 pub const constants = export_zig.constants;
 pub const addConstants = export_zig.addConstants;
 pub const isUpperName = export_zig.isUpperName;
+pub const Module = export_zig.Module;
+pub const exportModule = export_zig.exportModule;
 
 /// Pointer to a type's extra instance data (`Py_tp_extra_basicsize`).
 pub fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {

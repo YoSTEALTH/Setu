@@ -7,11 +7,19 @@ import inspect
 import operator
 import pickle
 import sys
+import sysconfig
 import types
 import weakref
 import pytest
 import setu_classes as sc
 from setu_classes import Vec, Labeled, Ordered, Num, Bag, Countdown, Adder, Dyn, Slot, Watch
+
+
+def test_one_binary():
+    '''The one `setu_classes.so` (no ABI tag) loads here; free-threaded builds keep the GIL off.'''
+    assert sc.__file__.endswith('setu_classes.so')
+    if sysconfig.get_config_var('Py_GIL_DISABLED'):
+        assert not sys._is_gil_enabled()
 
 
 def test_str_repr():
@@ -155,6 +163,29 @@ def test_iterators():
         type(it)()  # not instantiable
 
 
+@pytest.mark.parametrize('result', [(1, 2), (), ('one',), [3], 7, None])
+def test_awaitable_result(result):
+    '''`await` / `next()` give the `__poll__` result as is; a tuple is not unpacked (3.14 uses `tp_iternext`).'''
+
+    async def run(w):
+        return await w
+
+    w = sc.Later(result)
+    coro = run(w)
+    assert coro.send(None) is w  # pending: yields itself to the event loop
+    with pytest.raises(StopIteration) as e:
+        coro.send(None)
+    assert e.value.value == result
+
+    w = sc.Later(result)
+    assert next(w) is w
+    with pytest.raises(StopIteration) as e:
+        next(w)
+    assert e.value.value == result
+    with pytest.raises(RuntimeError):
+        next(w)  # already awaited
+
+
 def test_positional_only_rest_kwargs():
     a = Adder(10)
     assert a.collect(1) == (11, (), {})
@@ -284,7 +315,7 @@ def test_dict_cycle_is_collected():
 
 
 def test_dict_visited_once():
-    '''The managed `__dict__` is visited once, also for a Python subclass (CPython leaves it to the base).'''
+    '''The `__dict__` is visited once, also for a Python subclass (CPython leaves it to the base).'''
     marker = object()
     b = Bag()
     b.x = marker

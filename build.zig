@@ -2,9 +2,10 @@
 //! zig build test            run the unit tests
 //!
 //! Options:
-//!   -Dfree-threaded=false   build the test extension for the regular (GIL) 3.15 instead of 3.15t
-//!   -Dext-suffix=...        Python extension suffix (default: CPython's `EXT_SUFFIX` for the target and ABI)
 //!   -Dstrip                 drop debug info from the test extension
+//!
+//! One build serves CPython 3.14, 3.14t, 3.15, 3.15t and later: the extension is `<name>.so`
+//! (`ext_suffix`), which every one of them imports (see `src/capi.zig`).
 //!
 //! Other projects use it as a dependency: `b.dependency("setu", .{})`, then `.module("setu")`.
 //! Their `build.zig` can also `@import("setu")` for `addSetuBuildSteps` (keeping their copy of
@@ -19,14 +20,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     // `-Doptimize=...` (default Debug), so a dependent build can pass `.optimize` (`test/wheel/`).
     const optimize = b.standardOptimizeOption(.{});
-    const free_threaded = b.option(bool, "free-threaded", "Build for free-threaded 3.15t (default: true)") orelse
-        true;
-    const ext_suffix = b.option([]const u8, "ext-suffix", "Python extension module suffix") orelse
-        defaultSuffix(b, target.result, free_threaded);
     const strip = b.option(bool, "strip", "Strip debug symbols from the test extension") orelse false;
-
-    const options = b.addOptions();
-    options.addOption(bool, "free_threaded", free_threaded);
 
     // No target / optimize: the module takes them from whatever compiles it (extension, host program, test).
     const setu = b.addModule("setu", .{ .root_source_file = b.path("src/setu.zig") });
@@ -41,10 +35,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .strip = strip,
             .link_libc = true,
-            .imports = &.{
-                .{ .name = "setu", .module = setu },
-                .{ .name = "build_options", .module = options.createModule() },
-            },
+            .imports = &.{.{ .name = "setu", .module = setu }},
         }),
     });
     setu_test.linker_allow_shlib_undefined = true;
@@ -97,12 +88,7 @@ pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
     b.step("setu-build-sync", "Copy the pinned Setu's tools/setu_build.py into tools/").dependOn(&sync.step);
 }
 
-/// CPython's `EXT_SUFFIX` for `target`, like `.cpython-315t-x86_64-linux-gnu.so`.
-pub fn defaultSuffix(b: *std.Build, target: std.Target, free_threaded: bool) []const u8 {
-    const libc = if (target.abi.isMusl()) "musl" else "gnu";
-    return b.fmt(".cpython-315{s}-{s}-linux-{s}.so", .{
-        if (free_threaded) "t" else "",
-        @tagName(target.cpu.arch),
-        libc,
-    });
-}
+/// The extension module's suffix: `<name>.so`, the one name CPython 3.14, 3.14t, 3.15, 3.15t and
+/// later all import (`.abi3.so` is refused by 3.15t, `.abi3t.so` unknown to 3.14). The wheel is
+/// tagged `cp314-abi3.abi3t` (`tools/setu_build.py`).
+pub const ext_suffix = ".so";

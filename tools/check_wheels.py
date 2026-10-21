@@ -1,18 +1,18 @@
 '''Checks `tools/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
-`setu_classes`): run by `tools/check.sh`, offline, with each 3.15 interpreter.
+`setu_classes`): run by `tools/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
+since every one of them must import the same `cp314-abi3.abi3t` wheel.
 
-    python3.15t tools/check_wheels.py --all   # the release matrix: glibc + musl wheels, both ABIs
-    python3.15 tools/check_wheels.py          # the PEP 517 `build_wheel` hook, for this interpreter
+    python3.15t tools/check_wheels.py --all   # the release wheels: glibc + musl
+    python3.14 tools/check_wheels.py          # the PEP 517 `build_wheel` hook
 
 Note
     - `test/wheel/tools/setu_build.py` must be there first: `zig build setu-build-sync` (in
       `test/wheel/`) copies Setu's, the step projects use; `check.sh` runs it and `setu-build-check`.
-    - `--all` builds the `[tool.setu_build]` matrix of `test/wheel/pyproject.toml` (cp315t / cp315 x
-      `x86_64-linux-gnu.2.28` / `x86_64-linux-musl`) and checks each wheel's name, `WHEEL` tag,
+    - `--all` builds the `[tool.setu_build]` targets of `test/wheel/pyproject.toml`
+      (`x86_64-linux-gnu.2.28`, `x86_64-linux-musl`) and checks each wheel's name, `WHEEL` tags,
       files, `RECORD` hashes, `METADATA`, and the extension's `NEEDED` libc (`readelf -d`); the
-      glibc wheel of this interpreter's ABI is also imported.
-    - Without `--all`: `build_wheel` (what `pip install` calls) for this interpreter, checked the
-      same way and imported.
+      glibc wheel is also imported with this interpreter.
+    - Without `--all`: `build_wheel` (what `pip install` calls), checked the same way and imported.
 '''
 
 import base64
@@ -22,7 +22,6 @@ import os
 import re
 import subprocess
 import sys
-import sysconfig
 import tempfile
 import zipfile
 
@@ -31,30 +30,25 @@ FIXTURE = os.path.join(SETU, 'test', 'wheel')
 SCRIPT = os.path.join(FIXTURE, 'tools', 'setu_build.py')
 NAME = 'setu_classes'
 VERSION = '1.2.3'  # `test/wheel/build.zig.zon`
-# `--all`: platform tag -> (extension suffix libc, the libc the extension must link)
+# `--all`: platform tag -> the libc the extension must link
 PLATFORMS = {
-    'manylinux_2_28_x86_64': ('gnu', 'libc.so.6'),
-    'musllinux_1_2_x86_64': ('musl', 'libc.musl-x86_64.so.1'),
+    'manylinux_2_28_x86_64': 'libc.so.6',
+    'musllinux_1_2_x86_64': 'libc.musl-x86_64.so.1',
 }
-ABIS = ('cp315t', 'cp315')
+TAG = 'cp314-abi3.abi3t'  # every wheel: CPython 3.14+, with and without the GIL
 
 
 def fail(msg):
     raise SystemExit(f'check_wheels: {msg}')
 
 
-def this_abi():
-    return 'cp315t' if sysconfig.get_config_var('Py_GIL_DISABLED') else 'cp315'
-
-
-def check_wheel(path, abi, platform, libc):
-    '''Checks the wheel at `path` (built for `abi` / `platform`, extension suffix `libc`); returns
-    the libraries its extension needs.'''
+def check_wheel(path, platform):
+    '''Checks the wheel at `path` (built for `platform`); returns the libraries its extension needs.'''
     name = os.path.basename(path)
-    tag = f'cp315-{abi}-{platform}'
+    tag = f'{TAG}-{platform}'
     if name != f'{NAME}-{VERSION}-{tag}.whl':
         fail(f'{name}: expected {NAME}-{VERSION}-{tag}.whl')
-    ext = f'{NAME}/{NAME}.cpython-315{"t" if abi.endswith("t") else ""}-x86_64-linux-{libc}.so'
+    ext = f'{NAME}/{NAME}.so'  # one name every CPython 3.14+ imports
     dist = f'{NAME}-{VERSION}.dist-info'
     want = {
         f'{NAME}/__init__.py',
@@ -73,10 +67,11 @@ def check_wheel(path, abi, platform, libc):
         if any(n.endswith(('.zig', '.h')) for n in names):
             fail(f'{name}: ships sources')
         wheel = z.read(f'{dist}/WHEEL').decode()
-        if f'\nTag: {tag}\n' not in wheel or 'Root-Is-Purelib: false' not in wheel:
+        tags = [f'Tag: cp314-{abi}-{platform}' for abi in ('abi3', 'abi3t')]  # the expanded tag set
+        if any(f'\n{t}\n' not in wheel for t in tags) or 'Root-Is-Purelib: false' not in wheel:
             fail(f'{name}: WHEEL is\n{wheel}')
         meta = z.read(f'{dist}/METADATA').decode()
-        for line in (f'Name: {NAME}', f'Version: {VERSION}', 'Requires-Python: >=3.15', 'License-Expression: CC0-1.0'):
+        for line in (f'Name: {NAME}', f'Version: {VERSION}', 'Requires-Python: >=3.14', 'License-Expression: CC0-1.0'):
             if f'\n{line}\n' not in f'\n{meta}':
                 fail(f'{name}: METADATA has no `{line}`')
         record = z.read(f'{dist}/RECORD').decode().splitlines()
@@ -99,12 +94,15 @@ def check_wheel(path, abi, platform, libc):
 
 
 def check_import(path):
-    '''Imports the extension from the wheel at `path` with this interpreter.'''
+    '''Installs the wheel at `path` with this interpreter's pip (which must accept its tags; offline) and
+    imports the extension from there.'''
     with tempfile.TemporaryDirectory() as tmp:
-        with zipfile.ZipFile(path) as z:
-            z.extractall(tmp)
+        pip = [sys.executable, '-m', 'pip', 'install', '-q', '--no-index', '--no-deps', '--disable-pip-version-check']
+        out = subprocess.run([*pip, '--target', tmp, path], capture_output=True, text=True)
+        if out.returncode != 0:
+            fail(f'{os.path.basename(path)}: pip install failed\n{out.stdout}{out.stderr}')
         code = f'import {NAME}; assert {NAME}.vec_norm2({NAME}.Vec(3, 4)) == 25; print({NAME}.__file__)'
-        # `-I`: nothing from the checkout or the environment, only the unpacked wheel on `sys.path`.
+        # `-I`: nothing from the checkout or the environment, only the installed wheel on `sys.path`.
         out = subprocess.run(
             [sys.executable, '-I', '-c', f'import sys; sys.path.insert(0, {tmp!r}); {code}'],
             capture_output=True,
@@ -118,16 +116,15 @@ def check_all(out):
     '''`setu_build.py --all`: every wheel of the fixture's `[tool.setu_build]` matrix.'''
     run = subprocess.run([sys.executable, SCRIPT, '--all', '-o', out], check=True, capture_output=True, text=True)
     built = run.stdout.split()
-    want = [f'{NAME}-{VERSION}-cp315-{a}-{p}.whl' for a in ABIS for p in PLATFORMS]
+    want = [f'{NAME}-{VERSION}-{TAG}-{p}.whl' for p in PLATFORMS]
     if [os.path.basename(p) for p in built] != want:
         fail(f'--all built {built}, expected {want}')
-    for path in built:
-        abi, platform = re.fullmatch(r'.*-cp315-(\w+)-(\w+)\.whl', path).groups()
-        libc, needed = PLATFORMS[platform]
-        libs = check_wheel(path, abi, platform, libc)
-        if needed not in libs or (libc == 'musl' and 'libc.so' in libs):
+    for path, platform in zip(built, PLATFORMS):
+        needed = PLATFORMS[platform]
+        libs = check_wheel(path, platform)
+        if needed not in libs or (platform.startswith('musl') and 'libc.so' in libs):
             fail(f'{os.path.basename(path)}: NEEDED {libs}, expected {needed}')
-        if abi == this_abi() and libc == 'gnu':
+        if platform.startswith('manylinux'):
             check_import(path)
         print(f'ok  {os.path.basename(path)}  NEEDED {", ".join(libs)}')
 
@@ -140,7 +137,7 @@ def check_hook(out):
     if backend.get_requires_for_build_wheel() != []:
         fail('get_requires_for_build_wheel() is not []')
     path = os.path.join(out, backend.build_wheel(out))
-    libs = check_wheel(path, this_abi(), 'linux_x86_64', 'gnu')
+    libs = check_wheel(path, 'linux_x86_64')
     check_import(path)
     print(f'ok  {os.path.basename(path)}  NEEDED {", ".join(libs)}  (build_wheel)')
 

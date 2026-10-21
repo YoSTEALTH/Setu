@@ -1,14 +1,19 @@
-//! The slice of the CPython 3.15 C API that Shakti uses, declared by hand.
+//! The slice of the CPython C API that Setu uses, declared by hand: one binary for CPython 3.14,
+//! 3.14t, 3.15, 3.15t and later (the `cp314-abi3.abi3t` wheel).
 //!
-//! Every object is opaque: nothing here depends on the layout of `PyObject`,
-//! which differs between the default and free-threaded builds. Types are
-//! created from `PySlot` arrays (PEP 793), instance data lives behind
-//! `Py_tp_extra_basicsize` (PEP 697), and refcounts go through `Py_IncRef` /
-//! `Py_DecRef`. That keeps the build free of `Python.h` and translate-c.
+//! Every object is opaque: nothing here depends on the layout of `PyObject`, which differs
+//! between the default and free-threaded builds (the one exception is the static `PyModuleDef`
+//! of 3.14, `ModuleDef`, whose layout `py.exportModule` picks at runtime). Types are created from
+//! `PyType_Spec` (in 3.14 and in the 3.15 stable ABI), instance data lives behind PEP 697's
+//! negative `basicsize`, and refcounts go through `Py_IncRef` / `Py_DecRef`. That keeps the
+//! build free of `Python.h` and translate-c.
 //!
-//! Numeric constants are copied from the 3.15 headers. `tools/check_abi.py`
-//! compares them against the headers of the interpreter you build for, so
-//! a renumbering in a later 3.15 pre-release is caught before it bites.
+//! Only what both 3.14 exports and the 3.15 stable ABI (abi3t, PEP 803) has is declared;
+//! `tools/check_symbols.py` checks the built extension. The rest is a `@compileError` saying why.
+//! On 3.15+ the module comes from `PySlot`s (PEP 793), on 3.14 from a `PyModuleDef`.
+//!
+//! Numeric constants are copied from the headers. `tools/check_abi.py` compares them against
+//! the headers of the interpreter running it.
 
 pub const Object = opaque {};
 pub const TypeObject = opaque {};
@@ -49,7 +54,10 @@ pub const GetSetDef = extern struct {
     closure: ?*anyopaque,
 };
 
-/// `struct PySlot` (3.15). `value` is the anonymous union in C.
+/// `struct PySlot` (3.15): the module's slots on 3.15+. Setu also describes types with it;
+/// `class.zig` turns that list into a `TypeSpec` (`Py_tp_name`, `Py_tp_flags` and
+/// `Py_tp_extra_basicsize` become its fields, the rest `TypeSlot`s with `PyType_Slot` IDs).
+/// `value` is the anonymous union in C.
 pub const Slot = extern struct {
     id: u16,
     flags: u16 = 0,
@@ -125,6 +133,81 @@ pub const ABIInfo = extern struct {
     abi_version: u32,
 };
 
+/// `PyObject_HEAD` of a statically allocated, immortal object (`PyObject_HEAD_INIT(NULL)`) in the
+/// regular 3.14 build, for `ModuleDef`. 64-bit only.
+pub const ObjectHeadGil = extern struct {
+    ob_refcnt: i64 = (3 << 30) | (5 << 48), // _Py_STATIC_IMMORTAL_INITIAL_REFCNT
+    ob_type: ?*TypeObject = null,
+};
+
+/// `PyObject_HEAD_INIT(NULL)` in the free-threaded 3.14t build.
+pub const ObjectHeadFt = extern struct {
+    ob_tid: usize = 0,
+    ob_flags: u16 = 4, // _Py_STATICALLY_ALLOCATED_FLAG
+    ob_mutex: u8 = 0,
+    ob_gc_bits: u8 = 0,
+    ob_ref_local: u32 = 0xFFFF_FFFF, // _Py_IMMORTAL_REFCNT_LOCAL
+    ob_ref_shared: ssize = 0,
+    ob_type: ?*TypeObject = null,
+};
+
+/// `PyModuleDef_Slot` (the 3.14 module slots: `Py_mod_exec_old`, ...).
+pub const ModuleDefSlot = extern struct {
+    slot: c_int,
+    value: ?*const anyopaque,
+
+    pub const end: ModuleDefSlot = .{ .slot = 0, .value = null };
+};
+
+/// `PyModuleDef` with the object header `Head` (`ObjectHeadGil` / `ObjectHeadFt`): what
+/// `PyInit_<name>` gives `PyModuleDef_Init` on 3.14 (multi-phase init).
+pub fn ModuleDef(comptime Head: type) type {
+    return extern struct {
+        head: Head = .{},
+        m_init: ?*const anyopaque = null,
+        m_index: ssize = 0,
+        m_copy: ?*Object = null,
+        m_name: [*:0]const u8,
+        m_doc: ?[*:0]const u8 = null,
+        m_size: ssize = 0,
+        m_methods: ?[*]MethodDef = null,
+        m_slots: ?[*]ModuleDefSlot = null,
+        m_traverse: ?TraverseProc = null,
+        m_clear: ?Inquiry = null,
+        m_free: ?FreeFunc = null,
+    };
+}
+
+comptime { // `tools/check_abi.py` checks the C sizes
+    if (@sizeOf(ModuleDef(ObjectHeadGil)) != 104 or @sizeOf(ModuleDef(ObjectHeadFt)) != 120)
+        @compileError("`PyModuleDef` size");
+}
+
+/// `PyType_Slot`. Its fields are named like `Slot`'s (`id`, `value.ptr`), so code that patches a
+/// slot list works on both.
+pub const TypeSlot = extern struct {
+    id: c_int,
+    value: extern union { ptr: ?*const anyopaque } = .{ .ptr = null },
+};
+
+/// `PyType_Spec`: a negative `basicsize` is extra instance data after the base's (PEP 697).
+pub const TypeSpec = extern struct {
+    name: [*:0]const u8,
+    basicsize: c_int,
+    itemsize: c_int = 0,
+    flags: c_uint,
+    slots: [*]TypeSlot,
+};
+
+/// `PyMemberDef` (`Py_tp_members`): Setu uses it for `__dictoffset__` / `__weaklistoffset__`.
+pub const MemberDef = extern struct {
+    name: ?[*:0]const u8,
+    type: c_int,
+    offset: ssize,
+    flags: c_int,
+    doc: ?[*:0]const u8 = null,
+};
+
 // --- constants ---------------------------------------------------------------------
 
 pub const SLOT_OPTIONAL: u16 = 0x0001;
@@ -133,8 +216,9 @@ pub const SLOT_INTPTR: u16 = 0x0004;
 
 pub const slot_end: u16 = 0;
 pub const Py_mp_subscript: u16 = 5;
-pub const Py_mp_ass_subscript: u16 = 90;
-pub const Py_mp_length: u16 = 91;
+// `PyType_Slot` numbering, which Setu's types use (3.15 renumbered these two `PySlot` IDs to 90 / 91)
+pub const Py_mp_ass_subscript: u16 = 3;
+pub const Py_mp_length: u16 = 4;
 pub const Py_sq_contains: u16 = 41;
 pub const Py_nb_absolute: u16 = 6;
 pub const Py_nb_add: u16 = 7;
@@ -193,6 +277,7 @@ pub const Py_tp_iternext: u16 = 63;
 pub const Py_tp_repr: u16 = 66;
 pub const Py_tp_getset: u16 = 73;
 pub const Py_tp_free: u16 = 74;
+pub const Py_tp_members: u16 = 72;
 pub const Py_tp_name: u16 = 95;
 pub const Py_tp_extra_basicsize: u16 = 97;
 pub const Py_tp_flags: u16 = 99;
@@ -205,6 +290,10 @@ pub const Py_mod_name: u16 = 100;
 pub const Py_mod_doc: u16 = 101;
 pub const Py_mod_methods: u16 = 103;
 pub const Py_mod_abi: u16 = 109;
+// the 3.14 `PyModuleDef_Slot` IDs (3.15 renumbered them for `PySlot`)
+pub const Py_mod_exec_old: c_int = 2;
+pub const Py_mod_multiple_interpreters_old: c_int = 3;
+pub const Py_mod_gil_old: c_int = 4;
 
 /// `Py_mod_gil` value: the module needs the GIL (3.15t enables it on import); for state that is not
 /// thread-safe.
@@ -213,17 +302,22 @@ pub const Py_MOD_GIL_USED: u64 = 0;
 pub const Py_MOD_GIL_NOT_USED: u64 = 1;
 pub const Py_MOD_MULTIPLE_INTERPRETERS_NOT_SUPPORTED: u64 = 0;
 
+pub const PyABIInfo_STABLE: u16 = 0x0001;
 pub const PyABIInfo_GIL: u16 = 0x0002;
 pub const PyABIInfo_FREETHREADED: u16 = 0x0004;
 /// `_Py_PACK_VERSION(3, 15)`
 pub const version_3_15: u32 = 0x030F0000;
 
 pub const Py_TPFLAGS_DEFAULT: u64 = 0;
-pub const Py_TPFLAGS_MANAGED_WEAKREF: u64 = 1 << 3;
-pub const Py_TPFLAGS_MANAGED_DICT: u64 = 1 << 4;
+pub const Py_TPFLAGS_MANAGED_WEAKREF = @compileError(no_stable_abi ++ " (`weakref`: `__weaklistoffset__`)");
+pub const Py_TPFLAGS_MANAGED_DICT = @compileError(no_stable_abi ++ " (`dict`: `__dictoffset__`)");
 pub const Py_TPFLAGS_DISALLOW_INSTANTIATION: u64 = 1 << 7;
 pub const Py_TPFLAGS_BASETYPE: u64 = 1 << 10;
 pub const Py_TPFLAGS_HAVE_GC: u64 = 1 << 14;
+
+pub const Py_T_PYSSIZET: c_int = 19;
+pub const Py_READONLY: c_int = 1;
+pub const Py_RELATIVE_OFFSET: c_int = 8;
 
 pub const METH_NOARGS: c_int = 0x0004;
 pub const METH_O: c_int = 0x0008;
@@ -251,6 +345,9 @@ pub const Py_NE: c_int = 3;
 pub const Py_GT: c_int = 4;
 pub const Py_GE: c_int = 5;
 
+/// Why the `@compileError` declarations are not there.
+const no_stable_abi = "not in the 3.15 stable ABI (abi3t), which Setu builds for";
+
 // --- functions ----------------------------------------------------------------------
 
 pub extern fn Py_IncRef(?*Object) void;
@@ -270,7 +367,7 @@ pub extern fn PyErr_ExceptionMatches(*Object) c_int;
 pub extern fn PyErr_Clear() void;
 pub extern fn PyErr_WriteUnraisable(?*Object) void;
 pub extern fn PyErr_GivenExceptionMatches(?*Object, ?*Object) c_int;
-pub extern fn PyErr_FormatUnraisable([*:0]const u8, ...) void;
+pub const PyErr_FormatUnraisable = @compileError(no_stable_abi ++ " (use `PyErr_WriteUnraisable`)");
 
 pub extern fn PyEval_SaveThread() ?*ThreadState;
 pub extern fn PyEval_RestoreThread(?*ThreadState) void;
@@ -320,6 +417,7 @@ pub extern fn PyUnicode_AsUTF8AndSize(*Object, ?*ssize) ?[*:0]const u8;
 pub fn PyUnicode_Check(o: *Object) c_int {
     return @intFromBool(PyType_IsSubtype(Py_TYPE(o), PyUnicode_Type) != 0);
 }
+pub const PyBaseObject_Type = @extern(*TypeObject, .{ .name = "PyBaseObject_Type" });
 pub const PyUnicode_Type = @extern(*TypeObject, .{ .name = "PyUnicode_Type" });
 pub const PyLong_Type = @extern(*TypeObject, .{ .name = "PyLong_Type" });
 pub const PyBytes_Type = @extern(*TypeObject, .{ .name = "PyBytes_Type" });
@@ -344,6 +442,10 @@ pub extern fn PyLong_FromLong(c_long) ?*Object;
 pub extern fn PyObject_Str(*Object) ?*Object;
 pub extern fn PyObject_RichCompareBool(*Object, *Object, c_int) c_int;
 pub extern fn PyObject_Call(*Object, *Object, ?*Object) ?*Object;
+/// `PyObject_Vectorcall` (PEP 590): `callable(*args[0..nargs])` without an args tuple; `kwnames` is a
+/// tuple naming the last arguments, or null. Bit 63 of `nargsf` (`PY_VECTORCALL_ARGUMENTS_OFFSET`) lets the
+/// callee use `args[-1]`.
+pub extern fn PyObject_Vectorcall(*Object, ?[*]const *Object, usize, ?*Object) ?*Object;
 pub extern fn PyImport_ImportModule([*:0]const u8) ?*Object;
 pub extern fn PyDict_New() ?*Object;
 pub extern fn PyDict_SetItem(*Object, *Object, *Object) c_int;
@@ -352,14 +454,16 @@ pub extern fn PyDict_Next(*Object, *ssize, *?*Object, *?*Object) c_int;
 pub extern fn PyDict_GetItemStringRef(*Object, [*:0]const u8, *?*Object) c_int;
 
 pub extern fn PyIter_Send(*Object, *Object, *?*Object) c_int;
-pub extern fn PyContext_CopyCurrent() ?*Object;
-pub extern fn PyContext_Enter(*Object) c_int;
-pub extern fn PyContext_Exit(*Object) c_int;
+pub const PyContext_CopyCurrent = @compileError(no_stable_abi ++ " (call `contextvars.copy_context`)");
+pub const PyContext_Enter = @compileError(no_stable_abi ++ " (call `Context.run`)");
+pub const PyContext_Exit = @compileError(no_stable_abi ++ " (call `Context.run`)");
 pub extern fn PyObject_GetAttrString(*Object, [*:0]const u8) ?*Object;
 pub extern fn PyObject_CallNoArgs(*Object) ?*Object;
-pub extern fn PyObject_CallOneArg(*Object, *Object) ?*Object;
+pub const PyObject_CallOneArg = @compileError(no_stable_abi ++ " (use `PyObject_Vectorcall`)");
 
-pub extern fn PyType_FromSlots([*]const Slot) ?*Object;
+pub extern fn PyType_FromMetaclass(?*TypeObject, ?*Object, *TypeSpec, ?*Object) ?*Object;
+pub extern fn PyModuleDef_Init(*anyopaque) ?*Object;
+pub extern fn PySys_GetObject([*:0]const u8) ?*Object;
 pub extern fn PyType_IsSubtype(*TypeObject, *TypeObject) c_int;
 pub extern fn PyType_GenericAlloc(*TypeObject, ssize) ?*Object;
 pub extern fn PyType_GetSlot(*TypeObject, c_int) ?*anyopaque;
@@ -370,11 +474,11 @@ pub extern fn PyObject_GC_IsTracked(*Object) c_int;
 pub extern fn PyObject_CallFinalizerFromDealloc(*Object) c_int;
 pub extern fn PyObject_GenericGetAttr(*Object, *Object) ?*Object;
 pub extern fn PyObject_GenericSetAttr(*Object, *Object, ?*Object) c_int;
-pub extern fn PyObject_GenericHash(*Object) ssize;
+pub const PyObject_GenericHash = @compileError(no_stable_abi ++ " (`PyType_GetSlot(PyBaseObject_Type, Py_tp_hash)`)");
 pub extern fn PyObject_SetAttrString(*Object, [*:0]const u8, ?*Object) c_int;
 pub extern fn PyObject_ClearWeakRefs(*Object) void;
-pub extern fn PyObject_VisitManagedDict(*Object, VisitProc, ?*anyopaque) c_int;
-pub extern fn PyObject_ClearManagedDict(*Object) void;
+pub const PyObject_VisitManagedDict = @compileError(no_stable_abi ++ " (`dict` keeps its own `__dict__` pointer)");
+pub const PyObject_ClearManagedDict = @compileError(no_stable_abi ++ " (`dict` keeps its own `__dict__` pointer)");
 pub extern fn PyObject_GenericGetDict(*Object, ?*anyopaque) ?*Object;
 pub extern fn PyObject_GenericSetDict(*Object, ?*Object, ?*anyopaque) c_int;
 pub extern fn Py_GenericAlias(*Object, *Object) ?*Object;
@@ -402,4 +506,4 @@ pub extern var PyExc_BlockingIOError: *Object;
 pub extern var PyExc_FileExistsError: *Object;
 
 /// `types.CoroutineType` (not subclassable, so an exact type check suffices).
-pub const PyCoro_Type = @extern(*TypeObject, .{ .name = "PyCoro_Type" });
+pub const PyCoro_Type = @compileError(no_stable_abi ++ " (look up `types.CoroutineType`)");

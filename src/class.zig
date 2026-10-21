@@ -14,12 +14,12 @@
 //!     basetype      true: Python classes may subclass it
 //!     instantiable  false: Python can not call the type (Zig creates it with `new`)
 //!     getset        extra `c.GetSetDef`s (no terminator), for properties built at comptime
-//!     slots         extra `c.Slot`s (no terminator), for protocol slots Setu has no hook for
+//!     slots         extra `c.Slot`s (no terminator, `PyType_Slot` IDs), for protocol slots Setu has no hook for
 //!     stub          extra `.pyi` lines for the class body (`setu.stub`), for what `getset` /
 //!                   `slots` add
-//!     weakref       true: instances support `weakref.ref` (`Py_TPFLAGS_MANAGED_WEAKREF`)
+//!     weakref       true: instances support `weakref.ref` (a `__weaklistoffset__` member)
 //!     dict          true: instances get a `__dict__` for arbitrary attributes
-//!                   (`Py_TPFLAGS_MANAGED_DICT`; makes the type GC-tracked)
+//!                   (a `__dictoffset__` member; makes the type GC-tracked)
 //!     pickle        true: generated `__getstate__` / `__setstate__` (a tuple of the fields
 //!                   of this type and its bases: ints, floats, `bool`s, `?*Object`s), so
 //!                   `pickle` / `copy` work; unpickling calls `Type.__new__(Type)`
@@ -219,13 +219,50 @@ pub const Poll = union(enum) {
 const Phase = enum(u8) { fresh, waiting, done };
 
 /// What a `Class` of the struct `T` stores per instance: `T`, plus the phase of a `__poll__`
-/// awaitable.
+/// awaitable and the `__dict__` / weak reference list pointers of `dict` / `weakref` (the
+/// type that turns them on holds them; subclasses inherit the offsets).
 fn Stored(comptime T: type) type {
     const poll = @hasDecl(T, "__poll__");
+    const d = ownDict(T);
+    const w = ownWeakref(T);
     return struct {
         user: T = .{},
         phase: if (poll) Phase else void = if (poll) .fresh else {},
+        dict: if (d) ?*Object else void = if (d) null else {},
+        weakrefs: if (w) ?*Object else void = if (w) null else {},
     };
+}
+
+/// Does `T` turn `dict` on (a base has not already)?
+fn ownDict(comptime T: type) bool {
+    return @hasDecl(T, "dict") and T.dict and !(@hasDecl(T, "base") and T.base.dict);
+}
+
+/// Does `T` turn `weakref` on (a base has not already)?
+fn ownWeakref(comptime T: type) bool {
+    return @hasDecl(T, "weakref") and T.weakref and !(@hasDecl(T, "base") and T.base.weakref);
+}
+
+/// `slots` (ending with `c.Slot.end`) as `c.TypeSlot`s, without the ones `c.TypeSpec` has a
+/// field for (`Py_tp_name`, `Py_tp_flags`, `Py_tp_extra_basicsize`).
+fn specSlots(comptime slots: []const c.Slot) [specSlotCount(slots)]c.TypeSlot {
+    var out: [specSlotCount(slots)]c.TypeSlot = undefined;
+    var i = 0;
+    for (slots) |s| if (!isSpecField(s.id)) {
+        out[i] = .{ .id = s.id, .value = .{ .ptr = s.value.ptr } };
+        i += 1;
+    };
+    return out;
+}
+
+fn specSlotCount(comptime slots: []const c.Slot) usize {
+    var n = 0;
+    for (slots) |s| n += @intFromBool(!isSpecField(s.id));
+    return n;
+}
+
+fn isSpecField(id: u16) bool {
+    return id == c.Py_tp_name or id == c.Py_tp_flags or id == c.Py_tp_extra_basicsize;
 }
 
 /// Is the parameter type `P` an instance of a `setu.Class` (`*T` / `*const T`, `T` a struct)?
@@ -540,15 +577,17 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         /// Creates the type object (after the base's), sets the class attributes and, with a
         /// `module`, adds it there.
         pub fn create(module: ?*Object) Error!void {
-            if (Base != void) {
-                const b = Base.tp orelse return py.raiseRuntimeError("base of `{s}` is not created yet", .{name});
-                for (&type_slots) |*s| {
-                    if (s.id == c.Py_tp_base) s.value = .{ .ptr = b };
-                    if (keep_hash and s.id == c.Py_tp_hash) s.value = .{ .ptr = c.PyType_GetSlot(b, c.Py_tp_hash) };
-                }
+            const b = if (Base != void)
+                Base.tp orelse return py.raiseRuntimeError("base of `{s}` is not created yet", .{name})
+            else
+                c.PyBaseObject_Type;
+            for (&type_slots) |*s| {
+                if (s.id == c.Py_tp_base) s.value = .{ .ptr = b };
+                if (keep_hash and s.id == c.Py_tp_hash) s.value = .{ .ptr = c.PyType_GetSlot(b, c.Py_tp_hash) };
             }
-            const t: *c.TypeObject = @ptrCast(c.PyType_FromSlots(&type_slots) orelse return error.PythonError);
-            tp = t; // keeps the reference from `PyType_FromSlots` for the process lifetime
+            const made = c.PyType_FromMetaclass(null, null, &spec, null) orelse return error.PythonError;
+            const t: *c.TypeObject = @ptrCast(made);
+            tp = t; // keeps the new reference for the process lifetime
             Instance(T).tp = t;
             inline for (info.decl_names) |n| if (comptime isClassAttr(T, n)) {
                 const V = @TypeOf(@field(T, n));
@@ -612,6 +651,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 .array => for (@field(d, n)) |o| try v.add(o),
                 .none => {},
             };
+            if (comptime ownDict(T)) try v.add(stored(obj).dict);
             if (@hasDecl(T, "__traverse__"))
                 try T.__traverse__(py.selfArg(This, @typeInfo(@TypeOf(T.__traverse__)).@"fn".param_types[0].?, obj), v);
             if (Base != void) try Base.traverseAll(obj, v);
@@ -630,6 +670,10 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                     py.decref(o);
                 },
                 .none => {},
+            };
+            if (comptime ownDict(T)) if (stored(obj).dict) |o| {
+                stored(obj).dict = null;
+                py.decref(o);
             };
             if (@hasDecl(T, "__clear__")) T.__clear__(selfOf(T.__clear__, obj));
             if (Base != void) Base.clearAll(obj);
@@ -689,18 +733,12 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         /// `tp_traverse`: the owned objects of this type and its bases, then the type.
         fn tpTraverse(obj: *Object, proc: c.VisitProc, arg: ?*anyopaque) callconv(.c) c_int {
             var v: Visit = .{ .proc = proc, .arg = arg };
-            traverseAll(obj, &v) catch return v.code;
-            // Python subclasses too: their `tp_traverse` leaves a base's managed dict to the base.
-            if (dict) {
-                const r = c.PyObject_VisitManagedDict(obj, proc, arg);
-                if (r != 0) return r;
-            }
+            traverseAll(obj, &v) catch return v.code; // with the `__dict__` (Python subclasses leave it to us)
             return proc(@ptrCast(c.Py_TYPE(obj)), arg);
         }
 
         /// `tp_clear`.
         fn tpClear(obj: *Object) callconv(.c) c_int {
-            if (dict) c.PyObject_ClearManagedDict(obj);
             clearAll(obj);
             return 0;
         }
@@ -713,8 +751,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             const t = c.Py_TYPE(obj);
             if (gc) c.PyObject_GC_UnTrack(obj);
             if (weakref) c.PyObject_ClearWeakRefs(obj);
-            if (dict) c.PyObject_ClearManagedDict(obj);
-            clearAll(obj);
+            clearAll(obj); // with the `__dict__`
             delAll(obj);
             const free: c.FreeFunc = @ptrCast(@alignCast(c.PyType_GetSlot(t, c.Py_tp_free).?));
             free(obj);
@@ -779,7 +816,12 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 .next => |v| return v,
                 .done => |v| {
                     defer py.decref(v);
-                    if (v != py.none()) c.PyErr_SetObject(c.PyExc_StopIteration, v);
+                    if (v == py.none()) return null;
+                    // Raise an instance: given `v` itself, a tuple `v` would become the exception's args.
+                    const args = [_]*Object{v};
+                    const exc = c.PyObject_Vectorcall(c.PyExc_StopIteration, &args, 1, null) orelse return null;
+                    defer py.decref(exc);
+                    c.PyErr_SetObject(c.PyExc_StopIteration, exc);
                     return null;
                 },
             }
@@ -1235,7 +1277,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                     .closure = null,
                 }};
             };
-            if (@hasDecl(T, "dict") and T.dict) defs = defs ++ .{c.GetSetDef{
+            if (ownDict(T)) defs = defs ++ .{c.GetSetDef{
                 .name = "__dict__",
                 .get = &c.PyObject_GenericGetDict,
                 .set = &c.PyObject_GenericSetDict,
@@ -1258,11 +1300,41 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         const flags = c.Py_TPFLAGS_DEFAULT |
             (if (@hasDecl(T, "basetype") and T.basetype) c.Py_TPFLAGS_BASETYPE else 0) |
             (if (gc) c.Py_TPFLAGS_HAVE_GC else 0) |
-            (if (instantiable) 0 else c.Py_TPFLAGS_DISALLOW_INSTANTIATION) |
-            (if (weakref) c.Py_TPFLAGS_MANAGED_WEAKREF else 0) |
-            (if (dict) c.Py_TPFLAGS_MANAGED_DICT else 0);
+            (if (instantiable) 0 else c.Py_TPFLAGS_DISALLOW_INSTANTIATION);
 
-        var type_slots = blk: {
+        /// `__dictoffset__` / `__weaklistoffset__` of `dict` / `weakref`, relative to the instance
+        /// data (`Py_RELATIVE_OFFSET`): the stable ABI has no managed dict / weakref flags.
+        const members = blk: {
+            const flags_ = c.Py_READONLY | c.Py_RELATIVE_OFFSET;
+            var m: []const c.MemberDef = &.{};
+            if (ownDict(T)) m = m ++ .{c.MemberDef{
+                .name = "__dictoffset__",
+                .type = c.Py_T_PYSSIZET,
+                .offset = @offsetOf(Stored(T), "dict"),
+                .flags = flags_,
+            }};
+            if (ownWeakref(T)) m = m ++ .{c.MemberDef{
+                .name = "__weaklistoffset__",
+                .type = c.Py_T_PYSSIZET,
+                .offset = @offsetOf(Stored(T), "weakrefs"),
+                .flags = flags_,
+            }};
+            break :blk (m ++ .{c.MemberDef{ .name = null, .type = 0, .offset = 0, .flags = 0 }})[0 .. m.len + 1].*;
+        };
+
+        /// The type's slots, without the ones `spec` has a field for.
+        var type_slots = specSlots(&all_slots);
+
+        /// The type's name, size and flags, then `type_slots`.
+        var spec: c.TypeSpec = .{
+            .name = name.ptr,
+            .basicsize = -@as(c_int, @sizeOf(Stored(T))), // PEP 697: extra data after the base's
+            .flags = flags,
+            .slots = &type_slots,
+        };
+
+        /// Setu's description of the type (`PyType_Slot` IDs).
+        const all_slots = blk: {
             var s: []const c.Slot = &.{
                 c.Slot.data(c.Py_tp_name, name.ptr),
                 c.Slot.uint(c.Py_tp_flags, flags),
@@ -1281,6 +1353,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             };
             if (methods.len > 1) s = s ++ .{c.Slot.static(c.Py_tp_methods, &methods)};
             if (getset.len > 1) s = s ++ .{c.Slot.static(c.Py_tp_getset, &getset)};
+            if (members.len > 1) s = s ++ .{c.Slot.static(c.Py_tp_members, &members)};
             if (sends) s = s ++ .{
                 c.Slot.func(c.Py_am_send, @ptrCast(&amSend)),
                 c.Slot.func(c.Py_tp_iternext, @ptrCast(&tpIternext)),
@@ -1306,11 +1379,8 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 s = s ++ .{c.Slot.func(c.Py_tp_hash, @ptrCast(&tpHash))};
             } else if (keep_hash) {
                 // Only `__eq__` makes a type unhashable, but CPython drops the inherited hash
-                // for any `tp_richcompare`: keep the base's (set in `create`) or `object`'s.
-                s = s ++ .{if (Base != void) c.Slot{ .id = c.Py_tp_hash } else c.Slot.func(
-                    c.Py_tp_hash,
-                    @ptrCast(&c.PyObject_GenericHash),
-                )};
+                // for any `tp_richcompare`: keep the base's or `object`'s (set in `create`).
+                s = s ++ .{c.Slot{ .id = c.Py_tp_hash }};
             }
             if (@hasDecl(T, "__call__")) s = s ++ .{c.Slot.func(c.Py_tp_call, @ptrCast(&tpCall))};
             for (number_ops) |op| {

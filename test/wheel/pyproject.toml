@@ -5,7 +5,7 @@
 name = "setu_classes"
 description = "Setu's test extension, packaged by tools/setu_build.py for the wheel checks."
 readme = { file = "README.rst", content-type = "text/x-rst" }
-requires-python = ">=3.15"
+requires-python = ">=3.14"
 license = "CC0-1.0"
 license-files = ["LICENSE.txt"]
 
@@ -15,6 +15,5 @@ build-backend = "setu_build"
 backend-path = ["tools"]
 
 [tool.setu_build]
-# `--all`: one glibc and one musl target, both ABIs (`tools/check_wheels.py` expects these four).
-abis = ["cp315t", "cp315"]
+# `--all`: one glibc and one musl target (`tools/check_wheels.py` expects these two wheels).
 targets = ["x86_64-linux-gnu.2.28", "x86_64-linux-musl"]

@@ -109,8 +109,8 @@ fn hooks(comptime C: type) []const u8 {
         const R = docType(py.fnSource(body, if (poll) "__poll__" else "__await__").doc, "return") orelse "Any";
         out = out ++ "\n    def __await__(self) -> Generator[Any, Any, " ++ R ++ "]: ...\n";
     }
+    // `__send__` is `am_send`, not a Python `send()` method.
     if (@hasDecl(T, "__send__") or poll) out = out ++
-        "\n    def send(self, value: Any, /) -> Any: ...\n" ++
         "\n    def __iter__(self) -> Self: ...\n" ++
         "\n    def __next__(self) -> Any: ...\n";
     if (@hasDecl(T, "__bool__")) out = out ++ "\n    def __bool__(self) -> bool: ...\n";

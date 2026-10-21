@@ -1,6 +1,6 @@
 //! PyOZ-style export: the C-ABI trampolines and method table entries for `pub fn`s
 //! (`exportFns`, `methodDef`, `getter`), with `__text_signature__` docstrings, and a file's
-//! constants (`addConstants`). Re-exported by `py.zig`.
+//! constants (`addConstants`), and the module's entry points (`exportModule`). Re-exported by `py.zig`.
 
 const std = @import("std");
 const c = @import("capi.zig");
@@ -189,6 +189,103 @@ pub fn constants(comptime M: type) []const Constant {
         }
     }
     return out;
+}
+
+/// An extension module, for `exportModule`.
+pub const Module = struct {
+    /// The module name: the extension file's name without its suffix (`setu_classes`).
+    name: [:0]const u8,
+    doc: ?[:0]const u8 = null,
+    /// The module functions, ending with `method_end` (`exportFns(...) ++ .{method_end}`).
+    methods: []const c.MethodDef = &.{method_end},
+    /// `Py_mod_exec`: fills the module (classes, constants), `0` or `-1` with an exception set.
+    exec: ?c.ModExec = null,
+    /// `false` (`Py_MOD_GIL_NOT_USED`): safe without the GIL. `true` (`Py_MOD_GIL_USED`): the
+    /// free-threaded CPython enables the GIL on import, for state that is not thread-safe.
+    gil: bool = false,
+    /// Can be imported in subinterpreters? Setu keeps state in globals, so the default is no.
+    multiple_interpreters: bool = false,
+};
+
+/// Exports both entry points of the module, so one binary loads on CPython 3.14, 3.14t, 3.15,
+/// 3.15t and later: `PyModExport_<name>` (PEP 793, with a stable free-threading-agnostic
+/// `Py_mod_abi`), which 3.15+ prefers, and `PyInit_<name>`, which 3.14 calls. Call it in a
+/// `comptime` block of the extension's root file.
+///
+/// Example
+///     >>> comptime {
+///     >>>     py.exportModule(.{ .name = "point", .methods = &methods, .exec = &exec });
+///     >>> }
+///     >>> import point
+///     >>> point.__name__
+///     'point'
+///
+/// Note
+///     - On 3.14 the module comes from a static `PyModuleDef`, whose object header differs
+///       between 3.14 and 3.14t: both are built, `PyInit_<name>` picks one by `sys.abiflags`.
+pub fn exportModule(comptime m: Module) void {
+    const E = struct {
+        const abi_info: c.ABIInfo = .{
+            .flags = c.PyABIInfo_STABLE | c.PyABIInfo_GIL | c.PyABIInfo_FREETHREADED,
+            .build_version = c.version_3_15,
+            .abi_version = c.version_3_15,
+        };
+        const gil: u64 = if (m.gil) c.Py_MOD_GIL_USED else c.Py_MOD_GIL_NOT_USED;
+        const interpreters = c.Py_MOD_MULTIPLE_INTERPRETERS_NOT_SUPPORTED;
+        const slots = blk: {
+            var s: []const c.Slot = &.{
+                c.Slot.data(c.Py_mod_abi, &abi_info),
+                c.Slot.data(c.Py_mod_name, m.name.ptr),
+                c.Slot.static(c.Py_mod_methods, m.methods.ptr),
+            };
+            if (m.doc) |d| s = s ++ .{c.Slot.data(c.Py_mod_doc, d.ptr)};
+            if (m.exec) |f| s = s ++ .{c.Slot.func(c.Py_mod_exec, f)};
+            s = s ++ .{c.Slot.uint(c.Py_mod_gil, gil)};
+            if (!m.multiple_interpreters) s = s ++ .{c.Slot.uint(c.Py_mod_multiple_interpreters, interpreters)};
+            break :blk (s ++ .{c.Slot.end})[0 .. s.len + 1].*;
+        };
+        var def_slots = blk: {
+            var s: []const c.ModuleDefSlot = &.{};
+            if (m.exec) |f| s = s ++ .{c.ModuleDefSlot{ .slot = c.Py_mod_exec_old, .value = f }};
+            s = s ++ .{c.ModuleDefSlot{ .slot = c.Py_mod_gil_old, .value = @ptrFromInt(gil) }};
+            if (!m.multiple_interpreters) s = s ++ .{c.ModuleDefSlot{
+                .slot = c.Py_mod_multiple_interpreters_old,
+                .value = @ptrFromInt(interpreters),
+            }};
+            break :blk (s ++ .{c.ModuleDefSlot.end})[0 .. s.len + 1].*;
+        };
+        var def_gil: c.ModuleDef(c.ObjectHeadGil) = .{
+            .m_name = m.name.ptr,
+            .m_doc = if (m.doc) |d| d.ptr else null,
+            .m_methods = @constCast(m.methods.ptr),
+            .m_slots = &def_slots,
+        };
+        var def_ft: c.ModuleDef(c.ObjectHeadFt) = .{
+            .m_name = m.name.ptr,
+            .m_doc = if (m.doc) |d| d.ptr else null,
+            .m_methods = @constCast(m.methods.ptr),
+            .m_slots = &def_slots,
+        };
+
+        fn modExport() callconv(.c) [*]const c.Slot {
+            return &slots;
+        }
+        fn init() callconv(.c) ?*Object {
+            return c.PyModuleDef_Init(if (freeThreaded()) @ptrCast(&def_ft) else @ptrCast(&def_gil));
+        }
+    };
+    @export(&E.modExport, .{ .name = "PyModExport_" ++ m.name });
+    @export(&E.init, .{ .name = "PyInit_" ++ m.name });
+}
+
+/// Is this the free-threaded CPython? `t` in `sys.abiflags`.
+fn freeThreaded() bool {
+    const flags = c.PySys_GetObject("abiflags") orelse return false; // borrowed
+    const text = c.PyUnicode_AsUTF8AndSize(flags, null) orelse {
+        c.PyErr_Clear();
+        return false;
+    };
+    return std.mem.indexOfScalar(u8, std.mem.span(text), 't') != null;
 }
 
 /// Adds the constants of `M` (see `constants`) to `module` as ints, by name. For the module's
