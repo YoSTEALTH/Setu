@@ -7,7 +7,8 @@ PEP 803, plus a 3.14 entry point). Any pip installs it on 3.14, 3.14t, 3.15 and 
 need pip 26.2+ (`abi3t`). PEP 697 type data, critical sections. No `Python.h`: the C API is declared by hand in `src/capi.zig`.
 Zig 0.17.0, Linux.
 
-Setu is mainly for the Shakti and Liburing projects, which use it as a dependency (it never imports
+Setu is mainly for the [Shakti](https://github.com/YoSTEALTH/Shakti) and
+[Liburing](https://github.com/YoSTEALTH/Liburing) projects, which use it as a dependency (it never imports
 either). For your own extensions, use [PyOZ](https://pyoz.dev) instead: it fills the same role and is
 documented and maintained for public use.
 
