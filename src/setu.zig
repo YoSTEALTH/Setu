@@ -28,3 +28,15 @@ pub const Options = class.Options;
 pub const Send = class.Send;
 pub const Poll = class.Poll;
 pub const Visit = class.Visit;
+
+test {
+    @import("std").testing.refAllDecls(@This());
+    _ = @import("args.zig");
+    _ = @import("class.zig");
+    _ = @import("convert.zig");
+    _ = @import("export.zig");
+    _ = @import("py.zig");
+    _ = @import("raise.zig");
+    _ = @import("source.zig");
+    _ = @import("stub.zig");
+}

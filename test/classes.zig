@@ -130,7 +130,29 @@ pub const Vec = struct {
     pub fn dot(a: *const Vec, b: *const Vec) i64 {
         return a.x * b.x + a.y * b.y;
     }
+
+    /// Releases the buffer the last call kept, then keeps `buf` (a method's `py.OwnedWritableBuffer`)
+    /// until the next call and fills it with `x`; `fill_into()` only releases. Returns how many bytes.
+    ///
+    /// Example
+    ///     >>> b = bytearray(2)
+    ///     >>> Vec(7).fill_into(b)
+    ///     2
+    ///     >>> b
+    ///     bytearray(b'\x07\x07')
+    ///     >>> b.append(1)
+    ///     BufferError: Existing exports of data: object cannot be re-sized
+    pub fn fill_into(self: *const Vec, buf: ?py.OwnedWritableBuffer, scale: ?u8) usize {
+        if (vec_kept) |k| k.deinit();
+        vec_kept = buf;
+        const b = buf orelse return 0;
+        // cast: test values are small
+        @memset(b.data, @as(u8, @truncate(@as(u64, @bitCast(self.x)))) *% (scale orelse 1));
+        return b.data.len;
+    }
 };
+/// What `Vec.fill_into` keeps.
+var vec_kept: ?py.OwnedWritableBuffer = null;
 pub const VecType = setu.Class(Vec, @embedFile("classes.zig"));
 
 /// A `Vec` with a label: a Setu subclass, pickled with its base's fields.

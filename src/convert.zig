@@ -1,5 +1,6 @@
 //! Python <-> Zig value conversion: `fromPython` for arguments, `toPython` / `new` for
-//! results, and the `Bytes` / `Path` / `Buffer` / `WritableBuffer` / `Sequence(T)` argument types.
+//! results, and the `Bytes` / `Path` / `Buffer` / `WritableBuffer` / `OwnedBuffer` / `OwnedWritableBuffer` /
+//! `Sequence(T)` argument types.
 //! Re-exported by `py.zig`.
 
 const std = @import("std");
@@ -20,8 +21,8 @@ const setError = raise.setError;
 
 /// Converts a Python argument to `T`: `bool` (truthiness), an integer type, a float
 /// type, `[]const u8` / `[:0]const u8` (a `str`'s UTF-8, borrowed from it), `Bytes` (a
-/// `bytes`' contents, borrowed), `Path` / `Buffer` / `WritableBuffer` / `Sequence(T)` (`deinit`
-/// them; see `releases`), `*U` / `*const U` (the instance data of a `setu.Class(U, ...)` instance
+/// `bytes`' contents, borrowed), `Path` / `Buffer` / `WritableBuffer` / `OwnedBuffer` /
+/// `OwnedWritableBuffer` / `Sequence(T)` (`deinit` them; see `releases`), `*U` / `*const U` (the instance data of a `setu.Class(U, ...)` instance
 /// or subclass, borrowed), or `*Object` as is.
 ///
 /// Example
@@ -60,6 +61,8 @@ pub fn fromPythonAs(comptime T: type, obj: *Object, comptime what: []const u8) E
     if (T == Path) return Path.from(obj);
     if (T == Buffer) return Buffer.from(obj);
     if (T == WritableBuffer) return WritableBuffer.from(obj);
+    if (T == OwnedBuffer) return OwnedBuffer.from(obj);
+    if (T == OwnedWritableBuffer) return OwnedWritableBuffer.from(obj);
     if (comptime isSequence(T)) return T.fromAs(obj, what);
     switch (@typeInfo(T)) {
         .bool => {
@@ -437,6 +440,85 @@ pub const WritableBuffer = struct {
     }
 };
 
+/// A `Buffer` argument the function keeps: converted the same way, but Setu does not release the
+/// view after the call; the function stores it (released later with `deinit`) or calls `deinit`. No
+/// second view, unlike `Buffer.take`: `PyObject_GetBuffer` once per argument, the release moved to
+/// where the function lets go (an io_uring send, until its completion).
+///
+/// Example
+///     >>> pub fn send(ring: *Ring, data: py.OwnedBuffer) void {
+///     ...     ring.data = data; // `ring.data.deinit()` at the completion
+///     ... }
+///
+/// Note
+///     - When a later argument fails to convert, the function is not called and Setu releases the view.
+///       Once the function runs it owns the view, on its error paths too (its own `errdefer`).
+///     - Not a `Sequence(T)` item or a `setu.Class` hook parameter (`@compileError`).
+pub const OwnedBuffer = struct {
+    /// The bytes, valid until `deinit`.
+    data: []const u8,
+    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
+    view: c.Buffer,
+
+    /// The bytes of `obj`, as `Buffer.from`.
+    pub fn from(obj: *Object) Error!OwnedBuffer {
+        var b: OwnedBuffer = undefined;
+        try fill(obj, &b);
+        return b;
+    }
+
+    /// `from`, into `out` (an argument's place): see `WritableBuffer.fill`.
+    pub inline fn fill(obj: *Object, out: *OwnedBuffer) Error!void {
+        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_SIMPLE) < 0) return error.PythonError;
+        out.data = viewBytes(&out.view);
+    }
+
+    /// Releases the view (`PyBuffer_Release`).
+    pub fn deinit(self: OwnedBuffer) void {
+        var view = self.view;
+        c.PyBuffer_Release(&view);
+    }
+};
+
+/// A `WritableBuffer` argument the function keeps (the same checks: `TypeError` for `bytes`), like
+/// `OwnedBuffer`: Setu does not release the view after the call. Until the function's `deinit` the
+/// object can not resize (`BufferError`) and stays alive (the view holds it).
+///
+/// Example
+///     >>> pub fn recv(ring: *Ring, buf: py.OwnedWritableBuffer) void {
+///     ...     ring.buf = buf; // `ring.buf.deinit()` at the completion
+///     ... }
+///     >>> b = bytearray(5)
+///     >>> recv(ring, b)
+///     >>> b.append(1)
+///     BufferError: Existing exports of data: object cannot be re-sized
+pub const OwnedWritableBuffer = struct {
+    /// The bytes, valid (and writable) until `deinit`.
+    data: []u8,
+    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
+    view: c.Buffer,
+
+    /// The bytes of `obj`, as `WritableBuffer.from`.
+    pub fn from(obj: *Object) Error!OwnedWritableBuffer {
+        var b: OwnedWritableBuffer = undefined;
+        try fill(obj, &b);
+        return b;
+    }
+
+    /// `from`, into `out` (an argument's place): see `WritableBuffer.fill`.
+    pub inline fn fill(obj: *Object, out: *OwnedWritableBuffer) Error!void {
+        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_WRITABLE) < 0)
+            return WritableBuffer.notWritable(obj, error.PythonError);
+        out.data = viewBytes(&out.view);
+    }
+
+    /// Releases the view (`PyBuffer_Release`).
+    pub fn deinit(self: OwnedWritableBuffer) void {
+        var view = self.view;
+        c.PyBuffer_Release(&view);
+    }
+};
+
 /// `PyObject_GetBuffer(obj, flags)`.
 fn getBuffer(obj: *Object, flags: c_int) Error!c.Buffer {
     var view: c.Buffer = undefined;
@@ -483,6 +565,8 @@ fn viewBytes(view: *const c.Buffer) []u8 {
 ///       borrowed item (`Bytes`, `[]const u8`, `*U`) stays valid even if the list changes.
 ///     - `items` lives in `PyMem_Malloc` memory (none for an empty sequence).
 pub fn Sequence(comptime T: type) type {
+    if (owns(T)) @compileError("`Sequence(" ++ @typeName(T) ++ ")`: the items are released with the " ++
+        "sequence; use `Sequence(Buffer)` / `Sequence(WritableBuffer)` and `take`");
     return struct {
         const Self = @This();
 
@@ -576,4 +660,37 @@ pub fn isSequence(comptime T: type) bool {
 pub fn releases(comptime T: type) bool {
     const U = if (@typeInfo(T) == .optional) @typeInfo(T).optional.child else T;
     return U == Path or U == Buffer or U == WritableBuffer or isSequence(U);
+}
+
+/// Is an argument of type `T` (or `?T`) the function's to release (`OwnedBuffer`,
+/// `OwnedWritableBuffer`)? Setu releases it only when a later argument fails to convert.
+pub fn owns(comptime T: type) bool {
+    const U = if (@typeInfo(T) == .optional) @typeInfo(T).optional.child else T;
+    return U == OwnedBuffer or U == OwnedWritableBuffer;
+}
+
+/// Is `T` one of the buffer argument types, filled in place (`fill`)?
+pub fn isBuffer(comptime T: type) bool {
+    return T == Buffer or T == WritableBuffer or T == OwnedBuffer or T == OwnedWritableBuffer;
+}
+
+const testing = @import("testing.zig");
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+test "releases / owns / isBuffer / isSequence: which argument types Setu releases" {
+    comptime {
+        for ([_]type{ Path, Buffer, WritableBuffer, Sequence(u8), ?Buffer, ?Sequence(Bytes) }) |T|
+            testing.expect(releases(T) and !owns(T), @typeName(T) ++ ": released after the call");
+        for ([_]type{ OwnedBuffer, OwnedWritableBuffer, ?OwnedBuffer, ?OwnedWritableBuffer }) |T|
+            testing.expect(owns(T) and !releases(T), @typeName(T) ++ ": the function's");
+        for ([_]type{ u8, Bytes, []const u8, *Object, ?i32 }) |T|
+            testing.expect(!releases(T) and !owns(T), @typeName(T) ++ ": nothing to release");
+        for ([_]type{ Buffer, WritableBuffer, OwnedBuffer, OwnedWritableBuffer }) |T|
+            testing.expect(isBuffer(T), @typeName(T) ++ ": a buffer");
+        testing.expect(!isBuffer(?Buffer) and !isBuffer(Bytes), "`?Buffer` / `Bytes`: no buffer");
+        testing.expect(isSequence(Sequence(Buffer)) and !isSequence(Buffer), "`Sequence(Buffer)` only");
+    }
 }

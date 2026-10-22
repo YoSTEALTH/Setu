@@ -1,7 +1,7 @@
 .{
     .name = .setu,
     // year.month.day (no zero padding: semver)
-    .version = "2026.10.21",
+    .version = "2026.10.21-2",
     .fingerprint = 0x7deee0e42718577f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},

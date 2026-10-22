@@ -25,10 +25,19 @@ tools/setu_build.py   the wheel build backend (PEP 517) projects copy into their
 Commands:
 
 ```sh
-zig build test                        # unit tests
+zig build test                        # type-check every declaration + comptime unit tests
 zig build develop                     # test extension (setu_classes.so) + stubs into test/
 tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
+python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (ReleaseFast)
 ```
+
+## Naming
+
+Setu's own code follows Zig style. In a file that `py.exportFns` or `setu.Class` exports, a lowercase
+`pub fn`, snake_case included (`prep_recv`, `get_label`), is a Python function, method or property under
+that name; camelCase `pub fn`s are Zig-only helpers. So snake_case function names there are on purpose,
+not a slip from Zig's camelCase rule: they are the Python names. Hooks keep their Python names too
+(`__init__`, `__repr__`).
 
 ## Wheels: `tools/setu_build.py`
 

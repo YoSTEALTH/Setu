@@ -872,7 +872,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         /// else `fromPythonAs`.
         fn argAs(comptime P: type, obj: *Object, comptime what: []const u8) Error!P {
             if (P == *Object or P == ?*Object) return obj;
-            if (comptime py.releases(P)) @compileError(what ++ ": a `" ++ @typeName(P) ++
+            if (comptime py.releases(P) or py.owns(P)) @compileError(what ++ ": a `" ++ @typeName(P) ++
                 "` hook parameter is never released; take `*Object` and convert it in the hook");
             if (comptime isInstancePtr(P)) {
                 const I = Instance(@typeInfo(P).pointer.child);
@@ -1414,4 +1414,20 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             break :blk s[0..s.len].*;
         };
     };
+}
+
+const testing = @import("testing.zig");
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+test "shortName / isInstancePtr" {
+    comptime {
+        testing.expectText(shortName("pkg.mod.Point"), "Point");
+        testing.expectText(shortName("Point"), "Point");
+        const Point = struct { x: i64 };
+        testing.expect(isInstancePtr(*Point) and isInstancePtr(*const Point), "`*Point` an instance");
+        testing.expect(!isInstancePtr([]Point) and !isInstancePtr(*u8) and !isInstancePtr(Point), "not instances");
+    }
 }

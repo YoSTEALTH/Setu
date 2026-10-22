@@ -13,7 +13,8 @@
 //! Supported parameter types: integers, floats, `bool`, `[]const u8` / `[:0]const u8` (a
 //! `str` as UTF-8, borrowed for the call), `Bytes` (a `bytes`), `Path` (`str` / `bytes` /
 //! `os.PathLike`, released after the call), `Buffer` / `WritableBuffer` (a bytes-like object,
-//! read-only / writable, locked for the call), `Sequence(T)` (a list / tuple / ... of `T`, freed
+//! read-only / writable, locked for the call), `OwnedBuffer` / `OwnedWritableBuffer` (the same, kept by
+//! the function: it calls `deinit`), `Sequence(T)` (a list / tuple / ... of `T`, freed
 //! after the call), `*T` / `*const T` (an instance of the `setu.Class` of
 //! the struct `T`, or of a subclass; `TypeError` otherwise), `*Object` (raw).
 //! `?T` parameters are optional: omitted or `None` gives `null`
@@ -132,11 +133,15 @@ pub const Bytes = convert.Bytes;
 pub const Path = convert.Path;
 pub const Buffer = convert.Buffer;
 pub const WritableBuffer = convert.WritableBuffer;
+pub const OwnedBuffer = convert.OwnedBuffer;
+pub const OwnedWritableBuffer = convert.OwnedWritableBuffer;
+pub const isBuffer = convert.isBuffer;
 pub const Sequence = convert.Sequence;
 pub const isSequence = convert.isSequence;
 
 pub const releaseArgs = args_zig.releaseArgs;
 pub const releases = convert.releases;
+pub const owns = convert.owns;
 pub const Rest = args_zig.Rest;
 pub const Kwargs = args_zig.Kwargs;
 pub const KwOnly = args_zig.KwOnly;
@@ -183,4 +188,8 @@ pub fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {
 pub fn isInstance(obj: *Object, tp: *c.TypeObject) bool {
     const t = c.Py_TYPE(obj);
     return t == tp or c.PyType_IsSubtype(t, tp) != 0;
+}
+
+test {
+    @import("std").testing.refAllDecls(@This());
 }

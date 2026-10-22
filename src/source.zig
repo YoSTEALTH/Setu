@@ -140,3 +140,72 @@ pub fn docAbove(comptime source: []const u8, comptime at: usize) []const u8 {
     }
     return doc;
 }
+
+const testing = @import("testing.zig");
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+test "listParts: top-level parts, with strings, characters and comments skipped" {
+    comptime testing.expectTexts(
+        listParts("(a, f(b, c), \"x,)\", ',', // d, e\n [g, h]) tail", 1),
+        &.{ "a", "f(b, c)", "\"x,)\"", "','", "[g, h]" },
+    );
+}
+
+test "fnSource: doc, parameter names (unquoted) and types, comments skipped" {
+    const source =
+        \\const before = 1;
+        \\/// Adds.
+        \\///
+        \\/// Example
+        \\///     >>> add(1)
+        \\///     1
+        \\pub fn add(a: i64, b: ?i64, // a note, with a comma
+        \\    @"type": struct { x: u8 = 1, y: bool }) i64 {}
+    ;
+    comptime {
+        const f = fnSource(source, "add");
+        testing.expectText(f.doc, "Adds.\n\nExample\n    >>> add(1)\n    1");
+        testing.expectTexts(&.{ f.params[0], f.params[1], f.params[2] }, &.{ "a", "b", "type" });
+        testing.expect(f.params.len == 3, "3 parameters");
+        testing.expectTexts(f.types, &.{ "i64", "?i64", "struct { x: u8 = 1, y: bool }" });
+        testing.expectText(docAbove(source, 0), "");
+    }
+}
+
+test "structBody / fieldDefaults: an argument struct's fields and their defaults" {
+    const source =
+        \\const Opts = struct {
+        \\    mode: u8 = 2,
+        \\    @"async": bool = false, // quoted
+        \\    path: ?[]const u8,
+        \\    pub const K = 1;
+        \\};
+    ;
+    comptime {
+        testing.expectTexts(structBody("", "struct { x: u8 = 1, y: bool }", "f"), &.{ "x: u8 = 1", "y: bool" });
+        const defaults = fieldDefaults(structBody(source, "Opts", "f"));
+        testing.expect(defaults.len == 2, "2 defaults");
+        testing.expectTexts(&.{ defaults[0][0], defaults[0][1] }, &.{ "mode", " 2" });
+        testing.expectTexts(&.{ defaults[1][0], defaults[1][1] }, &.{ "async", " false" });
+    }
+}
+
+test "pyDefault: a Zig default as Python source" {
+    comptime {
+        testing.expectText(pyDefault("null", "f"), "None");
+        testing.expectText(pyDefault(" true", "f"), "True");
+        testing.expectText(pyDefault("false ", "f"), "False");
+        testing.expectText(pyDefault("\"ab\"", "f"), "'ab'");
+        testing.expectText(pyDefault("-3", "f"), "-3");
+        testing.expectText(pyDefault("0x10", "f"), "0x10");
+        testing.expectText(pyDefault("1.5", "f"), "1.5");
+        testing.expectText(pyDefault("MAX", "f"), "MAX");
+        testing.expectText(pyDefault("linux.AT.FDCWD", "f"), "FDCWD");
+        testing.expectText(pyDefault(".fast", "f"), "fast");
+        testing.expectText(unquoteName("@\"type\""), "type");
+        testing.expectText(unquoteName("plain"), "plain");
+    }
+}

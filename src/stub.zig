@@ -4,9 +4,9 @@
 //! Types come from the doc's `Type` section (`name: type  # note` or `name: type - note`;
 //! `return: type` for the result), else from the Zig type: `bool`, ints -> `int`, floats ->
 //! `float`, `[]const u8` -> `str`, `py.Bytes` -> `bytes`, `py.Path` -> `str | bytes | os.PathLike`,
-//! `py.Buffer` / `py.WritableBuffer` -> `Buffer`, `py.Sequence(T)` -> `Sequence[T]` (both `collections.abc`),
-//! slices -> `list[T]`, tuples -> `tuple[T, U]`, `void` -> `None`, `?T` -> `T | None = None`,
-//! `py.Rest` -> `*name` (parameters before it: positional-only, then `/`), `py.KwOnly` -> `*`, `py.Kwargs` ->
+//! `py.Buffer` / `py.WritableBuffer` / `py.OwnedBuffer` / `py.OwnedWritableBuffer` -> `Buffer`, `py.Sequence(T)` ->
+//! `Sequence[T]` (both `collections.abc`), slices -> `list[T]`, tuples -> `tuple[T, U]`, `void` -> `None`,
+//! `?T` -> `T | None = None`, `py.Rest` -> `*name` (parameters before it: positional-only, then `/`), `py.KwOnly` -> `*`, `py.Kwargs` ->
 //! `**name`, an argument struct's field with a default -> `= ...` (`= None` for `null`), `*T` / `*const T` (a
 //! `setu.Class` instance) -> the class name, `*Object` and anything else -> `Any`. Bare generics in a `Type`
 //! section get their arguments (`os.PathLike` -> `os.PathLike[str] | os.PathLike[bytes]`, `list` -> `list[Any]`,
@@ -387,7 +387,7 @@ fn withArgs(comptime ty: []const u8) []const u8 {
 pub fn pyType(comptime T: type) []const u8 {
     if (T == py.Bytes) return "bytes";
     if (T == py.Path) return "str | bytes | os.PathLike[str] | os.PathLike[bytes]";
-    if (T == py.Buffer or T == py.WritableBuffer) return "Buffer";
+    if (comptime py.isBuffer(T)) return "Buffer";
     if (comptime py.isSequence(T)) return "Sequence[" ++ pyType(T.Item) ++ "]";
     if (comptime class_zig.isInstancePtr(T)) return shortName(class_zig.Instance(@typeInfo(T).pointer.child).name);
     return switch (@typeInfo(T)) {
@@ -447,4 +447,114 @@ pub fn format(comptime text: []const u8) []const u8 {
         prev = line;
     }
     return out;
+}
+
+const testing = @import("testing.zig");
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+/// The module functions and constants for the `functions` / `constants` test.
+const sample = struct {
+    /// What `stub_sample_mode` takes.
+    pub const Mode = enum(u8) { FAST = 1, SLOW = 2 };
+    pub const LIMIT = 3;
+    pub const lower = 4;
+
+    /// Adds `b` (default 0) to `a`.
+    ///
+    /// Type
+    ///     a: int  # a note
+    pub fn stub_sample_add(a: i64, b: ?i64) i64 {
+        return a + (b orelse 0);
+    }
+
+    pub fn stub_sample_bufs(data: py.Buffer, all: py.Sequence(u8), out: ?py.OwnedWritableBuffer) void {
+        _ = .{ data, all, out };
+    }
+
+    /// Zig-only (camelCase): not exported.
+    pub fn sampleHelper() void {}
+};
+
+test "pyType: Zig parameter and result types as Python types" {
+    comptime {
+        testing.expectText(pyType(bool), "bool");
+        testing.expectText(pyType(u8), "int");
+        testing.expectText(pyType(f32), "float");
+        testing.expectText(pyType(void), "None");
+        testing.expectText(pyType([]const u8), "str");
+        testing.expectText(pyType([:0]const u8), "str");
+        testing.expectText(pyType([]const u32), "list[int]");
+        testing.expectText(pyType(struct { i64, bool }), "tuple[int, bool]");
+        testing.expectText(pyType(?u8), "int | None");
+        testing.expectText(pyType(py.Error!u8), "int");
+        testing.expectText(pyType(py.Bytes), "bytes");
+        testing.expectText(pyType(py.Path), "str | bytes | os.PathLike[str] | os.PathLike[bytes]");
+        testing.expectText(pyType(py.Buffer), "Buffer");
+        testing.expectText(pyType(py.WritableBuffer), "Buffer");
+        testing.expectText(pyType(py.OwnedBuffer), "Buffer");
+        testing.expectText(pyType(py.OwnedWritableBuffer), "Buffer");
+        testing.expectText(pyType(py.Sequence(py.Bytes)), "Sequence[bytes]");
+        testing.expectText(pyType(*py.Object), "Any");
+    }
+}
+
+test "docType: a `Type` section entry, generics completed" {
+    const doc =
+        \\Opens it.
+        \\
+        \\Type
+        \\    path: str | os.PathLike  # a note
+        \\    flags: int - a note
+        \\    return: list
+        \\
+        \\Note
+        \\    other: str
+    ;
+    comptime {
+        @setEvalBranchQuota(100_000); // `function` / `class` set their own when they call it
+        testing.expectText(docType(doc, "path").?, "str | os.PathLike[str] | os.PathLike[bytes]");
+        testing.expectText(docType(doc, "flags").?, "int");
+        testing.expectText(docType(doc, "return").?, "list[Any]");
+        testing.expect(docType(doc, "other") == null, "no `Type` entry for `other` (in `Note`)");
+        testing.expect(docType("", "path") == null, "no `Type` entry without a doc");
+    }
+}
+
+test "defLine: one line up to 120 characters, else one parameter per line" {
+    comptime {
+        testing.expectText(defLine("", "f", &.{ "a: int", "b: int" }, "None"), "def f(a: int, b: int) -> None:");
+        const long = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; // 50
+        testing.expectText(
+            defLine("    ", "g", &.{ long ++ ": int", long ++ "y: int" }, "int"),
+            "    def g(\n        " ++ long ++ ": int,\n        " ++ long ++ "y: int,\n    ) -> int:",
+        );
+    }
+}
+
+test "format: no blank line after a one-line class member" {
+    comptime testing.expectText(
+        format("class A:\n    def f(self) -> None: ...\n\n    def g(self) -> None: ...\n\n\nx: int\n"),
+        "class A:\n    def f(self) -> None: ...\n    def g(self) -> None: ...\n\nx: int\n",
+    );
+}
+
+test "functions / constants: a namespace's exported functions and module constants" {
+    comptime {
+        testing.expectText(constants(sample), "FAST: int\nSLOW: int\nLIMIT: int\n");
+        testing.expectText(functions(sample, @embedFile("stub.zig")),
+            \\
+            \\def stub_sample_add(a: int, b: int | None = None) -> int:
+            \\    '''Adds `b` (default 0) to `a`.
+            \\
+            \\    Type
+            \\        a: int  # a note
+            \\    '''
+            \\
+            \\def stub_sample_bufs(data: Buffer, all: Sequence[int], out: Buffer | None = None) -> None: ...
+            \\
+        );
+    }
 }

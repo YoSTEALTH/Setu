@@ -21,17 +21,32 @@ const Bytes = convert.Bytes;
 const Path = convert.Path;
 const Buffer = convert.Buffer;
 const WritableBuffer = convert.WritableBuffer;
+const OwnedBuffer = convert.OwnedBuffer;
+const OwnedWritableBuffer = convert.OwnedWritableBuffer;
 const releases = convert.releases;
+const owns = convert.owns;
+const isBuffer = convert.isBuffer;
 const fnSource = source_zig.fnSource;
 const structBody = source_zig.structBody;
 const fieldDefaults = source_zig.fieldDefaults;
 const pyDefault = source_zig.pyDefault;
 
 /// Releases the arguments of `plist` in `tuple` that hold a reference or a lock (`Path`,
-/// `Buffer`, `Sequence(T)`, ...; see `releases`), after the call or when a later argument failed
-/// to convert.
+/// `Buffer`, `Sequence(T)`, ...; see `releases`), after the call. The function's own (`OwnedBuffer`,
+/// ...; see `owns`) are kept.
 pub fn releaseArgs(comptime F: type, comptime plist: []const Param, tuple: *std.meta.ArgsTuple(F)) void {
-    inline for (plist) |p| if (comptime releases(p.T)) {
+    releaseWhere(F, plist, tuple, false);
+}
+
+/// Releases the arguments of `plist` in `tuple` that `releases`, and with `owned` those that `owns` too
+/// (when a later argument failed to convert: the function never got them).
+inline fn releaseWhere(
+    comptime F: type,
+    comptime plist: []const Param,
+    tuple: *std.meta.ArgsTuple(F),
+    comptime owned: bool,
+) void {
+    inline for (plist) |p| if (comptime releases(p.T) or (owned and owns(p.T))) {
         const v = if (p.field) |field| &@field(tuple.*[p.arg], field) else &tuple.*[p.arg];
         if (@typeInfo(p.T) == .optional) {
             if (v.*) |*x| releaseOne(x);
@@ -43,7 +58,7 @@ pub fn releaseArgs(comptime F: type, comptime plist: []const Param, tuple: *std.
 /// of a view written just before is a store-forwarding stall, see `WritableBuffer.fill`).
 inline fn releaseOne(v: anytype) void {
     const T = @TypeOf(v.*);
-    if (T == Buffer or T == WritableBuffer) c.PyBuffer_Release(&v.view) else v.deinit();
+    if (comptime isBuffer(T)) c.PyBuffer_Release(&v.view) else v.deinit();
 }
 
 /// `*args`: the positional arguments, borrowed for the duration of the call.
@@ -219,7 +234,7 @@ pub fn paramList(
 /// value type like `Bytes` / `Path` / `Buffer`)?
 fn isArgStruct(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct" or @typeInfo(T).@"struct".is_tuple) return false;
-    return T != Bytes and T != Path and T != Buffer and T != WritableBuffer and !convert.isSequence(T) and
+    return T != Bytes and T != Path and !isBuffer(T) and !convert.isSequence(T) and
         T != Rest and T != KwOnly and T != Kwargs;
 }
 
@@ -246,7 +261,7 @@ pub fn fillArgs(
     inline for (plist, 0..) |p, at| {
         const out = if (p.field) |field| &@field(tuple.*[p.arg], field) else &tuple.*[p.arg];
         fillOne(p, fname, slots[at], out) catch |err| {
-            releaseArgs(F, plist[0..at], tuple);
+            releaseWhere(F, plist[0..at], tuple, true);
             return err;
         };
     }
@@ -259,7 +274,7 @@ inline fn fillOne(comptime p: Param, comptime fname: []const u8, slot: ?*Object,
     const optional = @typeInfo(p.T) == .optional;
     const T = if (optional) @typeInfo(p.T).optional.child else p.T;
     if (slot) |o| {
-        if (T == Buffer or T == WritableBuffer) {
+        if (comptime isBuffer(T)) {
             if (optional and o == none()) {
                 out.* = null;
                 return;
@@ -290,9 +305,9 @@ fn argError(comptime p: Param, comptime fname: []const u8, comptime T: type, err
         "`str`"
     else if (T == Bytes)
         "`bytes`"
-    else if (T == Buffer)
+    else if (T == Buffer or T == OwnedBuffer)
         "a bytes-like object"
-    else if (T == WritableBuffer)
+    else if (T == WritableBuffer or T == OwnedWritableBuffer)
         "a writable bytes-like object"
     else if (comptime class_zig.isInstancePtr(T))
         "`" ++ comptime class_zig.shortName(class_zig.Instance(@typeInfo(T).pointer.child).name) ++ "`"
@@ -407,4 +422,65 @@ fn optionalArg(comptime T: type, obj: *Object, comptime what: []const u8) Error!
     if (T == ?*Object) return obj;
     if (obj == none()) return null;
     return try fromPythonAs(@typeInfo(T).optional.child, obj, what);
+}
+
+const testing = @import("testing.zig");
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+/// The functions for the `paramList` tests.
+const sample = struct {
+    pub fn args_sample_plain(fd: i32, size: ?u32, name: []const u8) void {
+        _ = .{ fd, size, name };
+    }
+
+    pub fn args_sample_struct(self: *Object, a: struct {
+        path: ?*Object = null,
+        flags: u32 = 0,
+        _: KwOnly = .{},
+        dir_fd: i32 = -100,
+        mode: u8,
+    }) void {
+        _ = .{ self, a };
+    }
+
+    pub fn args_sample_rest(func: *Object, rest: Rest, _: KwOnly, sep: ?[]const u8, extra: Kwargs) void {
+        _ = .{ func, rest, sep, extra };
+    }
+};
+
+test "paramList: plain parameters, `?T` defaulting to `None`" {
+    comptime {
+        const plist = paramList(sample.args_sample_plain, 0, "args_sample_plain", @embedFile("args.zig"));
+        testing.expectTexts(paramNames(plist), &.{ "fd", "size", "name" });
+        testing.expect(plist[0].default == null and plist[2].default == null, "`fd` and `name` required");
+        testing.expectText(plist[1].default.?, "None");
+        testing.expect(plist[1].T == ?u32 and plist[2].arg == 2, "`size: ?u32`, `name` the third argument");
+        testing.expect(positionalCount(plist) == 3 and leadCount(plist) == 0, "3 positional, none positional-only");
+    }
+}
+
+test "paramList: an argument struct's fields, defaults as Python source, `KwOnly`" {
+    comptime {
+        const plist = paramList(sample.args_sample_struct, 1, "args_sample_struct", @embedFile("args.zig"));
+        testing.expectTexts(paramNames(plist), &.{ "path", "flags", "_", "dir_fd", "mode" });
+        testing.expectText(plist[0].default.?, "None");
+        testing.expectText(plist[1].default.?, "0");
+        testing.expectText(plist[3].default.?, "-100");
+        testing.expect(plist[4].default == null, "`mode` (no default) required");
+        testing.expect(plist[2].kind == .kw_only and positionalCount(plist) == 2, "keyword-only from `dir_fd`");
+        testing.expectText(plist[3].field.?, "dir_fd");
+        testing.expect(plist[3].arg == 1, "the fields fill parameter 1");
+    }
+}
+
+test "paramList: `Rest` makes the parameters before it positional-only, `Kwargs` takes none" {
+    comptime {
+        const plist = paramList(sample.args_sample_rest, 0, "args_sample_rest", @embedFile("args.zig"));
+        testing.expectTexts(paramNames(plist), &.{ "", "_", "sep" });
+        testing.expect(plist[0].kind == .positional_only and leadCount(plist) == 1, "`func` positional-only");
+        testing.expect(positionalCount(plist) == 1, "`sep` keyword-only");
+    }
 }

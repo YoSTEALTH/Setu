@@ -187,6 +187,111 @@ pub fn hold(buf: ?py.WritableBuffer, data: ?py.Buffer, bufs: ?py.Sequence(py.Buf
     if (bufs) |l| held.bufs = try l.take();
 }
 
+/// What `own` keeps.
+var owned: struct {
+    buf: ?py.OwnedWritableBuffer = null,
+    data: ?py.OwnedBuffer = null,
+} = .{};
+
+/// Releases what the last call kept, then keeps `buf` and `data` as they come (`py.OwnedWritableBuffer` /
+/// `py.OwnedBuffer`, no second view): locked until the next call. `own()` only releases; with
+/// `drop=True` the function releases them itself before returning.
+///
+/// Example
+///     >>> b = bytearray(3)
+///     >>> own(b)
+///     >>> b.append(1)
+///     BufferError: Existing exports of data: object cannot be re-sized
+///     >>> own()
+///     >>> b.append(1)
+pub fn own(buf: ?py.OwnedWritableBuffer, data: ?py.OwnedBuffer, drop: ?bool) void {
+    if (owned.buf) |b| b.deinit();
+    if (owned.data) |d| d.deinit();
+    owned = .{};
+    if (drop orelse false) {
+        if (buf) |b| b.deinit();
+        if (data) |d| d.deinit();
+        return;
+    }
+    owned = .{ .buf = buf, .data = data };
+}
+
+/// The sum of the bytes of `data`, kept by the call (`py.OwnedBuffer`) and released by it.
+///
+/// Example
+///     >>> owned_sum(b'abc')
+///     294
+pub fn owned_sum(data: py.OwnedBuffer) u64 {
+    defer data.deinit();
+    var total: u64 = 0;
+    for (data.data) |b| total += b;
+    return total;
+}
+
+/// `v` converted, nothing else: the cheapest call for `tools/bench.py` (Liburing's `io_uring_prep_nop(sqe)`).
+///
+/// Example
+///     >>> bench_nop(Vec())
+pub fn bench_nop(v: *Vec) void {
+    _ = v;
+}
+
+/// The arguments of Liburing's `io_uring_prep_recv(sqe, sockfd, buf, flags)`, converted and released
+/// after the call (`tools/bench.py`); returns `fd`.
+///
+/// Example
+///     >>> bench_recv(Vec(), -1, bytearray(4), 0)
+///     -1
+pub fn bench_recv(v: *Vec, fd: i32, buf: ?py.WritableBuffer, flags: ?i32) i32 {
+    _ = .{ v, buf, flags };
+    return fd;
+}
+
+/// What `bench_recv_take` / `bench_recv_owned` keep, until their next call (as an io_uring recv keeps
+/// its buffer until the completion).
+var bench_kept: struct {
+    take: ?py.WritableBuffer = null,
+    owned: ?py.OwnedWritableBuffer = null,
+} = .{};
+
+/// `bench_recv`, keeping `buf` until the next call with a second view (`take`); `buf=None` only
+/// releases (`tools/bench.py`).
+///
+/// Example
+///     >>> bench_recv_take(Vec(), -1, bytearray(4))
+///     -1
+pub fn bench_recv_take(v: *Vec, fd: i32, buf: ?py.WritableBuffer, flags: ?i32) Error!i32 {
+    _ = .{ v, flags };
+    if (bench_kept.take) |b| b.deinit();
+    bench_kept.take = null;
+    if (buf) |b| bench_kept.take = try b.take();
+    return fd;
+}
+
+/// `bench_recv`, keeping `buf` until the next call as it comes (`py.OwnedWritableBuffer`); `buf=None`
+/// only releases (`tools/bench.py`).
+///
+/// Example
+///     >>> bench_recv_owned(Vec(), -1, bytearray(4))
+///     -1
+pub fn bench_recv_owned(v: *Vec, fd: i32, buf: ?py.OwnedWritableBuffer, flags: ?i32) i32 {
+    _ = .{ v, flags };
+    if (bench_kept.owned) |b| b.deinit();
+    bench_kept.owned = buf;
+    return fd;
+}
+
+/// The arguments of Liburing's `io_uring_prep_send(sqe, sockfd, buf, flags)`, converted and released
+/// after the call (`tools/bench.py`); returns `fd`.
+///
+/// Example
+///     >>> bench_send(Vec(), -1, b'abc')
+///     -1
+pub fn bench_send(v: *Vec, fd: i32, buf: ?py.Buffer, flags: ?i32) i32 {
+    _ = .{ v, buf, flags };
+    return fd;
+}
+
 /// `res` itself when it is `>= 0`, else `OSError` for the errno `-res` (`py.checkErrno`).
 ///
 /// Example

@@ -1,5 +1,5 @@
 //! zig build develop         build the test extension `setu_classes` (+ its stubs) into test/
-//! zig build test            run the unit tests
+//! zig build test            type-check every declaration and run the comptime unit tests
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
@@ -60,11 +60,15 @@ pub fn build(b: *std.Build) void {
     ).step);
     develop.dependOn(&b.addInstallFileWithDir(setu_pyi, test_dir, "setu_classes.pyi").step);
 
+    // Compiled, never linked or run: Setu's functions call libpython, which only the interpreter provides.
+    // Analysis type-checks every declaration (`refAllDecls` in each file) and runs the unit tests, which
+    // are comptime (`@compileError` on failure); with no binary requested, nothing is emitted.
     const tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/setu.zig"),
         .target = b.graph.host,
+        .link_libc = true,
     }) });
-    b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
+    b.step("test", "Type-check every declaration and run the comptime unit tests").dependOn(&tests.step);
 }
 
 /// Adds two steps to a project that keeps a copy of Setu's `tools/setu_build.py` (the wheel build

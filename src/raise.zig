@@ -160,3 +160,7 @@ pub fn setError(err: anyerror) void {
     }
     setString(c.PyExc_RuntimeError, "{s}", .{@errorName(err)});
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

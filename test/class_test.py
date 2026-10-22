@@ -490,6 +490,64 @@ def test_take():
     b.append(1)
 
 
+def test_owned_buffers():
+    '''`py.OwnedBuffer` / `py.OwnedWritableBuffer` stay locked past the call, until the function releases them.'''
+    b, d = bytearray(3), bytearray(2)
+    refs = [sys.getrefcount(b), sys.getrefcount(d)]
+    sc.own(b, d)
+    for o in (b, d):
+        with pytest.raises(BufferError):
+            o.append(1)
+    del o
+    sc.own()
+    b.append(1)
+    d.append(1)
+    assert [sys.getrefcount(b), sys.getrefcount(d)] == refs
+    sc.own(memoryview(b))  # a `memoryview` locks its `bytearray` too
+    with pytest.raises(BufferError):
+        b.append(1)
+    sc.own()
+    b.append(1)
+    sc.own(b, d, drop=True)  # released by the function itself
+    b.append(1)
+    d.append(1)
+
+    class Bad:
+        def __bool__(self):
+            raise ZeroDivisionError
+
+    with pytest.raises(ZeroDivisionError):
+        sc.own(b, d, Bad())  # a later argument fails: `own` is not called, Setu releases both
+    b.append(1)
+    d.append(1)
+    assert [sys.getrefcount(b), sys.getrefcount(d)] == refs
+    with pytest.raises(TypeError, match=r"^own\(\) argument 'buf' must be a writable bytes-like object$"):
+        sc.own(b'abc')
+    with pytest.raises(TypeError, match=r"^owned_sum\(\) argument 'data' must be a bytes-like object$"):
+        sc.owned_sum('abc')
+    assert sc.owned_sum(b) == sum(b)
+    assert sc.owned_sum(b'abc') == 294
+    b.append(1)
+
+
+def test_owned_buffer_method():
+    '''A method takes a `py.OwnedWritableBuffer` like a module function: kept past the call, released on failure.'''
+    b = bytearray(2)
+    ref = sys.getrefcount(b)
+    assert Vec(7).fill_into(b) == 2
+    assert b == b'\x07\x07'
+    with pytest.raises(BufferError):
+        b.append(1)
+    assert Vec().fill_into() == 0
+    b.append(1)
+    with pytest.raises(OverflowError):
+        Vec(1).fill_into(b, 300)  # `scale` fails after `buf` was converted: Setu releases it
+    b.append(1)
+    with pytest.raises(TypeError, match=r"^fill_into\(\) argument 'buf' must be a writable bytes-like object$"):
+        Vec().fill_into(b'ab')
+    assert sys.getrefcount(b) == ref
+
+
 def test_check_errno():
     '''`py.checkErrno` passes a result `>= 0` through and raises the errno of a negative one.'''
     assert sc.check_errno(0) == 0

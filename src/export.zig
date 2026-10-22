@@ -466,3 +466,34 @@ pub fn getter(comptime name: [:0]const u8, comptime f: anytype, comptime doc: ?[
     };
     return .{ .name = name.ptr, .get = &G.get, .set = null, .doc = if (doc) |d| d.ptr else null, .closure = null };
 }
+
+const testing = @import("testing.zig");
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}
+
+test "isExported / constants: lowercase functions, UPPER_CASE ints and enum fields" {
+    const M = struct {
+        pub const IOSQE_IO_LINK = 1 << 2;
+        pub const op = enum(u8) { IORING_OP_NOP, IORING_OP_READV, lower };
+        pub const Small: u8 = 7;
+        pub const B2 = -1;
+        pub fn prep_nop() void {}
+        pub fn prepHelper() void {}
+    };
+    comptime {
+        testing.expect(isExported(M, "prep_nop"), "`prep_nop` exported");
+        testing.expect(!isExported(M, "prepHelper"), "camelCase `prepHelper` not exported");
+        testing.expect(!isExported(M, "IOSQE_IO_LINK"), "a constant is no function");
+        const k = constants(M);
+        testing.expectTexts(
+            &.{ k[0].name, k[1].name, k[2].name, k[3].name },
+            &.{ "IOSQE_IO_LINK", "IORING_OP_NOP", "IORING_OP_READV", "B2" },
+        );
+        testing.expect(k.len == 4, "4 constants");
+        testing.expect(k[0].value == 4 and k[2].value == 1 and k[3].value == -1, "their values");
+        testing.expect(isUpperName("AT_FDCWD") and isUpperName("B2"), "UPPER_CASE names");
+        testing.expect(!isUpperName("Small") and !isUpperName("_1"), "not UPPER_CASE");
+    }
+}
