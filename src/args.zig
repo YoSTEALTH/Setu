@@ -145,6 +145,8 @@ pub fn leadCount(comptime plist: []const Param) usize {
 ///       must export `NAME` for `inspect.signature` to resolve it).
 ///     - A field without a default is required (even a `?T` one); a plain `?T` parameter
 ///       defaults to `None`, as before.
+///     - As in Python, a positional parameter after one with a default needs a default too (a
+///       `@compileError` otherwise): put required ones first, or make them keyword-only.
 ///     - `_: py.KwOnly = .{}` (a field or a parameter) starts the keyword-only ones.
 pub const Param = struct {
     /// The Python name (the Zig parameter or field name).
@@ -227,6 +229,17 @@ pub fn paramList(
     var markers = 0;
     for (out) |p| markers += @intFromBool(p.kind == .kw_only);
     if (markers > 1) @compileError(fname ++ ": more than one `py.KwOnly`");
+    // As in Python, a positional parameter after one with a default needs a default too: else neither the
+    // stub nor `__text_signature__` is valid Python (`def f(a: int | None = None, b: int)`).
+    var after: ?[]const u8 = null;
+    for (out) |p| {
+        if (p.kind == .kw_only) break;
+        if (p.default != null) {
+            after = after orelse p.name;
+        } else if (after) |d| @compileError(fname ++ ": the required parameter `" ++ p.name ++
+            "` comes after `" ++ d ++ "`, which has a default (a `?T` defaults to `None`); move it before, " ++
+            "give it a default, or make it keyword-only (after a `_: py.KwOnly`)");
+    }
     return out;
 }
 
@@ -432,8 +445,8 @@ test {
 
 /// The functions for the `paramList` tests.
 const sample = struct {
-    pub fn args_sample_plain(fd: i32, size: ?u32, name: []const u8) void {
-        _ = .{ fd, size, name };
+    pub fn args_sample_plain(fd: i32, name: []const u8, size: ?u32) void {
+        _ = .{ fd, name, size };
     }
 
     pub fn args_sample_struct(self: *Object, a: struct {
@@ -454,10 +467,10 @@ const sample = struct {
 test "paramList: plain parameters, `?T` defaulting to `None`" {
     comptime {
         const plist = paramList(sample.args_sample_plain, 0, "args_sample_plain", @embedFile("args.zig"));
-        testing.expectTexts(paramNames(plist), &.{ "fd", "size", "name" });
-        testing.expect(plist[0].default == null and plist[2].default == null, "`fd` and `name` required");
-        testing.expectText(plist[1].default.?, "None");
-        testing.expect(plist[1].T == ?u32 and plist[2].arg == 2, "`size: ?u32`, `name` the third argument");
+        testing.expectTexts(paramNames(plist), &.{ "fd", "name", "size" });
+        testing.expect(plist[0].default == null and plist[1].default == null, "`fd` and `name` required");
+        testing.expectText(plist[2].default.?, "None");
+        testing.expect(plist[2].T == ?u32 and plist[2].arg == 2, "`size: ?u32`, the third argument");
         testing.expect(positionalCount(plist) == 3 and leadCount(plist) == 0, "3 positional, none positional-only");
     }
 }
