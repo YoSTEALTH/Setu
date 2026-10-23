@@ -45,58 +45,63 @@ pub const Error = error{PythonError};
 // --- references ---------------------------------------------------------------------
 
 /// `Py_IncRef`: take a new reference.
-pub fn incref(o: *Object) void {
+pub inline fn incref(o: *Object) void {
     c.Py_IncRef(o);
 }
 
 /// `Py_DecRef`: drop a reference (`null` is fine).
-pub fn decref(o: ?*Object) void {
+pub inline fn decref(o: ?*Object) void {
     c.Py_DecRef(o);
 }
 
 /// Borrowed `None` (immortal).
-pub fn none() *Object {
+pub inline fn none() *Object {
     return constant(c.Py_CONSTANT_NONE);
 }
 
 /// Borrowed `True` (immortal).
-pub fn trueObj() *Object {
+pub inline fn trueObj() *Object {
     return constant(c.Py_CONSTANT_TRUE);
 }
 
 /// Borrowed `False` (immortal).
-pub fn falseObj() *Object {
+pub inline fn falseObj() *Object {
     return constant(c.Py_CONSTANT_FALSE);
 }
 
 /// A new reference to `None` (for returning it).
-pub fn newNone() *Object {
+pub inline fn newNone() *Object {
     const o = none();
     incref(o);
     return o;
 }
 
 /// Borrowed `NotImplemented` (immortal).
-pub fn notImplemented() *Object {
+pub inline fn notImplemented() *Object {
     return constant(c.Py_CONSTANT_NOT_IMPLEMENTED);
 }
 
 /// `Py_GetConstantBorrowed(id)`, looked up once: the constant is immortal and static, so its
 /// address never changes (racing threads store the same value).
-fn constant(comptime id: c_uint) *Object {
+inline fn constant(comptime id: c_uint) *Object {
     const S = struct {
         const which = id; // captured, so each constant gets its own `obj`
         var obj: ?*Object = null;
+
+        /// The first lookup, out of line: inlined callers keep only the load.
+        fn lookup() *Object {
+            @branchHint(.cold);
+            const o = c.Py_GetConstantBorrowed(which);
+            @atomicStore(?*Object, &obj, o, .monotonic);
+            return o;
+        }
     };
-    if (@atomicLoad(?*Object, &S.obj, .monotonic)) |o| return o;
-    const o = c.Py_GetConstantBorrowed(id);
-    @atomicStore(?*Object, &S.obj, o, .monotonic);
-    return o;
+    return @atomicLoad(?*Object, &S.obj, .monotonic) orelse S.lookup();
 }
 
 /// A new reference to `NotImplemented`: what a comparison or number hook returns for an
 /// operand it does not handle, so Python tries the other operand.
-pub fn newNotImplemented() *Object {
+pub inline fn newNotImplemented() *Object {
     const o = notImplemented();
     incref(o);
     return o;
@@ -179,13 +184,13 @@ pub const Module = export_zig.Module;
 pub const exportModule = export_zig.exportModule;
 
 /// Pointer to a type's extra instance data (`Py_tp_extra_basicsize`).
-pub fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {
+pub inline fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {
     return @ptrCast(@alignCast(c.PyObject_GetTypeData(obj, tp).?));
 }
 
 /// `isinstance(obj, tp)` without going through `__instancecheck__` (the exact type without a
 /// `PyType_IsSubtype` call).
-pub fn isInstance(obj: *Object, tp: *c.TypeObject) bool {
+pub inline fn isInstance(obj: *Object, tp: *c.TypeObject) bool {
     const t = c.Py_TYPE(obj);
     return t == tp or c.PyType_IsSubtype(t, tp) != 0;
 }

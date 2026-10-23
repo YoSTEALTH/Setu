@@ -35,7 +35,7 @@ const setError = raise.setError;
 ///     - An integer that does not fit raises `OverflowError` (`300 is out of range 0..255`);
 ///       `fromPythonAs` names the argument in it.
 ///     - A wrong type for `str` / `bytes` / a class raises `TypeError` (`expected `str``).
-pub fn fromPython(comptime T: type, obj: *Object) Error!T {
+pub inline fn fromPython(comptime T: type, obj: *Object) Error!T {
     return fromPythonAs(T, obj, "");
 }
 
@@ -239,7 +239,7 @@ pub fn toPython(value: anytype) ?*Object {
 ///
 /// Example
 ///     >>> return .{ .done = try py.new(py.Bytes{ .data = buf[0..n] }) };
-pub fn new(value: anytype) Error!*Object {
+pub inline fn new(value: anytype) Error!*Object {
     return toPython(value) orelse error.PythonError;
 }
 
@@ -332,37 +332,7 @@ pub const Path = struct {
 ///     197
 ///     >>> checksum('abc')
 ///     TypeError: checksum() argument 'data' must be a bytes-like object
-pub const Buffer = struct {
-    /// The bytes, valid until `deinit`.
-    data: []const u8,
-    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
-    view: c.Buffer,
-
-    /// The bytes of `obj`; `TypeError` for an object without the buffer protocol.
-    pub fn from(obj: *Object) Error!Buffer {
-        var b: Buffer = undefined;
-        try fill(obj, &b);
-        return b;
-    }
-
-    /// `from`, into `out` (an argument's place): see `WritableBuffer.fill`.
-    pub inline fn fill(obj: *Object, out: *Buffer) Error!void {
-        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_SIMPLE) < 0) return error.PythonError;
-        out.data = viewBytes(&out.view);
-    }
-
-    /// A view of its own on the same object, locked until its `deinit`: a parameter kept past the
-    /// call (Setu releases the parameter's view as usual). See `WritableBuffer.take`.
-    pub fn take(self: Buffer) Error!Buffer {
-        return from(try viewObject(&self.view));
-    }
-
-    /// Releases the view (`PyBuffer_Release`).
-    pub fn deinit(self: Buffer) void {
-        var view = self.view;
-        c.PyBuffer_Release(&view);
-    }
-};
+pub const Buffer = BufferArg(.{});
 
 /// A writable bytes-like argument: `bytearray`, a `memoryview` of one, `array.array`, a writable
 /// `mmap`, ... (`PyBUF_WRITABLE`). Like `Buffer`, locked and released after the call, unless `take` keeps it.
@@ -375,70 +345,7 @@ pub const Buffer = struct {
 ///     bytearray(b'\x07\x07\x07')
 ///     >>> fill(b'abc', 7)
 ///     TypeError: fill() argument 'buf' must be a writable bytes-like object
-pub const WritableBuffer = struct {
-    /// The bytes, valid (and writable) until `deinit`.
-    data: []u8,
-    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
-    view: c.Buffer,
-
-    /// The bytes of `obj`; `TypeError` for an object without the buffer protocol or a read-only
-    /// one (`bytes`), `BufferError` for one that is not contiguous.
-    ///
-    pub fn from(obj: *Object) Error!WritableBuffer {
-        var b: WritableBuffer = undefined;
-        try fill(obj, &b);
-        return b;
-    }
-
-    /// `from`, into `out`: Setu fills a parameter where it lives in the arguments tuple (and
-    /// releases it there). A copy of the view right after CPython wrote it reads it with loads
-    /// wider than CPython's stores: a store-forwarding stall, +10-18 ns per buffer argument.
-    pub inline fn fill(obj: *Object, out: *WritableBuffer) Error!void {
-        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_WRITABLE) < 0) return notWritable(obj, error.PythonError);
-        out.data = viewBytes(&out.view);
-    }
-
-    /// The error for `from`'s failed `PyObject_GetBuffer`: `TypeError` for a read-only buffer,
-    /// else `err` as raised.
-    fn notWritable(obj: *Object, err: Error) Error {
-        @branchHint(.cold);
-        if (c.PyErr_ExceptionMatches(c.PyExc_BufferError) == 0) return err;
-        const raised = c.PyErr_GetRaisedException();
-        if (!readOnly(obj)) {
-            c.PyErr_SetRaisedException(raised);
-            return err;
-        }
-        py.decref(raised);
-        return raiseTypeError("expected a writable bytes-like object", .{});
-    }
-
-    /// A view of its own on the same object, locked until its `deinit`: a parameter kept past the
-    /// call, for memory the kernel writes later (an io_uring read until its completion). Until then
-    /// the object can not resize (`BufferError`) and stays alive (the view holds it). Setu releases
-    /// the parameter's own view after the call as usual, so a parameter costs nothing extra unless taken.
-    ///
-    /// Example
-    ///     >>> pub fn hold(ring: *Ring, buf: py.WritableBuffer) void {
-    ///     ...     ring.buf = try buf.take(); // `ring.buf.deinit()` at the completion
-    ///     ... }
-    ///     >>> b = bytearray(5)
-    ///     >>> hold(ring, b)
-    ///     >>> b.append(1)
-    ///     BufferError: Existing exports of data: object cannot be re-sized
-    ///
-    /// Note
-    ///     - Each `take` is a view of its own, released by its own `deinit` (the same `data`).
-    ///     - `BufferError` for a view without an object (`PyBuffer_FillInfo(NULL)`): nothing to lock.
-    pub fn take(self: WritableBuffer) Error!WritableBuffer {
-        return from(try viewObject(&self.view));
-    }
-
-    /// Releases the view (`PyBuffer_Release`).
-    pub fn deinit(self: WritableBuffer) void {
-        var view = self.view;
-        c.PyBuffer_Release(&view);
-    }
-};
+pub const WritableBuffer = BufferArg(.{ .writable = true });
 
 /// A `Buffer` argument the function keeps: converted the same way, but Setu does not release the
 /// view after the call; the function stores it (released later with `deinit`) or calls `deinit`. No
@@ -454,31 +361,7 @@ pub const WritableBuffer = struct {
 ///     - When a later argument fails to convert, the function is not called and Setu releases the view.
 ///       Once the function runs it owns the view, on its error paths too (its own `errdefer`).
 ///     - Not a `Sequence(T)` item or a `setu.Class` hook parameter (`@compileError`).
-pub const OwnedBuffer = struct {
-    /// The bytes, valid until `deinit`.
-    data: []const u8,
-    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
-    view: c.Buffer,
-
-    /// The bytes of `obj`, as `Buffer.from`.
-    pub fn from(obj: *Object) Error!OwnedBuffer {
-        var b: OwnedBuffer = undefined;
-        try fill(obj, &b);
-        return b;
-    }
-
-    /// `from`, into `out` (an argument's place): see `WritableBuffer.fill`.
-    pub inline fn fill(obj: *Object, out: *OwnedBuffer) Error!void {
-        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_SIMPLE) < 0) return error.PythonError;
-        out.data = viewBytes(&out.view);
-    }
-
-    /// Releases the view (`PyBuffer_Release`).
-    pub fn deinit(self: OwnedBuffer) void {
-        var view = self.view;
-        c.PyBuffer_Release(&view);
-    }
-};
+pub const OwnedBuffer = BufferArg(.{ .owned = true });
 
 /// A `WritableBuffer` argument the function keeps (the same checks: `TypeError` for `bytes`), like
 /// `OwnedBuffer`: Setu does not release the view after the call. Until the function's `deinit` the
@@ -492,32 +375,88 @@ pub const OwnedBuffer = struct {
 ///     >>> recv(ring, b)
 ///     >>> b.append(1)
 ///     BufferError: Existing exports of data: object cannot be re-sized
-pub const OwnedWritableBuffer = struct {
-    /// The bytes, valid (and writable) until `deinit`.
-    data: []u8,
-    /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
-    view: c.Buffer,
+pub const OwnedWritableBuffer = BufferArg(.{ .writable = true, .owned = true });
 
-    /// The bytes of `obj`, as `WritableBuffer.from`.
-    pub fn from(obj: *Object) Error!OwnedWritableBuffer {
-        var b: OwnedWritableBuffer = undefined;
-        try fill(obj, &b);
-        return b;
-    }
-
-    /// `from`, into `out` (an argument's place): see `WritableBuffer.fill`.
-    pub inline fn fill(obj: *Object, out: *OwnedWritableBuffer) Error!void {
-        if (c.PyObject_GetBuffer(obj, &out.view, c.PyBUF_WRITABLE) < 0)
-            return WritableBuffer.notWritable(obj, error.PythonError);
-        out.data = viewBytes(&out.view);
-    }
-
-    /// Releases the view (`PyBuffer_Release`).
-    pub fn deinit(self: OwnedWritableBuffer) void {
-        var view = self.view;
-        c.PyBuffer_Release(&view);
-    }
+/// What a buffer argument type is (`BufferArg`).
+const BufferKind = struct {
+    /// `PyBUF_WRITABLE` (`data: []u8`; `TypeError` for a read-only object), else `PyBUF_SIMPLE`.
+    writable: bool = false,
+    /// The function's to release (`owns`): Setu does not release it after the call, and it has no `take`.
+    owned: bool = false,
 };
+
+/// The buffer argument type of `kind`: `Buffer`, `WritableBuffer`, `OwnedBuffer`, `OwnedWritableBuffer`.
+fn BufferArg(comptime kind: BufferKind) type {
+    return struct {
+        const Self = @This();
+
+        /// The bytes, valid (and writable, for a writable one) until `deinit`.
+        data: if (kind.writable) []u8 else []const u8,
+        /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
+        view: c.Buffer,
+
+        /// The bytes of `obj`; `TypeError` for an object without the buffer protocol (or a read-only
+        /// one, `bytes`, for a writable one), `BufferError` for one that is not contiguous.
+        pub fn from(obj: *Object) Error!Self {
+            var b: Self = undefined;
+            try fill(obj, &b);
+            return b;
+        }
+
+        /// `from`, into `out`: Setu fills a parameter where it lives in the arguments tuple (and
+        /// releases it there). A copy of the view right after CPython wrote it reads it with loads
+        /// wider than CPython's stores: a store-forwarding stall, +10-18 ns per buffer argument.
+        pub inline fn fill(obj: *Object, out: *Self) Error!void {
+            const flags = if (kind.writable) c.PyBUF_WRITABLE else c.PyBUF_SIMPLE;
+            if (c.PyObject_GetBuffer(obj, &out.view, flags) < 0)
+                return if (kind.writable) notWritable(obj, error.PythonError) else error.PythonError;
+            out.data = viewBytes(&out.view);
+        }
+
+        /// A view of its own on the same object, locked until its `deinit`: a parameter kept past the
+        /// call, for memory the kernel writes later (an io_uring read until its completion). Until then
+        /// the object can not resize (`BufferError`) and stays alive (the view holds it). Setu releases
+        /// the parameter's own view after the call as usual, so a parameter costs nothing extra unless taken.
+        ///
+        /// Example
+        ///     >>> pub fn hold(ring: *Ring, buf: py.WritableBuffer) void {
+        ///     ...     ring.buf = try buf.take(); // `ring.buf.deinit()` at the completion
+        ///     ... }
+        ///     >>> b = bytearray(5)
+        ///     >>> hold(ring, b)
+        ///     >>> b.append(1)
+        ///     BufferError: Existing exports of data: object cannot be re-sized
+        ///
+        /// Note
+        ///     - Each `take` is a view of its own, released by its own `deinit` (the same `data`).
+        ///     - `BufferError` for a view without an object (`PyBuffer_FillInfo(NULL)`): nothing to lock.
+        ///     - Not for an owned buffer (`@compileError`): the function has the view already.
+        pub fn take(self: Self) Error!Self {
+            if (kind.owned) @compileError("`take` of an owned buffer: it is the function's already");
+            return from(try viewObject(&self.view));
+        }
+
+        /// Releases the view (`PyBuffer_Release`).
+        pub fn deinit(self: Self) void {
+            var view = self.view;
+            c.PyBuffer_Release(&view);
+        }
+    };
+}
+
+/// The error for a writable buffer's failed `PyObject_GetBuffer`: `TypeError` for a read-only
+/// buffer, else `err` as raised.
+fn notWritable(obj: *Object, err: Error) Error {
+    @branchHint(.cold);
+    if (c.PyErr_ExceptionMatches(c.PyExc_BufferError) == 0) return err;
+    const raised = c.PyErr_GetRaisedException();
+    if (!readOnly(obj)) {
+        c.PyErr_SetRaisedException(raised);
+        return err;
+    }
+    py.decref(raised);
+    return raiseTypeError("expected a writable bytes-like object", .{});
+}
 
 /// `PyObject_GetBuffer(obj, flags)`.
 fn getBuffer(obj: *Object, flags: c_int) Error!c.Buffer {
@@ -537,7 +476,7 @@ fn readOnly(obj: *Object) bool {
 }
 
 /// The bytes `view` describes (one contiguous block: `PyBUF_SIMPLE` / `PyBUF_WRITABLE`).
-fn viewBytes(view: *const c.Buffer) []u8 {
+inline fn viewBytes(view: *const c.Buffer) []u8 {
     const len: usize = @intCast(view.len); // cast: a size, never < 0
     if (len == 0) return &.{};
     const ptr: [*]u8 = @ptrCast(view.buf.?);
@@ -579,7 +518,7 @@ pub fn Sequence(comptime T: type) type {
         tuple: *Object,
 
         /// The items of `obj`; `TypeError` for an object that is not a sequence.
-        pub fn from(obj: *Object) Error!Self {
+        pub inline fn from(obj: *Object) Error!Self {
             return fromAs(obj, "");
         }
 

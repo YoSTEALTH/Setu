@@ -12,11 +12,11 @@ pub fn structBody(
     comptime fname: []const u8,
 ) []const []const u8 {
     if (std.mem.startsWith(u8, type_text, "struct")) {
-        const brace = std.mem.indexOfScalar(u8, type_text, '{') orelse @compileError("bad struct in " ++ fname);
+        const brace = std.mem.findScalar(u8, type_text, '{') orelse @compileError("bad struct in " ++ fname);
         return listParts(type_text, brace + 1);
     }
     const head = "const " ++ type_text ++ " = struct {";
-    const at = std.mem.indexOf(u8, source, head) orelse
+    const at = std.mem.find(u8, source, head) orelse
         @compileError(fname ++ ": the argument struct `" ++ type_text ++ "` must be declared in the same file");
     return listParts(source, at + head.len);
 }
@@ -26,8 +26,8 @@ pub fn fieldDefaults(comptime fields: []const []const u8) []const struct { []con
     var out: []const struct { []const u8, []const u8 } = &.{};
     for (fields) |part| {
         if (std.mem.startsWith(u8, part, "pub ") or std.mem.startsWith(u8, part, "const ")) continue;
-        const colon = std.mem.indexOfScalar(u8, part, ':') orelse continue;
-        const eq = std.mem.indexOfScalarPos(u8, part, colon, '=') orelse continue;
+        const colon = std.mem.findScalar(u8, part, ':') orelse continue;
+        const eq = std.mem.findScalarPos(u8, part, colon, '=') orelse continue;
         out = out ++ .{.{ unquoteName(std.mem.trim(u8, part[0..colon], " \t\r\n")), part[eq + 1 ..] }};
     }
     return out;
@@ -45,15 +45,15 @@ pub fn pyDefault(comptime expr: []const u8, comptime what: []const u8) []const u
     if (std.mem.eql(u8, e, "true")) return "True";
     if (std.mem.eql(u8, e, "false")) return "False";
     if (e.len >= 2 and e[0] == '"' and e[e.len - 1] == '"' and
-        std.mem.indexOfAny(u8, e[1 .. e.len - 1], "\\'\"") == null) return "'" ++ e[1 .. e.len - 1] ++ "'";
+        std.mem.findAny(u8, e[1 .. e.len - 1], "\\'\"") == null) return "'" ++ e[1 .. e.len - 1] ++ "'";
     const digits = if (e.len > 0 and e[0] == '-') e[1..] else e;
     const word = for (e) |ch| {
         if (!std.ascii.isAlphanumeric(ch) and ch != '_' and ch != '.') break false;
     } else e.len > 0;
     if (digits.len > 0 and std.ascii.isDigit(digits[0])) {
-        if (std.mem.indexOfScalar(u8, digits, '-') == null and (word or e[0] == '-')) return e;
+        if (std.mem.findScalar(u8, digits, '-') == null and (word or e[0] == '-')) return e;
     } else if (word) {
-        const dot = std.mem.lastIndexOfScalar(u8, e, '.');
+        const dot = std.mem.findScalarLast(u8, e, '.');
         return if (dot) |d| e[d + 1 ..] else e;
     }
     @compileError(what ++ ": can't show the default `" ++ e ++ "` in Python; use a literal, `null` or a constant");
@@ -73,7 +73,7 @@ pub fn listParts(comptime text: []const u8, comptime start: usize) []const []con
         const ch = text[j];
         if (std.mem.startsWith(u8, text[j..], "//")) {
             cur = cur ++ text[begin..j] ++ " ";
-            j = std.mem.indexOfScalarPos(u8, text, j, '\n') orelse text.len;
+            j = std.mem.findScalarPos(u8, text, j, '\n') orelse text.len;
             begin = j;
             continue;
         }
@@ -111,11 +111,11 @@ pub const FnSource = struct {
 pub fn fnSource(comptime source: []const u8, comptime name: []const u8) FnSource {
     @setEvalBranchQuota(1_000_000);
     const needle = "pub fn " ++ name ++ "(";
-    const at = std.mem.indexOf(u8, source, needle) orelse @compileError("no `" ++ needle ++ "` in source");
+    const at = std.mem.find(u8, source, needle) orelse @compileError("no `" ++ needle ++ "` in source");
     var names: []const [:0]const u8 = &.{};
     var types: []const []const u8 = &.{};
     for (listParts(source, at + needle.len)) |part| {
-        const colon = std.mem.indexOfScalar(u8, part, ':') orelse @compileError("bad parameter in " ++ name);
+        const colon = std.mem.findScalar(u8, part, ':') orelse @compileError("bad parameter in " ++ name);
         const pname = unquoteName(std.mem.trim(u8, part[0..colon], " \t\r\n"));
         names = names ++ .{(pname ++ "\x00")[0..pname.len :0]};
         types = types ++ .{std.mem.trim(u8, part[colon + 1 ..], " \t\r\n")};
@@ -127,10 +127,10 @@ pub fn fnSource(comptime source: []const u8, comptime name: []const u8) FnSource
 /// containing `source[at]`.
 pub fn docAbove(comptime source: []const u8, comptime at: usize) []const u8 {
     @setEvalBranchQuota(1_000_000);
-    var start = std.mem.lastIndexOfScalar(u8, source[0..at], '\n') orelse 0;
+    var start = std.mem.findScalarLast(u8, source[0..at], '\n') orelse 0;
     var doc: []const u8 = "";
     while (start > 0) {
-        const prev = std.mem.lastIndexOfScalar(u8, source[0..start], '\n') orelse 0;
+        const prev = std.mem.findScalarLast(u8, source[0..start], '\n') orelse 0;
         const line: []const u8 = std.mem.trim(u8, source[if (prev == 0) 0 else prev + 1..start], " \t\r");
         if (!std.mem.startsWith(u8, line, "///")) break;
         var text: []const u8 = line[3..];

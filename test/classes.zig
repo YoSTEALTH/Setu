@@ -37,14 +37,14 @@ pub const Vec = struct {
     /// `Vec(x, y)`.
     pub fn __repr__(self: *const Vec) Error!*Object {
         var buf: [64]u8 = undefined; // fits 2 x 20 digits
-        const text = std.fmt.bufPrint(&buf, "Vec({d}, {d})", .{ self.x, self.y }) catch unreachable;
+        const text = std.mem.print(&buf, "Vec({d}, {d})", .{ self.x, self.y }) catch unreachable;
         return py.new(text);
     }
 
     /// `(x, y)`.
     pub fn __str__(self: *const Vec) Error!*Object {
         var buf: [64]u8 = undefined; // fits 2 x 20 digits
-        const text = std.fmt.bufPrint(&buf, "({d}, {d})", .{ self.x, self.y }) catch unreachable;
+        const text = std.mem.print(&buf, "({d}, {d})", .{ self.x, self.y }) catch unreachable;
         return py.new(text);
     }
 

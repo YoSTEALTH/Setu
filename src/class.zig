@@ -295,29 +295,34 @@ pub fn Instance(comptime T: type) type {
         var offset: usize = 0;
 
         /// `Stored(T)` of `obj` (an instance of the type or a subclass).
-        pub fn stored(obj: *Object) *Stored(T) {
+        pub inline fn stored(obj: *Object) *Stored(T) {
             var off = @atomicLoad(usize, &offset, .monotonic);
-            if (off == 0) {
-                off = @intFromPtr(py.typeData(Stored(T), obj, tp.?)) - @intFromPtr(obj);
-                @atomicStore(usize, &offset, off, .monotonic);
-            }
+            if (off == 0) off = lookupOffset(obj);
             return @ptrFromInt(@intFromPtr(obj) + off);
         }
 
+        /// The first `stored` call: looks the offset up (out of line, so callers keep only the load).
+        fn lookupOffset(obj: *Object) usize {
+            @branchHint(.cold);
+            const off = @intFromPtr(py.typeData(Stored(T), obj, tp.?)) - @intFromPtr(obj);
+            @atomicStore(usize, &offset, off, .monotonic);
+            return off;
+        }
+
         /// The instance data of `obj` (an instance of the type or a subclass).
-        pub fn data(obj: *Object) *T {
+        pub inline fn data(obj: *Object) *T {
             return &stored(obj).user;
         }
 
         /// The instance whose data is `d` (what `data` gave): `data`'s inverse.
-        pub fn object(d: *const T) *Object {
+        pub inline fn object(d: *const T) *Object {
             const off = @atomicLoad(usize, &offset, .monotonic);
             std.debug.assert(off != 0); // set by the `data` call that gave `d`
             return @ptrFromInt(@intFromPtr(d) - @offsetOf(Stored(T), "user") - off);
         }
 
         /// Is `obj` an instance of the type (or a subclass)?
-        pub fn check(obj: *Object) bool {
+        pub inline fn check(obj: *Object) bool {
             return py.isInstance(obj, tp.?);
         }
 
@@ -451,7 +456,7 @@ pub fn isAccessor(comptime T: type, comptime name: []const u8) bool {
 
 /// The last dotted part of `name` (`"pkg.Point"` -> `"Point"`).
 pub fn shortName(comptime name: []const u8) []const u8 {
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return name;
+    const dot = std.mem.findScalarLast(u8, name, '.') orelse return name;
     return name[dot + 1 ..];
 }
 
@@ -494,7 +499,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
     const info = @typeInfo(T).@"struct";
     // `T`'s own part of `source`, so methods of other structs in the file don't match.
     const head = "const " ++ shortName(@typeName(T)) ++ " = struct {";
-    const at = std.mem.indexOf(u8, source, head) orelse @compileError("no `" ++ head ++ "` in source");
+    const at = std.mem.find(u8, source, head) orelse @compileError("no `" ++ head ++ "` in source");
     const body = source[at..];
     const poll = @hasDecl(T, "__poll__");
     if (poll and @hasDecl(T, "__send__")) @compileError(@typeName(T) ++ ": `__poll__` generates `__send__`; give one");
@@ -699,7 +704,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         }
 
         /// `obj` as the `self` parameter of the hook `f`.
-        fn selfOf(comptime f: anytype, obj: *Object) @typeInfo(@TypeOf(f)).@"fn".param_types[0].? {
+        inline fn selfOf(comptime f: anytype, obj: *Object) @typeInfo(@TypeOf(f)).@"fn".param_types[0].? {
             return py.selfArg(This, @typeInfo(@TypeOf(f)).@"fn".param_types[0].?, obj);
         }
 

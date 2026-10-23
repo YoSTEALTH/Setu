@@ -302,7 +302,7 @@ fn signature(
         }
         const ty = docType(doc, p.name) orelse pyType(p.T);
         const none = p.default != null and std.mem.eql(u8, p.default.?, "None");
-        const add_none = none and std.mem.indexOf(u8, ty, "None") == null;
+        const add_none = none and std.mem.find(u8, ty, "None") == null;
         const default = if (p.default == null) "" else if (none) " = None" else " = ...";
         params = params ++ .{p.name ++ ": " ++ ty ++ (if (add_none) " | None" else "") ++ default};
         if (lead > 0 and i + 1 == lead) { // positional-only, then `*args`
@@ -350,11 +350,11 @@ pub fn docType(comptime doc: []const u8, comptime name: []const u8) ?[]const u8 
             continue;
         }
         const item: []const u8 = std.mem.trim(u8, line, " ");
-        const colon = std.mem.indexOfScalar(u8, item, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, item, ':') orelse continue;
         if (!std.mem.eql(u8, std.mem.trim(u8, item[0..colon], " "), name)) continue;
         var ty: []const u8 = item[colon + 1 ..];
-        if (std.mem.indexOfScalar(u8, ty, '#')) |hash| ty = ty[0..hash];
-        if (std.mem.indexOf(u8, ty, " - ")) |dash| ty = ty[0..dash];
+        if (std.mem.findScalar(u8, ty, '#')) |hash| ty = ty[0..hash];
+        if (std.mem.find(u8, ty, " - ")) |dash| ty = ty[0..dash];
         return withArgs(std.mem.trim(u8, ty, " "));
     }
     return null;
@@ -420,11 +420,11 @@ fn docstring(comptime doc: []const u8, comptime indent: []const u8) []const u8 {
         '\\' => "\\\\",
         '\n' => if (i + 1 < doc.len and doc[i + 1] != '\n') "\n" ++ indent else "\n",
         // A quote that could end the docstring: part of `'''`, or last on a one-line doc.
-        '\'' => if ((i + 1 == doc.len and std.mem.indexOfScalar(u8, doc, '\n') == null) or
+        '\'' => if ((i + 1 == doc.len and std.mem.findScalar(u8, doc, '\n') == null) or
             std.mem.startsWith(u8, doc[i..], "'''")) "\\'" else "'",
         else => &.{ch},
     });
-    return out ++ (if (std.mem.indexOfScalar(u8, doc, '\n') != null) "\n" ++ indent else "") ++ "'''\n";
+    return out ++ (if (std.mem.findScalar(u8, doc, '\n') != null) "\n" ++ indent else "") ++ "'''\n";
 }
 
 /// `text` laid out the way `ruff format` lays out a `.pyi`: no blank line between a class

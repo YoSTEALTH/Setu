@@ -254,7 +254,7 @@ fn isArgStruct(comptime T: type) bool {
 /// `self` as the type `P` of a method's first parameter: `*Object` as is, the type object
 /// (`*c.TypeObject`, a class method's `cls`), or the instance data (`*T` / `*const T`) of the
 /// class `Owner` (a `setu.Class`).
-pub fn selfArg(comptime Owner: type, comptime P: type, obj: *Object) P {
+pub inline fn selfArg(comptime Owner: type, comptime P: type, obj: *Object) P {
     if (P == *Object) return obj;
     if (P == *c.TypeObject) return @ptrCast(obj);
     if (Owner == void) @compileError("`self` must be `*Object` outside a `setu.Class`");

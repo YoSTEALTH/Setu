@@ -285,7 +285,7 @@ fn freeThreaded() bool {
         c.PyErr_Clear();
         return false;
     };
-    return std.mem.indexOfScalar(u8, std.mem.span(text), 't') != null;
+    return std.mem.findScalar(u8, std.mem.span(text), 't') != null;
 }
 
 /// Adds the constants of `M` (see `constants`) to `module` as ints, by name. For the module's

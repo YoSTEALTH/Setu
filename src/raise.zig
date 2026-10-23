@@ -18,13 +18,22 @@ pub fn raise(exc: *Object, comptime fmt: []const u8, args: anytype) Error {
     return error.PythonError;
 }
 
-/// Sets `exc` with a formatted message.
+/// Sets `exc` with a formatted message (up to 511 bytes; longer ones are cut).
+///
+/// Note
+///     - A message without arguments or braces is a constant: set as is, with no formatting.
 pub fn setString(exc: *Object, comptime fmt: []const u8, args: anytype) void {
+    if (comptime isConstant(fmt, @TypeOf(args))) return c.PyErr_SetString(exc, (fmt ++ "\x00")[0..fmt.len :0]);
     var buf: [512]u8 = undefined;
     const room = buf[0 .. buf.len - 1];
-    const msg = std.fmt.bufPrint(room, fmt, args) catch room;
+    const msg = std.mem.print(room, fmt, args) catch room;
     buf[msg.len] = 0;
     c.PyErr_SetString(exc, buf[0..msg.len :0]);
+}
+
+/// Is `fmt` with arguments of type `Args` its own text: no arguments and no `{` / `}` (escapes)?
+fn isConstant(comptime fmt: []const u8, comptime Args: type) bool {
+    return @typeInfo(Args).@"struct".field_names.len == 0 and std.mem.findAny(u8, fmt, "{}") == null;
 }
 
 /// Raises `exc(*args)` and returns `error.PythonError`. Each item of the tuple `args` is
@@ -57,7 +66,7 @@ pub fn raiseWith(exc: *Object, args: anytype) Error {
 ///     - For an `OSError` subclass of your own, use `raiseWith(exc, .{ errno, msg })`.
 pub fn raiseOSError(errno: i32, comptime fmt: []const u8, args: anytype) Error {
     var buf: [512]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, fmt, args) catch &buf;
+    const msg = std.mem.print(&buf, fmt, args) catch &buf;
     return raiseWith(c.PyExc_OSError, .{ errno, msg });
 }
 
