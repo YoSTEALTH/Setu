@@ -1,7 +1,7 @@
 .{
     .name = .setu,
     // year.month.day (no zero padding: semver)
-    .version = "2026.10.24-3",
+    .version = "2026.10.24-4",
     .fingerprint = 0x7deee0e42718577f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},
@@ -10,6 +10,7 @@
         "build.zig.zon",
         "src",
         "tools/setu_build.py", // the wheel build backend projects copy (their check.sh compares)
+        "tools/setu_docs.py", // the docs helpers projects copy (`setu-docs-sync` / `setu-docs-check`)
         "LICENSE.txt",
         "README.md",
     },

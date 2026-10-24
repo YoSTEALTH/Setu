@@ -482,6 +482,18 @@ pub const Adder = struct {
         };
         return py.new(.{ first + self.base, t, d });
     }
+
+    /// The number of positional arguments: a method whose first parameter is `*args`.
+    ///
+    /// Type
+    ///     args:   int
+    ///     return: int
+    pub fn count(self: *const Adder, args: py.Rest) Error!usize {
+        _ = self;
+        const t = try args.tuple();
+        defer py.decref(t);
+        return @intCast(c.PyTuple_Size(t)); // cast: a tuple length is non-negative
+    }
 };
 pub const AdderType = setu.Class(Adder, @embedFile("classes.zig"));
 

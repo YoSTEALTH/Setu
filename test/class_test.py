@@ -194,6 +194,9 @@ def test_positional_only_rest_kwargs():
     with pytest.raises(TypeError):
         a.collect()  # `first` is required
     assert a.collect(1, first=2) == (11, (), {'first': 2})  # positional-only: the name is free
+    assert a.count() == 0
+    assert a.count(1, 2, 3) == 3  # a leading `*args` on a method
+    assert str(inspect.signature(a.count)) == '(*args)'
 
 
 def test_plain_methods():

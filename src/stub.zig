@@ -447,7 +447,7 @@ fn function(
     const doc = py.fnSource(source, name).doc;
     const R = docType(doc, "return") orelse pyType(@typeInfo(@TypeOf(f)).@"fn".return_type.?);
     if (bound != null) {
-        const first: usize = 1 + @intFromBool(py.hasRest(f, true));
+        const first: usize = 1 + @as(usize, @intFromBool(py.hasRest(f, true)));
         for (py.paramList(f, first, name, source)) |p| {
             if (p.kind != .kw_only and docType(doc, p.name) == null and std.mem.eql(u8, pyType(p.T), "Any"))
                 @compileError("method `" ++ name ++ "`: parameter `" ++ p.name ++ "` stubs as `Any`; if it is a " ++

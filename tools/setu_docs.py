@@ -109,7 +109,7 @@ def raw_docstring(node) -> str | None:
         if raw is None:
             return None
         first, *rest = raw.split('\n')
-        base = ' ' * (node.col_offset + 4)  # the docstring's own indent
+        base = ' ' * (getattr(node, 'col_offset', -4) + 4)  # the docstring's own indent (a module has no offset)
         return '\n'.join([first, *(line.removeprefix(base) for line in rest)])
     doc = getattr(getattr(node, 'obj', None), '__doc__', None)
     return doc if isinstance(doc, str) else None
