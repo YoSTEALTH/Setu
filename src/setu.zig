@@ -9,9 +9,18 @@
 //!
 //!     const setu = @import("setu");
 //!     const c = setu.c;   // the C API
-//!     const py = setu.py; // `exportFns`, conversions, errors
+//!     const py = setu.py; // `exportModule`, conversions, errors
 //!     pub const PointType = setu.Class(Point, @embedFile("point.zig")); // struct -> type
-//!     const pyi = setu.stub.class(PointType); // `.pyi` text (type stubs)
+//!     pub const BadPoint = setu.Exception(.{ .doc = "Not a point.", .base = .ValueError });
+//!
+//!     // the root file: Setu finds the functions, classes, exceptions, constants of `from`
+//!     pub const module: setu.Module = .{ .name = "point", .from = &.{
+//!         .{ .ns = @import("point.zig"), .source = @embedFile("point.zig") },
+//!     } };
+//!     comptime {
+//!         py.exportModule(module);
+//!     }
+//!     const pyi = setu.stub.module(module); // `.pyi` text (type stubs); `addStubs` in `build.zig`
 //!
 //! It must not depend on Shakti (`build.zig` gives it no such import), so it
 //! can become a separate dependency later.
@@ -20,6 +29,8 @@ pub const c = @import("capi.zig");
 pub const py = @import("py.zig");
 pub const stub = @import("stub.zig");
 const class = @import("class.zig");
+const exception = @import("exception.zig");
+const scan = @import("scan.zig");
 
 pub const Class = class.Class;
 pub const Instance = class.Instance;
@@ -28,15 +39,27 @@ pub const Options = class.Options;
 pub const Send = class.Send;
 pub const Poll = class.Poll;
 pub const Visit = class.Visit;
+pub const Exception = exception.Exception;
+pub const ExceptionOptions = exception.ExceptionOptions;
+pub const Kind = scan.Kind;
+pub const From = scan.From;
+pub const Module = py.Module;
+
+/// Is this Setu's stub generator (`addStubs`), which imports the extension's root file for its
+/// `module` but has no libpython? Code that comptime data points to is dropped there unless reached
+/// (see `addStubs`), so a root file rarely needs to ask.
+pub const stubgen = @hasDecl(@import("root"), "setu_stubgen");
 
 test {
     @import("std").testing.refAllDecls(@This());
     _ = @import("args.zig");
     _ = @import("class.zig");
     _ = @import("convert.zig");
+    _ = @import("exception.zig");
     _ = @import("export.zig");
     _ = @import("py.zig");
     _ = @import("raise.zig");
+    _ = @import("scan.zig");
     _ = @import("source.zig");
     _ = @import("stub.zig");
 }

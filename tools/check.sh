@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs every Setu check: zig fmt, int casts, ruff, `zig build test`, the `setu-build-sync` /
-# `setu-build-check` steps on the wheel fixture `test/wheel/`, `zig build develop` (the one `setu_classes.so`),
+# `setu-build-check` steps on the wheel fixture `test/wheel/`, `zig build develop` (the one `setu_classes.so`
+# and its generated stubs, which `ruff check` lints: an import Setu writes but the stub does not use fails),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest and the
 # `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tools/setu_build.py` builds (`check_wheels.py`), then
 # `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
@@ -46,6 +47,9 @@ step "setu-build-sync + setu-build-check (test/wheel)"
 
 step "zig build develop"
 "$ZIG" build develop # test/setu_classes.so: one binary for every interpreter below
+
+step "ruff check (generated stubs)"
+"$PY_FT" -m ruff check test/setu_classes.pyi # gitignored, so `ruff check .` above skips it
 
 for py in "$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL"; do
     step "$py"

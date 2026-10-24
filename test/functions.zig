@@ -1,6 +1,6 @@
-//! The module functions and constants of `setu_classes` (`setu_classes.zig`), for the parameter types
-//! that are not classes of their own (instances of a `setu.Class`, buffers, sequences),
-//! `py.checkErrno` and `py.addConstants`. `class_test.py` drives them.
+//! Setu's test extension: module functions and constants for the parameter types that are not classes
+//! of their own (instances of a `setu.Class`, buffers, sequences), `py.checkErrno` and typed constants.
+//! This block is the module's docstring (the first `Module.from` entry with a `source`).
 
 const std = @import("std");
 const setu = @import("setu");
@@ -13,6 +13,7 @@ const Error = py.Error;
 const Labeled = classes.Labeled;
 const Vec = classes.Vec;
 const VecType = classes.VecType;
+const Secret = classes.Secret;
 
 /// The squared length of `v` (a `Vec`, or a subclass).
 ///
@@ -292,6 +293,24 @@ pub fn bench_send(v: *Vec, fd: i32, buf: ?py.Buffer, flags: ?i32) i32 {
     return fd;
 }
 
+/// A `Secret` (a hidden class) holding `value`.
+///
+/// Example
+///     >>> type(make_secret(3)).__name__
+///     'Secret'
+pub fn make_secret(value: i64) Error!*Object {
+    return classes.secret(value);
+}
+
+/// The value of `s` (a `Secret`, `Any` in the stub).
+///
+/// Example
+///     >>> secret_value(make_secret(3))
+///     3
+pub fn secret_value(s: *const Secret) i64 {
+    return s.read(s);
+}
+
 /// `res` itself when it is `>= 0`, else `OSError` for the errno `-res` (`py.checkErrno`).
 ///
 /// Example
@@ -322,8 +341,18 @@ pub const ANSWER = 42;
 pub const NEGATIVE: i32 = -5;
 /// One past `i64`: an int `PyModule_AddIntConstant` could not take.
 pub const ALL_ONES: u64 = std.math.maxInt(u64);
+/// A float.
+pub const PI = 3.25;
+/// A `bool`.
+pub const FLAG = true;
+/// A string.
+pub const NAME = "setu";
+/// The empty string (Liburing's `LIBURING_HAVE_DATA64`).
+pub const EMPTY = "";
 /// Not UPPER_CASE, so not exported.
 pub const lower_case = 7;
+/// A `pub var`, so not a constant.
+pub var COUNTER: u32 = 0;
 
 /// Its UPPER_CASE fields are module constants (`RED`, ...); `other` is not.
 pub const Color = enum(u8) {

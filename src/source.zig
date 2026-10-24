@@ -1,6 +1,6 @@
 //! Reading the Zig source at comptime (`@embedFile` of the binding's file): parameter names
 //! and types as written, `///` docs, and argument-struct defaults as Python source text.
-//! Re-exported by `py.zig` (`fnSource`, `docAbove`, `FnSource`).
+//! Re-exported by `py.zig` (`fnSource`, `docAbove`, `moduleDoc`, `FnSource`).
 
 const std = @import("std");
 
@@ -141,10 +141,42 @@ pub fn docAbove(comptime source: []const u8, comptime at: usize) []const u8 {
     return doc;
 }
 
+/// The `//!` doc comment at the top of `source` (contiguous lines, `//! ` stripped): a module's
+/// docstring. Empty when the file does not start with one.
+///
+/// Example
+///     >>> moduleDoc("//! Ring buffers.\n//!\n//! Linux only.\nconst std = @import(\"std\");")
+///     "Ring buffers.\n\nLinux only."
+pub fn moduleDoc(comptime source: []const u8) []const u8 {
+    @setEvalBranchQuota(1_000_000);
+    var doc: []const u8 = "";
+    var it = std.mem.splitScalar(u8, source, '\n');
+    while (it.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (!std.mem.startsWith(u8, line, "//!")) break;
+        var text: []const u8 = line[3..];
+        if (text.len > 0 and text[0] == ' ') text = text[1..];
+        doc = doc ++ text ++ "\n";
+    }
+    return std.mem.trimEnd(u8, doc, "\n");
+}
+
 const testing = @import("testing.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
+}
+
+test "moduleDoc: the `//!` block at the top of a file" {
+    comptime {
+        testing.expectText(moduleDoc("//! Ring buffers.\n//!\n//! Linux only.\nconst x = 1;\n//! late"),
+            \\Ring buffers.
+            \\
+            \\Linux only.
+        );
+        testing.expectText(moduleDoc("const x = 1;\n//! not at the top"), "");
+        testing.expectText(moduleDoc(""), "");
+    }
 }
 
 test "listParts: top-level parts, with strings, characters and comments skipped" {

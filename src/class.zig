@@ -9,7 +9,7 @@
 //!
 //! Declarations the struct may have (`pub`):
 //!
-//!     name          "pkg.Name"; default `<setu_options.module>.<struct name>` (see `Options`)
+//!     name          "pkg.Name"; default `<module>.<struct name>` (the root file's `module.name`)
 //!     base          another `Class(...)`: the base type, created first
 //!     basetype      true: Python classes may subclass it
 //!     instantiable  false: Python can not call the type (Zig creates it with `new`)
@@ -27,6 +27,8 @@
 //!                   (`.{"get_nowait"}`)
 //!     type_params   "T" / "K, V": the class is generic, `Name[int]` gives a
 //!                   `types.GenericAlias` (`__class_getitem__`), the stub says `class Name[T]:`
+//!     hidden        true: created (`create(null)`), but not added to the module and not in the
+//!                   stub, where a `*T` parameter or result is `Any`; for types only Zig hands out
 //!     NAME          an UPPER_CASE `pub const` int, float, `bool` or string: a class attribute
 //!
 //!     get_x / set_x       the property `x` (the getter's `///` doc is its docstring)
@@ -124,15 +126,17 @@
 //!     };
 //!     pub const PointType = setu.Class(Point, @embedFile("point.zig"));
 //!
-//!     // in the root file (the type is then `pkg.Point`):
-//!     pub const setu_options: setu.Options = .{ .module = "pkg" };
+//!     // in the root file (the type is then `pkg.Point`), created by `py.exportModule`:
+//!     pub const module: setu.Module = .{ .name = "pkg", .from = &.{.{ .ns = @import("point.zig") }} };
 //!
-//!     // in `Py_mod_exec`:
+//!     // or by hand, in `Py_mod_exec` (a root file without `module` names it in
+//!     // `pub const setu_options: setu.Options = .{ .module = "pkg" }`):
 //!     try PointType.create(module);
 
 const std = @import("std");
 const c = @import("capi.zig");
 const py = @import("py.zig");
+const scan_zig = @import("scan.zig");
 
 const Object = c.Object;
 const Error = py.Error;
@@ -409,7 +413,7 @@ pub fn isHook(comptime name: []const u8) bool {
 pub const settings = [_][]const u8{
     "name",        "base",          "basetype", "instantiable", "getset",
     "slots",       "stub",          "weakref",  "dict",         "pickle",
-    "type_params", "plain_methods",
+    "type_params", "plain_methods", "hidden",
 };
 
 /// Is the declaration `name` of `T` a class attribute: an UPPER_CASE `pub const` int,
@@ -461,20 +465,27 @@ pub fn shortName(comptime name: []const u8) []const u8 {
 }
 
 /// Settings for every `Class`, declared in the root file as `pub const setu_options`
-/// (like `std_options`).
+/// (like `std_options`), by an extension without a `pub const module: setu.Module` there.
 pub const Options = struct {
     /// The module a type names as its `__module__` (`"pkg"` makes `Point` `pkg.Point`),
     /// unless the struct declares `name`.
     module: []const u8,
 };
 
-/// The Python type name of `T`: `T.name`, else `<setu_options.module>.<struct name>`.
+/// The extension's module name, from the root file: `module.name` (its `pub const module:
+/// setu.Module`), else `setu_options.module`. `what` names the type that needs it, in the error.
+pub fn moduleName(comptime what: []const u8) []const u8 {
+    const root = @import("root");
+    if (@hasDecl(root, "module") and @TypeOf(root.module) == py.Module) return root.module.name;
+    if (@hasDecl(root, "setu_options")) return root.setu_options.module;
+    @compileError(what ++ ": needs `pub const module: setu.Module` (or `pub const setu_options: " ++
+        "setu.Options`) in the root file, for the module name");
+}
+
+/// The Python type name of `T`: `T.name`, else `<module>.<struct name>` (see `moduleName`).
 fn typeName(comptime T: type) [:0]const u8 {
     if (@hasDecl(T, "name")) return T.name;
-    const root = @import("root");
-    if (!@hasDecl(root, "setu_options")) @compileError(@typeName(T) ++
-        ": a `setu.Class` needs `pub const name`, or `pub const setu_options: setu.Options` in the root file");
-    const text = root.setu_options.module ++ "." ++ shortName(@typeName(T));
+    const text = moduleName(@typeName(T)) ++ "." ++ shortName(@typeName(T));
     return (text ++ "\x00")[0..text.len :0];
 }
 
@@ -518,8 +529,12 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
     return struct {
         const This = @This();
 
+        /// What the `Module.from` scan looks for.
+        pub const setu_kind: scan_zig.Kind = .class;
         /// The instance data struct.
         pub const Data = T;
+        /// Created but not added to the module, and not in the stub (`hidden = true`)?
+        pub const hidden = @hasDecl(T, "hidden") and T.hidden;
         /// The Python type name (`pkg.Name`).
         pub const name = typeName(T);
         /// The base `Class`, or `void`.

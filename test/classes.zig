@@ -11,9 +11,6 @@ const py = setu.py;
 const Object = c.Object;
 const Error = py.Error;
 
-/// Setu settings: the classes are `setu_classes.<Name>`.
-pub const setu_options: setu.Options = .{ .module = "setu_classes" };
-
 /// A 2D vector with integer coordinates: comparisons, hashing, numbers, pickling.
 pub const Vec = struct {
     x: i64 = 0,
@@ -648,19 +645,41 @@ pub const Pair = struct {
 };
 pub const PairType = setu.Class(Pair, @embedFile("classes.zig"));
 
-/// The classes, bases first (also the stub order).
-pub const classes = .{
-    VecType,
-    LabeledType,
-    OrderedType,
-    NumType,
-    BagType,
-    BagIterType,
-    CountdownType,
-    AdderType,
-    DynType,
-    SlotType,
-    WatchType,
-    LaterType,
-    PairType,
+/// A class only Zig hands out (`hidden = true`): created, but not a module attribute and not in the
+/// stub (`make_secret` returns one, `secret_value` takes one: `Any` there).
+pub const Secret = struct {
+    value: i64 = 0,
+    /// What `secret_value` reads `value` with: a function-pointer field default (the stub generator, which
+    /// resolves the struct, must not link it: it calls Python).
+    read: *const fn (*const Secret) i64 = readValue,
+
+    pub const hidden = true;
+    pub const instantiable = false;
+
+    /// The value it was made with.
+    pub fn get_value(self: *const Secret) i64 {
+        return self.value;
+    }
 };
+pub const SecretType = setu.Class(Secret, @embedFile("classes.zig"));
+
+/// `s.value`, after a Python call (`Py_IncRef` / `Py_DecRef` of `None`), so the stub generator would not
+/// link if it kept this function.
+fn readValue(s: *const Secret) i64 {
+    py.decref(py.newNone());
+    return s.value;
+}
+
+/// A new `Secret` holding `value`: a lowercase Zig helper, not a module function (the `from` entry of
+/// this file has `.functions = false`).
+pub fn secret(value: i64) Error!*Object {
+    return SecretType.new(.{ .value = value });
+}
+
+/// Skipped by the scan (the name starts with `_`): never created, not in the module or the stub.
+pub const _Scratch = struct {
+    n: i64 = 0,
+};
+pub const _ScratchType = setu.Class(_Scratch, @embedFile("classes.zig"));
+/// Skipped by the scan, like `_ScratchType`.
+pub const _LIMIT = 9;

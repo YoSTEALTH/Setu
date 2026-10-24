@@ -8,8 +8,9 @@
 //! (`ext_suffix`), which every one of them imports (see `src/capi.zig`).
 //!
 //! Other projects use it as a dependency: `b.dependency("setu", .{})`, then `.module("setu")`.
-//! Their `build.zig` can also `@import("setu")` for `addSetuBuildSteps` (keeping their copy of
-//! `tools/setu_build.py`, the wheel build backend, the same as Setu's) and `defaultSuffix`.
+//! Their `build.zig` can also `@import("setu")` for `addStubs` (the extension's `.pyi`, from its root
+//! file's `module`), `addSetuBuildSteps` (keeping their copy of `tools/setu_build.py`, the wheel build
+//! backend, the same as Setu's) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -39,16 +40,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
     setu_test.linker_allow_shlib_undefined = true;
-    const setu_stubgen = b.addExecutable(.{
-        .name = "setu_stubgen",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("test/stubgen.zig"),
-            .target = b.graph.host,
-            .optimize = .debug,
-            .imports = &.{.{ .name = "setu", .module = setu }},
-        }),
+    const setu_pyi = stubs(b, b.path("src/stubgen.zig"), setu, .{
+        .root_source_file = b.path("test/setu_classes.zig"),
     });
-    const setu_pyi = b.addRunArtifact(setu_stubgen).captureStdOut(.{ .basename = "setu_classes.pyi" });
     b.addNamedLazyPath("setu_classes", setu_test.getEmittedBin());
     b.addNamedLazyPath("setu_classes.pyi", setu_pyi);
     const test_dir: std.Build.InstallDir = .{ .custom = "../test" };
@@ -90,6 +84,75 @@ pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
     const sync = b.addUpdateSourceFiles();
     sync.addCopyFileToSource(script, "tools/setu_build.py");
     b.step("setu-build-sync", "Copy the pinned Setu's tools/setu_build.py into tools/").dependOn(&sync.step);
+}
+
+/// What `addStubs` takes.
+pub const StubsOptions = struct {
+    /// The extension's root file: the one with `pub const module: setu.Module`.
+    root_source_file: std.Build.LazyPath,
+    /// The modules it (and the files it imports) imports besides `setu`, for the build host: the stub
+    /// generator runs there, while the extension may be cross-compiled (`c`, `build_options`, ...).
+    imports: []const std.Build.Module.Import = &.{},
+};
+
+/// The `.pyi` of an extension: Setu's stub generator (`src/stubgen.zig`), built for the build host with
+/// the extension's root file as `ext`, writes `setu.stub.module` of its `module`. Install it, or put it
+/// in a wheel, next to the extension.
+///
+/// Note
+///     - It links libc (scanned files may reach `extern "c"` functions or `std.heap.c_allocator`) but
+///       not libpython: it only reads `module` at comptime, and is built so that the code that comptime
+///       data points to (`Module.methods`' trampolines, a function-pointer field default of a class)
+///       is dropped unless `main` reaches it (LLVM, function / data sections, `--gc-sections`, no
+///       debug info), so a root file needs no `setu.stubgen` checks for that.
+///
+/// Example
+///     >>> // the project's build.zig (`setu` in its build.zig.zon)
+///     >>> const setu_dep = b.dependency("setu", .{});
+///     >>> const pyi = @import("setu").addStubs(b, setu_dep, .{
+///     >>>     .root_source_file = b.path("src/liburing/root.zig"),
+///     >>>     .imports = &.{.{ .name = "build_options", .module = options.createModule() }},
+///     >>> });
+///     >>> b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "liburing.pyi").step);
+pub fn addStubs(b: *std.Build, setu_dep: *std.Build.Dependency, options: StubsOptions) std.Build.LazyPath {
+    return stubs(b, setu_dep.path("src/stubgen.zig"), setu_dep.module("setu"), options);
+}
+
+/// `addStubs` with Setu's `src/stubgen.zig` and `setu` module given (Setu's own build has no dependency).
+fn stubs(
+    b: *std.Build,
+    stubgen: std.Build.LazyPath,
+    setu: *std.Build.Module,
+    options: StubsOptions,
+) std.Build.LazyPath {
+    const ext = b.createModule(.{
+        .root_source_file = options.root_source_file,
+        .target = b.graph.host,
+        .optimize = .debug,
+        .strip = true,
+        .link_libc = true,
+        .imports = options.imports,
+    });
+    ext.addImport("setu", setu);
+    const exe = b.addExecutable(.{
+        .name = "setu_stubgen",
+        .root_module = b.createModule(.{
+            .root_source_file = stubgen,
+            .target = b.graph.host,
+            .optimize = .debug,
+            .strip = true, // debug info would refer to the dropped code (and to `c.PyExc_*`)
+            .link_libc = true,
+            .imports = &.{ .{ .name = "setu", .module = setu }, .{ .name = "ext", .module = ext } },
+        }),
+    });
+    // Drop what only comptime data refers to (the self-hosted backend and linker keep it), so no libpython
+    // symbol is left undefined. Costs about what the default Debug build does.
+    exe.use_llvm = true;
+    exe.use_lld = true;
+    exe.link_function_sections = true;
+    exe.link_data_sections = true;
+    exe.link_gc_sections = true;
+    return b.addRunArtifact(exe).captureStdOut(.{ .basename = "stubs.pyi" });
 }
 
 /// The extension module's suffix: `<name>.so`, the one name CPython 3.14, 3.14t, 3.15, 3.15t and

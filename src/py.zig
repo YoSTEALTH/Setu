@@ -1,14 +1,19 @@
-//! PyOZ-style glue: write ordinary Zig functions, then expose every lowercase
-//! `pub fn` of a file with `exportFns`, which generates the C-ABI trampolines and
-//! converts arguments and return values (classes: `setu.Class`).
+//! PyOZ-style glue: write ordinary Zig functions, then list the file in the module's `from`
+//! (`Module`, `exportModule`; or `exportFns` for a method table by hand): every lowercase `pub fn`
+//! gets a C-ABI trampoline that converts arguments and return values (classes: `setu.Class`).
 //!
 //!     // math.zig
 //!     /// Add two numbers.
 //!     pub fn add(a: i64, b: ?i64) i64 { return a + (b orelse 0); }
 //!
 //!     // the module's root file
-//!     const math = @import("math.zig");
-//!     const methods = py.exportFns(math, @embedFile("math.zig")) ++ [_]c.MethodDef{py.method_end};
+//!     pub const module: setu.Module = .{
+//!         .name = "math",
+//!         .from = &.{.{ .ns = @import("math.zig"), .source = @embedFile("math.zig") }},
+//!     };
+//!     comptime {
+//!         py.exportModule(module);
+//!     }
 //!
 //! Supported parameter types: integers, floats, `bool`, `[]const u8` / `[:0]const u8` (a
 //! `str` as UTF-8, borrowed for the call), `Bytes` (a `bytes`), `Path` (`str` / `bytes` /
@@ -32,7 +37,7 @@
 //! The code is split by concern; this file is the one to import (`setu.py`):
 //! `raise.zig` (exceptions), `convert.zig` (values), `args.zig` (parameters, argument
 //! parsing), `source.zig` (reading the Zig source at comptime), `export.zig` (trampolines,
-//! method tables).
+//! method tables, the module).
 
 const std = @import("std");
 const c = @import("capi.zig");
@@ -161,6 +166,7 @@ pub const parseArgs = args_zig.parseArgs;
 pub const FnSource = source_zig.FnSource;
 pub const fnSource = source_zig.fnSource;
 pub const docAbove = source_zig.docAbove;
+pub const moduleDoc = source_zig.moduleDoc;
 
 pub const method_end = export_zig.method_end;
 pub const getset_end = export_zig.getset_end;

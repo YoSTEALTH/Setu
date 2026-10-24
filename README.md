@@ -15,10 +15,13 @@ documented and maintained for public use.
 ```
 src/setu.zig      the module root (@import("setu"))
 src/capi.zig      hand-declared C API
-src/py.zig        functions, conversions, errors (exportFns)
+src/py.zig        functions, conversions, errors, the module (exportModule)
+src/scan.zig      setu.From: which declarations of a Module.from namespace Python gets
 src/class.zig     setu.Class: a struct becomes a Python type
-src/stub.zig      .pyi text at comptime
-test/             setu_classes, a test extension with a class per hook family
+src/exception.zig setu.Exception: an exception class of the extension
+src/stub.zig      .pyi text at comptime (stub.module: an extension's whole .pyi)
+src/stubgen.zig   the stub generator addStubs builds (no libpython)
+test/             setu_classes, a test extension with a class per hook family (the model root file)
 test/wheel/       setu_classes as a project, for the tools/setu_build.py wheel checks
 tools/setu_build.py   the wheel build backend (PEP 517) projects copy into their tools/
 ```
@@ -32,9 +35,45 @@ tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3
 python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (ReleaseFast)
 ```
 
+## An extension: one `module` declaration
+
+The extension's root file lists its Zig files once. Setu finds their lowercase `pub fn`s (functions),
+`setu.Class`es, `setu.Exception`s, UPPER_CASE constants and enums, creates them in its `Py_mod_exec`
+(classes bases first), adds `__version__`, runs `init`, and writes the `.pyi` from the same declaration:
+
+```zig
+const setu = @import("setu");
+
+pub const module: setu.Module = .{
+    .name = "point",
+    .version = "1.0",
+    .from = &.{
+        .{ .ns = @import("point.zig"), .source = @embedFile("point.zig") },
+        .{ .ns = @import("kernel.zig"), .prefixes = &.{"O_"} }, // constants only: no `source`
+        .{ .ns = @import("enum.zig"), .enums = .int_enum }, // `enum.IntEnum` classes
+    },
+    .init = init, // after Setu's part
+};
+
+fn init(_: *setu.c.Object) setu.py.Error!void {}
+
+comptime {
+    setu.py.exportModule(module);
+}
+```
+
+```zig
+// build.zig: the .pyi, written by Setu's stub generator (built for the host, no libpython)
+const pyi = @import("setu").addStubs(b, setu_dep, .{ .root_source_file = b.path("src/root.zig") });
+```
+
+`_`-named declarations, camelCase `pub fn`s, plain structs and lowercase values are skipped; a name
+found twice is a compile error. `src/scan.zig` (top) has the rules, `test/setu_classes.zig` an example of
+each filter (`.only`, `.exclude`, `.prefixes`, `.functions = false`).
+
 ## Naming
 
-Setu's own code follows Zig style. In a file that `py.exportFns` or `setu.Class` exports, a lowercase
+Setu's own code follows Zig style. In a file that `Module.from`, `py.exportFns` or `setu.Class` exports, a lowercase
 `pub fn`, snake_case included (`prep_recv`, `get_label`), is a Python function, method or property under
 that name; camelCase `pub fn`s are Zig-only helpers. So snake_case function names there are on purpose,
 not a slip from Zig's camelCase rule: they are the Python names. Hooks keep their Python names too
