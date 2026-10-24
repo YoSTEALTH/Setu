@@ -48,8 +48,8 @@ pub fn is_plain(exc: *c.Object) bool {
 /// member.
 pub const Mode = enum(u8) { plain = 1, with_errno = 2, OTHER = 7 };
 
-/// A lowercase Zig helper the `from` entry drops by name (`.exclude`).
-pub fn helper() i64 {
+/// A function the `from` entry drops by name (`.exclude`).
+pub fn excluded() i64 {
     return 0;
 }
 

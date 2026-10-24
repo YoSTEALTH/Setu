@@ -7,3 +7,5 @@ test/*.so
 test/*.pyi
 *.md
 test/wheel/tools/
+test/docs/site/
+!test/docs/docs/index.md

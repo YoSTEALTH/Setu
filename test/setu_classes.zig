@@ -16,10 +16,10 @@ pub const module: setu.Module = .{
     .name = "setu_classes",
     .version = "0.0",
     .from = &.{
-        // classes only, so no `source`; `secret` there is a Zig helper
+        // classes only, so no `source`; `not_exported` there is dropped by `.functions = false`
         .{ .ns = classes, .functions = false },
         .{ .ns = @import("functions.zig"), .source = @embedFile("functions.zig") },
-        .{ .ns = extra, .source = @embedFile("extra.zig"), .exclude = &.{"helper"}, .enums = .int_enum },
+        .{ .ns = extra, .source = @embedFile("extra.zig"), .exclude = &.{"excluded"}, .enums = .int_enum },
         .{ .ns = extra.kernel, .prefixes = &.{"K_"} },
         .{ .ns = extra.picked, .only = &.{"PICKED"} },
     },

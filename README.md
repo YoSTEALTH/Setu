@@ -4,7 +4,8 @@ Setu (सेतु, "bridge"): a generic Zig <-> CPython binding layer. One buil
 CPython 3.14, 3.14t, 3.15, 3.15t and later: a single `<name>.so` in one
 `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel per platform (the 3.15 stable ABI for free-threading,
 PEP 803, plus a 3.14 entry point). Any pip installs it on 3.14, 3.14t, 3.15 and 3.15t; 3.16t and later
-need pip 26.2+ (`abi3t`). PEP 697 type data, critical sections. No `Python.h`: the C API is declared by hand in `src/capi.zig`.
+need pip 26.2+ (`abi3t`). PEP 697 type data, critical sections. No `Python.h`: the C API is declared by hand in
+`src/capi.zig`.
 Zig 0.17.0, Linux.
 
 Setu is mainly for the [Shakti](https://github.com/YoSTEALTH/Shakti) and
@@ -98,6 +99,17 @@ const setu_dep = b.dependency("setu", .{});
 
 `zig build setu-build-sync` copies the pinned Setu's `tools/setu_build.py` into `tools/` (run it after
 bumping Setu); `zig build setu-build-check` fails if the copy differs (run it in the project's checks).
+
+## Docs site: `tools/setu_docs.py`
+
+A MkDocs site built from the generated `.pyi` (the `///` docs): a griffe extension that turns the doc sections
+(`Example`, `Note`, `Type`, ...) into Markdown, and the API reference pages, grouped by a `[tool.setu_docs]`
+table in the project's `pyproject.toml` (the keys are in the script's docstring). The project keeps a
+byte-identical copy in `tools/`, like `setu_build.py`, in step with `addSetuDocsSteps` (`zig build
+setu-docs-sync` / `setu-docs-check`); its `mkdocs.yml`, pages and workflow stay its own. `test/docs/` is a
+working model (`tools/check_docs.py`; `--site` also runs `mkdocs build --strict`). The workflow runs `zig build
+develop` (the stub), then `pip install mkdocs-material "mkdocstrings[python]" mkdocs-gen-files` and
+`mkdocs build --strict`, and uploads `site/` to GitHub Pages.
 
 ## Releases
 

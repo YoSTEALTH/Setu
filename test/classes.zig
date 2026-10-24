@@ -670,10 +670,14 @@ fn readValue(s: *const Secret) i64 {
     return s.value;
 }
 
-/// A new `Secret` holding `value`: a lowercase Zig helper, not a module function (the `from` entry of
-/// this file has `.functions = false`).
-pub fn secret(value: i64) Error!*Object {
+/// A new `Secret` holding `value`: a camelCase Zig helper, never a module function.
+pub fn newSecret(value: i64) Error!*Object {
     return SecretType.new(.{ .value = value });
+}
+
+/// A function the `from` entry of this file drops (`.functions = false`).
+pub fn not_exported() i64 {
+    return 0;
 }
 
 /// Skipped by the scan (the name starts with `_`): never created, not in the module or the stub.

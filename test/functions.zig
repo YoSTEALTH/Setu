@@ -299,7 +299,7 @@ pub fn bench_send(v: *Vec, fd: i32, buf: ?py.Buffer, flags: ?i32) i32 {
 ///     >>> type(make_secret(3)).__name__
 ///     'Secret'
 pub fn make_secret(value: i64) Error!*Object {
-    return classes.secret(value);
+    return classes.newSecret(value);
 }
 
 /// The value of `s` (a `Secret`, `Any` in the stub).

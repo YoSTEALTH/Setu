@@ -10,7 +10,8 @@
 //! Other projects use it as a dependency: `b.dependency("setu", .{})`, then `.module("setu")`.
 //! Their `build.zig` can also `@import("setu")` for `addStubs` (the extension's `.pyi`, from its root
 //! file's `module`), `addSetuBuildSteps` (keeping their copy of `tools/setu_build.py`, the wheel build
-//! backend, the same as Setu's) and `ext_suffix`.
+//! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
+//! site helpers) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -76,14 +77,35 @@ pub fn build(b: *std.Build) void {
 ///     $ zig build setu-build-sync    # tools/setu_build.py = the pinned Setu's
 ///     $ zig build setu-build-check   # in tools/check.sh: `cmp` fails if they differ
 pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    const script = setu_dep.path("tools/setu_build.py");
+    addCopySteps(b, setu_dep, "setu_build.py", "setu-build");
+}
+
+/// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tools/setu_docs.py`:
+/// the steps `setu-docs-check` and `setu-docs-sync`.
+///
+/// Example
+///     >>> @import("setu").addSetuDocsSteps(b, setu_dep);
+///     $ zig build setu-docs-sync     # tools/setu_docs.py = the pinned Setu's
+///     $ zig build setu-docs-check    # in tools/check.sh: `cmp` fails if they differ
+pub fn addSetuDocsSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
+    addCopySteps(b, setu_dep, "setu_docs.py", "setu-docs");
+}
+
+/// The `<step>-check` / `<step>-sync` steps for `tools/<file>`.
+fn addCopySteps(
+    b: *std.Build,
+    setu_dep: *std.Build.Dependency,
+    comptime file: []const u8,
+    comptime step: []const u8,
+) void {
+    const script = setu_dep.path("tools/" ++ file);
     const same = b.addSystemCommand(&.{"cmp"});
     same.addFileArg(script);
-    same.addFileArg(b.path("tools/setu_build.py"));
-    b.step("setu-build-check", "Check that tools/setu_build.py is the pinned Setu's copy").dependOn(&same.step);
+    same.addFileArg(b.path("tools/" ++ file));
+    b.step(step ++ "-check", "Check that tools/" ++ file ++ " is the pinned Setu's copy").dependOn(&same.step);
     const sync = b.addUpdateSourceFiles();
-    sync.addCopyFileToSource(script, "tools/setu_build.py");
-    b.step("setu-build-sync", "Copy the pinned Setu's tools/setu_build.py into tools/").dependOn(&sync.step);
+    sync.addCopyFileToSource(script, "tools/" ++ file);
+    b.step(step ++ "-sync", "Copy the pinned Setu's tools/" ++ file ++ " into tools/").dependOn(&sync.step);
 }
 
 /// What `addStubs` takes.

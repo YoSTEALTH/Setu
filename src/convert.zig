@@ -22,8 +22,8 @@ const setError = raise.setError;
 /// Converts a Python argument to `T`: `bool` (truthiness), an integer type, a float
 /// type, `[]const u8` / `[:0]const u8` (a `str`'s UTF-8, borrowed from it), `Bytes` (a
 /// `bytes`' contents, borrowed), `Path` / `Buffer` / `WritableBuffer` / `OwnedBuffer` /
-/// `OwnedWritableBuffer` / `Sequence(T)` (`deinit` them; see `releases`), `*U` / `*const U` (the instance data of a `setu.Class(U, ...)` instance
-/// or subclass, borrowed), or `*Object` as is.
+/// `OwnedWritableBuffer` / `Sequence(T)` (`deinit` them; see `releases`), `*U` / `*const U` (the instance
+/// data of a `setu.Class(U, ...)` instance or subclass, borrowed), or `*Object` as is.
 ///
 /// Example
 ///     >>> const fd = try fromPython(i32, arg);

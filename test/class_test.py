@@ -654,10 +654,11 @@ def test_module_declaration():
 
 def test_scan_filters():
     '''What the `from` entries leave out: `.exclude`, `.prefixes`, `.only`, `.functions = false`, `_` names.'''
-    assert not hasattr(sc, 'helper')  # `.exclude`
+    assert not hasattr(sc, 'excluded')  # `.exclude`
     assert (sc.K_ONE, sc.K_TWO) == (1, 2) and not hasattr(sc, 'OTHER')  # `.prefixes`
     assert sc.PICKED == 5 and not hasattr(sc, 'DROPPED')  # `.only`
-    assert not hasattr(sc, 'secret')  # `.functions = false` (a Zig helper in `classes.zig`)
+    assert not hasattr(sc, 'not_exported')  # `.functions = false` (a function in `classes.zig`)
+    assert not hasattr(sc, 'newSecret')  # a camelCase Zig helper is never exported
     for name in ('_Scratch', 'Scratch', '_ScratchType', '_LIMIT', 'kernel', 'picked', 'Plain'):
         assert not hasattr(sc, name)
     assert not hasattr(sc, 'Vec' + 'Type') and not hasattr(sc, 'COUNTER')
@@ -694,7 +695,7 @@ def test_stub_matches_module():
     assert '\ninitialized: bool\nBY_HAND: int\n\n__version__: str\n' in stub  # `stub_extra`, `version`
     assert '\nclass Mode(IntEnum):\n' in stub and '    with_errno = 2\n' in stub
     assert 'def overridden() -> int:' in stub  # the `from` function's stub, though `methods` replaces it
-    for name in ('helper', 'OTHER', 'DROPPED', 'secret', '_Scratch', 'Scratch', '_LIMIT'):
+    for name in ('excluded', 'OTHER', 'DROPPED', 'not_exported', 'newSecret', '_Scratch', 'Scratch', '_LIMIT'):
         assert f'def {name}(' not in stub and f'class {name}' not in stub and f'\n{name}:' not in stub
     for cls in (Vec, Labeled, Ordered, Num, Bag, Countdown, Adder, Dyn, Slot):
         assert f'class {cls.__name__}' in stub

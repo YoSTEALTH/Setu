@@ -70,4 +70,12 @@ else
     echo "skipped: mypy is not installed for $PY_FT"
 fi
 
+step "setu_docs.py ($PY_FT)"
+"$PY_FT" tools/check_docs.py
+if "$PY_FT" -c 'import mkdocs, mkdocstrings, mkdocs_gen_files' 2>/dev/null; then
+    "$PY_FT" tools/check_docs.py --site
+else
+    echo "skipped: the site build needs mkdocs, mkdocstrings and mkdocs-gen-files for $PY_FT"
+fi
+
 step "all checks passed"

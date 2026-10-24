@@ -76,9 +76,9 @@ fn moduleBody(comptime m: py.Module) []const u8 {
     for (S.exceptions) |it| body = body ++ exception(S.decl(it), it.name);
     for (S.int_enums) |it| body = body ++ intEnum(it.name, S.decl(it), S.declDoc(it));
     for (S.classes) |it| if (!it.hidden) {
-        body = body ++ classText(S.decl(it), true);
+        body = body ++ class(S.decl(it));
     };
-    for (S.functions) |it| body = body ++ "\n" ++ function(S.decl(it), null, it.name, S.source(it), "", true);
+    for (S.functions) |it| body = body ++ "\n" ++ function(S.decl(it), null, it.name, S.source(it), "");
     return body;
 }
 
@@ -144,7 +144,10 @@ const CodeIter = struct {
                 continue;
             }
             const piece = it.text[it.start..at];
-            it.start = if (hash) std.mem.findScalarPos(u8, it.text, at, '\n') orelse it.text.len else docEnd(it.text, at + 3);
+            it.start = if (hash)
+                std.mem.findScalarPos(u8, it.text, at, '\n') orelse it.text.len
+            else
+                docEnd(it.text, at + 3);
             it.at = it.start;
             return piece;
         }
@@ -197,7 +200,7 @@ pub fn functions(comptime M: type, comptime source: []const u8) []const u8 {
     @setEvalBranchQuota(10_000_000);
     var out: []const u8 = "";
     for (@typeInfo(M).@"struct".decl_names) |name| {
-        if (py.isExported(M, name)) out = out ++ "\n" ++ function(@field(M, name), null, name, source, "", true);
+        if (py.isExported(M, name)) out = out ++ "\n" ++ function(@field(M, name), null, name, source, "");
     }
     return out;
 }
@@ -223,11 +226,6 @@ pub fn exception(comptime E: type, comptime name: []const u8) []const u8 {
 /// `class Name(Base):` with its docstring, `__init__`, properties, methods and protocol
 /// hooks, for the `setu.Class` type `C`.
 pub fn class(comptime C: type) []const u8 {
-    return classText(C, true);
-}
-
-/// `class` with docstrings (`docs`), or with `...` for them.
-fn classText(comptime C: type, comptime docs: bool) []const u8 {
     @setEvalBranchQuota(10_000_000);
     const T = C.Data;
     const body = C.decl_source;
@@ -237,7 +235,7 @@ fn classText(comptime C: type, comptime docs: bool) []const u8 {
     const deco = if (!subclassable) "@final\n" else if (@sizeOf(T) > 0) "@disjoint_base\n" else "";
     const params = if (@hasDecl(T, "type_params")) "[" ++ T.type_params ++ "]" else "";
     var out: []const u8 = "\n" ++ deco ++ "class " ++ shortName(C.name) ++ params ++ base ++ ":\n" ++
-        docstring(if (docs) C.class_doc else "", "    ");
+        docstring(C.class_doc, "    ");
     for (@typeInfo(T).@"struct".decl_names) |n| {
         if (!class_zig.isClassAttr(T, n)) continue;
         const V = @TypeOf(@field(T, n));
@@ -252,7 +250,7 @@ fn classText(comptime C: type, comptime docs: bool) []const u8 {
         const doc = py.fnSource(body, n).doc;
         const R = docType(doc, "return") orelse pyType(@typeInfo(@TypeOf(g)).@"fn".return_type.?);
         out = out ++ "\n    @property\n    def " ++ prop ++ "(self) -> " ++ R ++ ":\n" ++
-            docstring(if (docs) doc else "", "        ");
+            docstring(doc, "        ");
         if (@hasDecl(T, "set_" ++ prop)) {
             const U = @typeInfo(@TypeOf(@field(T, "set_" ++ prop))).@"fn".param_types[1].?;
             out = out ++ "\n    @" ++ prop ++ ".setter\n    def " ++ prop ++ "(self, value: " ++ pyType(U) ++
@@ -264,20 +262,20 @@ fn classText(comptime C: type, comptime docs: bool) []const u8 {
         if (!class_zig.isMethod(T, n)) continue;
         const f = @field(T, n);
         out = out ++ "\n" ++ switch (py.methodKind(f, n, body)) {
-            .static => "    @staticmethod\n" ++ function(f, null, n, body, "    ", docs),
-            .class => "    @classmethod\n" ++ function(f, "cls", n, body, "    ", docs),
-            else => function(f, "self", n, body, "    ", docs),
+            .static => "    @staticmethod\n" ++ function(f, null, n, body, "    "),
+            .class => "    @classmethod\n" ++ function(f, "cls", n, body, "    "),
+            else => function(f, "self", n, body, "    "),
         };
     }
     if (@hasDecl(T, "pickle") and T.pickle) out = out ++
         "\n    def __getstate__(self) -> tuple[Any, ...]: ...\n" ++
         "\n    def __setstate__(self, state: tuple[Any, ...], /) -> None: ...\n";
-    out = out ++ hooks(C, docs);
+    out = out ++ hooks(C);
     return out;
 }
 
-/// The `def`s for the protocol hooks of the `setu.Class` `C` (see `class.zig`); `docs` as for `classText`.
-fn hooks(comptime C: type, comptime docs: bool) []const u8 {
+/// The `def`s for the protocol hooks of the `setu.Class` `C` (see `class.zig`).
+fn hooks(comptime C: type) []const u8 {
     const T = C.Data;
     const body = C.decl_source;
     var out: []const u8 = "";
@@ -317,7 +315,7 @@ fn hooks(comptime C: type, comptime docs: bool) []const u8 {
     if (@hasDecl(T, "__hash__")) {
         out = out ++ "\n    def __hash__(self) -> int: ...\n";
     } else if (@hasDecl(T, "__eq__")) out = out ++ "    __hash__: ClassVar[None]  # type: ignore[assignment]\n";
-    if (@hasDecl(T, "__call__")) out = out ++ "\n" ++ function(T.__call__, "self", "__call__", body, "    ", docs);
+    if (@hasDecl(T, "__call__")) out = out ++ "\n" ++ function(T.__call__, "self", "__call__", body, "    ");
     if (@hasDecl(T, "__iter__")) {
         out = out ++ hookDef(C, "__iter__", .{});
     } else if (@hasDecl(T, "__next__")) out = out ++ "\n    def __iter__(self) -> Self: ...\n";
@@ -438,14 +436,13 @@ fn takesCallArgs(comptime f: anytype) bool {
 }
 
 /// One `def`, with its docstring (`bound`: the name written for the skipped first parameter,
-/// `self` / `cls`; `null` for a function or static method). `docs` false: `...` for the docstring.
+/// `self` / `cls`; `null` for a function or static method).
 fn function(
     comptime f: anytype,
     comptime bound: ?[]const u8,
     comptime name: []const u8,
     comptime source: []const u8,
     comptime indent: []const u8,
-    comptime docs: bool,
 ) []const u8 {
     const doc = py.fnSource(source, name).doc;
     const R = docType(doc, "return") orelse pyType(@typeInfo(@TypeOf(f)).@"fn".return_type.?);
@@ -458,7 +455,7 @@ fn function(
         }
     }
     const def = signature(f, bound, name, name, source, doc, R, indent);
-    return if (doc.len == 0 or !docs) def ++ " ...\n" else def ++ "\n" ++ docstring(doc, indent ++ "    ");
+    return if (doc.len == 0) def ++ " ...\n" else def ++ "\n" ++ docstring(doc, indent ++ "    ");
 }
 
 /// `def name(params) -> R:` for the `pub fn zig_name`; parameter types from `doc`'s `Type`
