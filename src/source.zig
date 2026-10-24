@@ -106,12 +106,14 @@ pub const FnSource = struct {
     types: []const []const u8,
 };
 
-/// `///` lines above `pub fn name(` and its parameter names and types, from `source`.
-/// `//` comments in the parameter list (`flags: ?u8, // note`) are skipped.
+/// `///` lines above `pub fn name(` (or `pub inline fn name(`) and its parameter names and types,
+/// from `source`. `//` comments in the parameter list (`flags: ?u8, // note`) are skipped.
 pub fn fnSource(comptime source: []const u8, comptime name: []const u8) FnSource {
     @setEvalBranchQuota(1_000_000);
-    const needle = "pub fn " ++ name ++ "(";
-    const at = std.mem.find(u8, source, needle) orelse @compileError("no `" ++ needle ++ "` in source");
+    const plain = "pub fn " ++ name ++ "(";
+    const inlined = "pub inline fn " ++ name ++ "(";
+    const needle = if (std.mem.find(u8, source, plain) != null) plain else inlined;
+    const at = std.mem.find(u8, source, needle) orelse @compileError("no `" ++ plain ++ "` in source");
     var names: []const [:0]const u8 = &.{};
     var types: []const []const u8 = &.{};
     for (listParts(source, at + needle.len)) |part| {
@@ -204,6 +206,18 @@ test "fnSource: doc, parameter names (unquoted) and types, comments skipped" {
         testing.expect(f.params.len == 3, "3 parameters");
         testing.expectTexts(f.types, &.{ "i64", "?i64", "struct { x: u8 = 1, y: bool }" });
         testing.expectText(docAbove(source, 0), "");
+    }
+}
+
+test "fnSource: pub inline fn" {
+    const source =
+        \\/// Hot.
+        \\pub inline fn hot(a: u8) u8 {}
+    ;
+    comptime {
+        const f = fnSource(source, "hot");
+        testing.expectText(f.doc, "Hot.");
+        testing.expectTexts(f.types, &.{"u8"});
     }
 }
 

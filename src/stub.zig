@@ -425,6 +425,14 @@ fn function(
 ) []const u8 {
     const doc = py.fnSource(source, name).doc;
     const R = docType(doc, "return") orelse pyType(@typeInfo(@TypeOf(f)).@"fn".return_type.?);
+    if (bound != null) {
+        const first: usize = 1 + @intFromBool(py.hasRest(f, true));
+        for (py.paramList(f, first, name, source)) |p| {
+            if (p.kind != .kw_only and docType(doc, p.name) == null and std.mem.eql(u8, pyType(p.T), "Any"))
+                @compileError("method `" ++ name ++ "`: parameter `" ++ p.name ++ "` stubs as `Any`; if it is a " ++
+                    "Zig-only helper rename it camelCase, else add a `Type` entry to its doc");
+        }
+    }
     const def = signature(f, bound, name, name, source, doc, R, indent);
     return if (doc.len == 0 or !docs) def ++ " ...\n" else def ++ "\n" ++ docstring(doc, indent ++ "    ");
 }
