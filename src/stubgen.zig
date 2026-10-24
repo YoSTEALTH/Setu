@@ -12,15 +12,10 @@ pub const module = ext.module;
 /// Tells `py.exportModule` (in `ext`) not to export anything.
 pub const setu_stubgen = true;
 
-/// The whole `.pyi`.
-const text = setu.stub.module(module);
-
-/// Writes `text` to stdout.
-pub fn main() void {
-    var rest: []const u8 = text;
-    while (rest.len > 0) {
-        const n = std.os.linux.write(1, rest.ptr, rest.len);
-        if (@as(isize, @bitCast(n)) <= 0) std.process.exit(1);
-        rest = rest[n..];
-    }
+/// Writes the whole `.pyi` to stdout.
+pub fn main(init: std.process.Init) !void {
+    var buf: [4096]u8 = undefined;
+    var out = std.Io.File.stdout().writerStreaming(init.io, &buf);
+    try setu.stub.module(&out.interface, module);
+    try out.interface.flush();
 }

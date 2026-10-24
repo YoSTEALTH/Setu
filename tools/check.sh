@@ -50,6 +50,7 @@ step "zig build develop"
 
 step "ruff check (generated stubs)"
 "$PY_FT" -m ruff check test/setu_classes.pyi # gitignored, so `ruff check .` above skips it
+"$PY_FT" -m ruff format --check test/setu_classes.pyi
 
 for py in "$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL"; do
     step "$py"

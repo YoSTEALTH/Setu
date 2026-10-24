@@ -20,7 +20,7 @@
 //!     comptime {
 //!         py.exportModule(module);
 //!     }
-//!     const pyi = setu.stub.module(module); // `.pyi` text (type stubs); `addStubs` in `build.zig`
+//!     // `setu.stub.module(writer, module)` writes the `.pyi` (type stubs); `addStubs` in `build.zig`
 //!
 //! It must not depend on Shakti (`build.zig` gives it no such import), so it
 //! can become a separate dependency later.

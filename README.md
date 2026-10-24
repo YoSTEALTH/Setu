@@ -19,7 +19,7 @@ src/py.zig        functions, conversions, errors, the module (exportModule)
 src/scan.zig      setu.From: which declarations of a Module.from namespace Python gets
 src/class.zig     setu.Class: a struct becomes a Python type
 src/exception.zig setu.Exception: an exception class of the extension
-src/stub.zig      .pyi text at comptime (stub.module: an extension's whole .pyi)
+src/stub.zig      .pyi text (stub.module writes an extension's whole .pyi)
 src/stubgen.zig   the stub generator addStubs builds (no libpython)
 test/             setu_classes, a test extension with a class per hook family (the model root file)
 test/wheel/       setu_classes as a project, for the tools/setu_build.py wheel checks

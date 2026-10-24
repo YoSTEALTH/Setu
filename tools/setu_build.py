@@ -1,8 +1,8 @@
 '''PEP 517 build backend: builds a Zig + Setu extension's wheel with `zig build`, no setuptools.
 
-Kept in Setu (`tools/setu_build.py`) and copied unchanged into each project that uses Setu (Liburing,
-Shakti): the package name (`[project].name`, with its sources in `src/<name>/`) and the release
-matrix (`[tool.setu_build]`) come from `pyproject.toml`.
+Kept in Setu (`tools/setu_build.py`) and copied unchanged into each project that uses Setu: the package name
+(`[project].name`, with its sources in `src/<name>/`) and the release matrix (`[tool.setu_build]`) come from
+`pyproject.toml`.
 
 Only wheels are built (no sdist is published), one per Linux target: tagged `cp314.cp315-abi3.abi3t.cp314t.cp315t`,
 its one extension (`<name>.so`) loads on CPython 3.14, 3.14t, 3.15, 3.15t and later (see Setu's
