@@ -70,10 +70,12 @@ The settings, in `pyproject.toml` (paths relative to it):
 The footer also reads `[project]`: `urls.Homepage` (the name links to it) and `requires-python` (`>=3.14` shows as
 `CPython 3.14+`); each is left out when missing.
 
-Code colors a `css` file may set: `--kw` (keywords), `--bi` (builtins), `--str`, `--num`, `--com` (comments),
-`--ref` (API names, linked), and, unset by default, `--con` (`None` / `True` / ...; else `--num`), `--ty` (a `class`
-name; else `--bi`), `--dec` (decorators; else `--kw`), `--fn` (a `def` name, a call), `--slf` (`self` / `cls` / a
-dunder), `--attr` (attributes), `--arg` (`name=` in brackets), `--op` (operators; these last five else the text's).
+The default theme is Tokyo Night: Day for light, Night for dark (the ◐ button, else the system's choice). A `css`
+file can override any color: page `--bg`, `--panel`, `--line`, `--text`, `--muted`, `--accent`, ...; code `--kw`
+(keywords), `--bi` (builtins), `--str`, `--num`, `--com` (comments), `--ref` (API names, linked), `--code-fg` (code
+text; else `--text`), `--con` (`None` / `True` / ...; else `--num`), `--ty` (a `class` name; else `--bi`), `--dec`
+(decorators; else `--kw`), `--fn` (a `def` name, a call, an API name in code), `--slf` (`self` / `cls` / a dunder),
+`--attr` (attributes), `--arg` (`name=` in brackets), `--op` (operators; these last five else the text's).
 
 Markdown: headings (with anchors), paragraphs, `-` / `1.` lists, `>` quotes, GFM tables, fenced code (python,
 pycon and sh highlighted, every block with a Copy button), inline code, links (`page.md` -> its page), images,
@@ -1316,9 +1318,10 @@ def pretty_html(text):
     Only whitespace that does not render changes, so the page looks the same: next to a block tag, or a line
     break between inline parts (one space however it is indented). Inline parts that touch stay together. A text
     block (`<p>`, `<li>`, `<td>`, headings, ...; or any block with only inline content) keeps its text and inline
-    tags on the opening tag's line, with its closing tag; so does an empty element. `<pre>` / `<script>` /
-    `<style>` / `<textarea>` are copied as they are; only a `<pre>` / `<textarea>` with content gets a line break
-    after its opening tag, which the parser drops.
+    tags on the opening tag's line, with its closing tag; so does an empty element. `<script>` / `<style>` /
+    `<textarea>` are copied as they are (a `<textarea>` with content gets a line break after its opening tag, which
+    the parser drops). A `<pre>` with content is split into lines, one `<span class="ln">` each (`pre_lines`), so
+    its lines are indented like the rest: the CSS keeps the whitespace inside a `.ln` and drops it between them.
 
     Example
         >>> print(pretty_html('<div><p>Hi <b>there</b></p><a>x</a><a>y</a><div>z</div></div>'), end='')
@@ -1326,6 +1329,14 @@ def pretty_html(text):
           <p>Hi <b>there</b></p>
           <a>x</a><a>y</a>
           <div>z</div>
+        </div>
+
+        >>> print(pretty_html('<div><pre>if x:\\n    y()</pre></div>'), end='')
+        <div>
+          <pre>
+            <span class="ln">if x:</span>
+            <span class="ln">    y()</span>
+          </pre>
         </div>
     '''
     out, stack, pos, after_block, space, opened = [], [], 0, True, '', ''
@@ -1337,9 +1348,12 @@ def pretty_html(text):
             end = re.compile(rf'</{tag}\s*>', re.IGNORECASE).search(text, pos)
             body_end, pos = (end.start(), end.end()) if end else (len(text), len(text))
             token = text[m.start() : pos]
-            if tag in ('pre', 'textarea') and m.end() < body_end and text[m.end()] not in '\r\n':
-                # the parser drops one line break right after `<pre>`: the content starts on its own line, so
-                # all of its lines line up at the left edge
+            if tag == 'pre' and text[m.end() : body_end]:
+                indent = '\n' + '  ' * (len(stack) + 1)
+                lines = ''.join(f'{indent}{LINE_OPEN}{line}</span>' for line in pre_lines(text[m.end() : body_end]))
+                token = f'{m.group(0)}{lines}\n{"  " * len(stack)}{text[body_end:pos]}'
+            elif tag == 'textarea' and m.end() < body_end and text[m.end()] not in '\r\n':
+                # the parser drops one line break right after `<textarea>`: the content starts on its own line
                 token = text[m.start() : m.end()] + '\n' + text[m.end() : pos]
         elif not token.strip(HTML_SPACE):
             space += token
@@ -1361,6 +1375,45 @@ def pretty_html(text):
             after_block, opened = False, ''
         space = ''
     return ''.join(out).strip('\n') + '\n'
+
+
+LINE_OPEN = '<span class="ln">'
+LINE_SPLIT = re.compile(rf'</span>[{HTML_SPACE}]*{LINE_OPEN}')
+
+
+def pre_lines(body):
+    '''The lines of a `<pre>`'s `body` (HTML), each whole: a tag open at a line break is closed at the end of the
+    line and opened again on the next. A `body` already in `<span class="ln">` lines (`pretty_html`'s own output)
+    gives those lines back.
+
+    Example
+        >>> pre_lines('<b>a\\nb</b>\\nc\\n')
+        ['<b>a</b>', '<b>b</b>', 'c']
+    '''
+    inner = body.strip(HTML_SPACE)
+    if inner.startswith(LINE_OPEN) and inner.endswith('</span>'):
+        return LINE_SPLIT.split(inner[len(LINE_OPEN) : -len('</span>')])
+    body = body.removeprefix('\n')  # the parser drops it
+    lines, line, opened = [], [], []
+    for m in HTML_TOKEN.finditer(body):
+        token, name = m.group(0), (m.group(2) or '').lower()
+        if not name:
+            *done, rest = token.split('\n')
+            for part in done:
+                lines.append(''.join([*line, part, *(f'</{n}>' for n, _ in reversed(opened))]))
+                line = [t for _, t in opened]
+            line.append(rest)
+            continue
+        line.append(token)
+        if m.group(1):
+            if opened:
+                opened.pop()
+        elif name not in VOID_TAGS:
+            opened.append((name, token))
+    lines.append(''.join(line))
+    if len(lines) > 1 and not lines[-1]:  # a last line break shows no line
+        lines.pop()
+    return lines
 
 
 def inline_only(text, pos, tag):
@@ -1416,29 +1469,44 @@ def chart_number(cell):
 
 
 CSS = '''
+/* Tokyo Night colors (tokyonight.nvim): light = Tokyo Night Day, with Tokyo Night Light's darker text (Day's
+   `#3760bf` is hard to read in long text; code keeps it, `--code-fg`); dark = Tokyo Night. A plain `:root`, so the
+   dark blocks below (more specific) win in dark mode; the dark block twice: for the system's dark mode (no
+   choice made) and for the ◐ button's dark. */
 :root {
-  --bg: #fbfaf8; --panel: #f3f1ec; --line: #e2ded5; --text: #22201c; --muted: #6b665c;
-  --accent: #b4441b; --accent-soft: #f6e3d9; --code-bg: #f5f3ee; --ok: #2f7d32; --bad: #b3261e; --warn: #8a6d00;
-  --kw: #8a3ab9; --str: #2f7d32; --num: #b4441b; --com: #8c867a; --bi: #0f6b8f; --ref: #1d4f91;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6;
-  --s8: #e34948; --s-other: #a29c90;
+  --bg: #e1e2e7; --panel: #d0d5e3; --line: #c4c8da; --text: #343b58; --muted: #68709a;
+  --accent: #2e7de9; --accent-soft: #b7c1e3; --code-bg: #e9e9ed; --ok: #587539; --bad: #f52a65; --warn: #8c6c3e;
+  --kw: #9854f1; --str: #587539; --num: #b15c00; --com: #848cb5; --bi: #188092; --ref: #007197;
+  --code-fg: #3760bf; --fn: #2e7de9;
+  --con: #b15c00; --slf: #f52a65; --ty: #188092; --attr: #387068; --dec: #007197; --op: #006a83;
+  --arg: #8c6c3e;
+  --s1: #2e7de9; --s2: #b15c00; --s3: #587539; --s4: #8c6c3e; --s5: #9854f1; --s6: #118c74; --s7: #007197;
+  --s8: #f52a65; --s-other: #a8aecb;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #161513; --panel: #1e1d1a; --line: #33302b; --text: #ebe7df; --muted: #a29c90;
-    --accent: #f08a5d; --accent-soft: #3a2519; --code-bg: #1c1b18; --ok: #7cc47f; --bad: #f28b82; --warn: #e0c35c;
-    --kw: #d3a4f5; --str: #9fd39f; --num: #f5a97f; --com: #8a8478; --bi: #7cc7e8; --ref: #9cc0ff;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9;
-    --s8: #e66767; --s-other: #6b665c;
+    --bg: #1a1b26; --panel: #16161e; --line: #292e42; --text: #c0caf5; --muted: #737aa2;
+    --accent: #7aa2f7; --accent-soft: #283457; --code-bg: #16161e; --ok: #9ece6a; --bad: #f7768e; --warn: #e0af68;
+    --kw: #bb9af7; --str: #9ece6a; --num: #ff9e64; --com: #565f89; --bi: #2ac3de; --ref: #7dcfff;
+    --code-fg: #a9b1d6; --fn: #7aa2f7;
+    --con: #ff9e64; --slf: #f7768e; --ty: #2ac3de; --attr: #73daca; --dec: #7dcfff; --op: #89ddff;
+    --arg: #e0af68;
+    --s1: #7aa2f7; --s2: #ff9e64; --s3: #9ece6a; --s4: #e0af68; --s5: #bb9af7; --s6: #73daca; --s7: #7dcfff;
+    --s8: #f7768e; --s-other: #565f89;
   }
+  :root:not([data-theme="light"]) .run button { color: #1a1b26; }
 }
 :root[data-theme="dark"] {
-  --bg: #161513; --panel: #1e1d1a; --line: #33302b; --text: #ebe7df; --muted: #a29c90;
-  --accent: #f08a5d; --accent-soft: #3a2519; --code-bg: #1c1b18; --ok: #7cc47f; --bad: #f28b82; --warn: #e0c35c;
-  --kw: #d3a4f5; --str: #9fd39f; --num: #f5a97f; --com: #8a8478; --bi: #7cc7e8; --ref: #9cc0ff;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9;
-  --s8: #e66767; --s-other: #6b665c;
+  --bg: #1a1b26; --panel: #16161e; --line: #292e42; --text: #c0caf5; --muted: #737aa2;
+  --accent: #7aa2f7; --accent-soft: #283457; --code-bg: #16161e; --ok: #9ece6a; --bad: #f7768e; --warn: #e0af68;
+  --kw: #bb9af7; --str: #9ece6a; --num: #ff9e64; --com: #565f89; --bi: #2ac3de; --ref: #7dcfff;
+  --code-fg: #a9b1d6; --fn: #7aa2f7;
+  --con: #ff9e64; --slf: #f7768e; --ty: #2ac3de; --attr: #73daca; --dec: #7dcfff; --op: #89ddff;
+  --arg: #e0af68;
+  --s1: #7aa2f7; --s2: #ff9e64; --s3: #9ece6a; --s4: #e0af68; --s5: #bb9af7; --s6: #73daca; --s7: #7dcfff;
+  --s8: #f7768e; --s-other: #565f89;
 }
+:root[data-theme="dark"] .run button { color: #1a1b26; }
 * { box-sizing: border-box; }
 html { scroll-padding-top: 64px; }
 body { margin: 0; background: var(--bg); color: var(--text);
@@ -1499,6 +1567,10 @@ h4.mh { text-transform: none; letter-spacing: 0; font: 600 14px/1.5 ui-monospace
 .members { margin: 12px 0 0 0; padding-left: 16px; border-left: 3px solid var(--panel); }
 .member { padding: 4px 0 8px; }
 .bases { color: var(--muted); margin: 0; }
+/* `pretty_html` puts a `<pre>`'s lines in `.ln` blocks (indented like the rest): the whitespace between them goes,
+   the whitespace in them stays; an empty line keeps its height. */
+pre:has(> .ln) { white-space: normal; } pre > .ln { display: block; white-space: pre; }
+pre > .ln:empty::before { content: "\\200b"; }
 pre.code, pre.plain, pre.result { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
   padding: 10px 12px; overflow-x: auto; line-height: 1.5; margin: 6px 0; }
 .codebox { position: relative; }
@@ -1508,10 +1580,14 @@ pre.code, pre.plain, pre.result { background: var(--code-bg); border: 1px solid 
 .codebox:hover .copy, .codebox .copy:focus { opacity: 1; }
 .kw { color: var(--kw); } .str { color: var(--str); } .num { color: var(--num); } .com { color: var(--com); }
 .bi { color: var(--bi); } a.ref { color: var(--ref); } .pr { color: var(--muted); user-select: none; }
-/* Token kinds a theme may color (`--fn`, ...); without one they fall back to a color above or the text's. */
+/* Token kinds a `css` file may leave out (`--fn`, ...); without one they fall back to a color above or the text's. */
 .fn { color: var(--fn, inherit); } .con { color: var(--con, var(--num)); } .slf { color: var(--slf, inherit); }
 .ty { color: var(--ty, var(--bi)); } .attr { color: var(--attr, inherit); } .dec { color: var(--dec, var(--kw)); }
 .op { color: var(--op, inherit); } .arg { color: var(--arg, inherit); }
+/* Code blocks as in the Tokyo Night editor: API names (`a.ref`) in the function blue, comments italic, the rest
+   in the editor's foreground; inline `code` keeps the text color. */
+pre.code { color: var(--code-fg, var(--text)); } pre.code a.ref { color: var(--fn, var(--ref)); }
+pre.code .com { font-style: italic; }
 .out { color: var(--muted); }
 table { border-collapse: collapse; margin: 4px 0; }
 td, th { padding: 3px 14px 3px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
@@ -1596,7 +1672,9 @@ JS = r'''
     pre.replaceWith(box);
     box.append(pre, copy);
     copy.addEventListener('click', () => {
-      let text = pre.textContent;
+      // lines from `pretty_html` are `.ln` blocks; the whitespace between them is not code
+      const lines = pre.querySelectorAll(':scope > .ln');
+      let text = lines.length ? [...lines].map(l => l.textContent).join('\n') : pre.textContent;
       if (pre.classList.contains('session')) {
         text = text.split('\n').filter(l => /^(>>>|\.\.\.)( |$)/.test(l)).map(l => l.slice(4)).join('\n');
       }

@@ -9,6 +9,7 @@ python3 tools/check_docs.py
 import ast
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -207,10 +208,28 @@ def check_site(project, out):
         '<li>a\n  b\n  <ul>\n    <li>c</li>\n  </ul>\n</li>\n<p>d\xa0\n  <b>e</b></p>\n',
     )
     same(
-        'pretty_html: `<pre>` content on its own line (the parser drops that line break), unless empty or already',
-        setu_docs.pretty_html('<div><pre class="code">a\n b</pre><pre hidden></pre><pre>\nc</pre></div>'),
-        '<div>\n  <pre class="code">\na\n b</pre>\n  <pre hidden></pre>\n  <pre>\nc</pre>\n</div>\n',
+        'pretty_html: a `<pre>` in `.ln` lines (the first line break and a last one dropped), unless empty;'
+        ' `<textarea>` content on its own line',
+        setu_docs.pretty_html(
+            '<div><pre class="code">a\n\n b</pre><pre hidden></pre><pre>\nc\n</pre><textarea>t</textarea></div>'
+        ),
+        '<div>\n  <pre class="code">\n    <span class="ln">a</span>\n    <span class="ln"></span>\n'
+        '    <span class="ln"> b</span>\n  </pre>\n  <pre hidden></pre>\n  <pre>\n    <span class="ln">c</span>\n'
+        '  </pre>\n  <textarea>\nt</textarea>\n</div>\n',
     )
+    same(
+        'pre_lines: a tag open at a line break is closed and opened again; `.ln` lines come back as they are',
+        (
+            setu_docs.pre_lines('x = <span class="str">\'\'\'a\nb\'\'\'</span><br>\ny'),
+            setu_docs.pre_lines('\n  <span class="ln">a</span>\n  <span class="ln"> <b>b</b></span>\n'),
+        ),
+        (
+            ['x = <span class="str">\'\'\'a</span>', '<span class="str">b\'\'\'</span><br>', 'y'],
+            ['a', ' <b>b</b>'],
+        ),
+    )
+    if '<span class="ln">' not in (out / 'guide.html').read_text():
+        fail('guide.html: no `<pre>` in `.ln` lines')
     index = {e['n']: e for e in json.loads((out / 'search.json').read_text())}
     same(
         'search vec_norm2',
@@ -243,6 +262,11 @@ def check_site(project, out):
         fail('constants.html: a group is not a `section` with an anchor, or not formatted')
     if '--accent: #1b6fb4' not in (out / 'style.css').read_text():
         fail('style.css: `css` not appended')
+    # the light theme, the system's dark and the ◐ button's dark: each sets every color
+    blocks = re.findall(r':root[^{]*\{([^}]*--bg:[^}]*)\}', setu_docs.CSS)
+    themes = [set(re.findall(r'(--[\w-]+):', b)) for b in blocks]
+    if len(themes) != 3 or themes[0] != themes[1] or themes[0] != themes[2]:
+        fail(f'CSS: the theme blocks set different variables: {[sorted(t) for t in themes]}')
     examples = (out / 'examples.html').read_text()
     if 'data-target="example/forever.py"' in examples or 'data-target="example/hi.py"' not in examples:
         fail('examples.html: `scripts_skip` not applied')
