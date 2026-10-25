@@ -11,7 +11,8 @@
 //! Their `build.zig` can also `@import("setu")` for `addStubs` (the extension's `.pyi`, from its root
 //! file's `module`), `addSetuBuildSteps` (keeping their copy of `tools/setu_build.py`, the wheel build
 //! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
-//! site helpers) and `ext_suffix`.
+//! site helpers), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide to writing an extension)
+//! and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -77,7 +78,7 @@ pub fn build(b: *std.Build) void {
 ///     $ zig build setu-build-sync    # tools/setu_build.py = the pinned Setu's
 ///     $ zig build setu-build-check   # in tools/check.sh: `cmp` fails if they differ
 pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    addCopySteps(b, setu_dep, "setu_build.py", "setu-build");
+    addCopySteps(b, setu_dep, "tools/setu_build.py", "setu-build");
 }
 
 /// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tools/setu_docs.py`:
@@ -88,24 +89,35 @@ pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
 ///     $ zig build setu-docs-sync     # tools/setu_docs.py = the pinned Setu's
 ///     $ zig build setu-docs-check    # in tools/check.sh: `cmp` fails if they differ
 pub fn addSetuDocsSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    addCopySteps(b, setu_dep, "setu_docs.py", "setu-docs");
+    addCopySteps(b, setu_dep, "tools/setu_docs.py", "setu-docs");
 }
 
-/// The `<step>-check` / `<step>-sync` steps for `tools/<file>`.
+/// Like `addSetuBuildSteps`, for Setu's guide to writing an extension (`docs/setu-guide.md`, what a session
+/// working on the project's bindings reads): the steps `setu-guide-check` and `setu-guide-sync`.
+///
+/// Example
+///     >>> @import("setu").addSetuGuideSteps(b, setu_dep);
+///     $ zig build setu-guide-sync    # docs/setu-guide.md = the pinned Setu's
+///     $ zig build setu-guide-check   # in tools/check.sh: `cmp` fails if they differ
+pub fn addSetuGuideSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
+    addCopySteps(b, setu_dep, "docs/setu-guide.md", "setu-guide");
+}
+
+/// The `<step>-check` / `<step>-sync` steps for the project's copy of Setu's `path` (the same path there).
 fn addCopySteps(
     b: *std.Build,
     setu_dep: *std.Build.Dependency,
-    comptime file: []const u8,
+    comptime path: []const u8,
     comptime step: []const u8,
 ) void {
-    const script = setu_dep.path("tools/" ++ file);
+    const original = setu_dep.path(path);
     const same = b.addSystemCommand(&.{"cmp"});
-    same.addFileArg(script);
-    same.addFileArg(b.path("tools/" ++ file));
-    b.step(step ++ "-check", "Check that tools/" ++ file ++ " is the pinned Setu's copy").dependOn(&same.step);
+    same.addFileArg(original);
+    same.addFileArg(b.path(path));
+    b.step(step ++ "-check", "Check that " ++ path ++ " is the pinned Setu's copy").dependOn(&same.step);
     const sync = b.addUpdateSourceFiles();
-    sync.addCopyFileToSource(script, "tools/" ++ file);
-    b.step(step ++ "-sync", "Copy the pinned Setu's tools/" ++ file ++ " into tools/").dependOn(&sync.step);
+    sync.addCopyFileToSource(original, path);
+    b.step(step ++ "-sync", "Copy the pinned Setu's " ++ path ++ " into the project").dependOn(&sync.step);
 }
 
 /// What `addStubs` takes.

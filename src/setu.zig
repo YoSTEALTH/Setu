@@ -22,8 +22,7 @@
 //!     }
 //!     // `setu.stub.module(writer, module)` writes the `.pyi` (type stubs); `addStubs` in `build.zig`
 //!
-//! It must not depend on Shakti (`build.zig` gives it no such import), so it
-//! can become a separate dependency later.
+//! Setu never imports Shakti or Liburing: they depend on it (`b.dependency("setu", .{})`).
 
 pub const c = @import("capi.zig");
 pub const py = @import("py.zig");
@@ -35,7 +34,6 @@ const scan = @import("scan.zig");
 pub const Class = class.Class;
 pub const Instance = class.Instance;
 pub const CallArgs = class.CallArgs;
-pub const Options = class.Options;
 pub const Send = class.Send;
 pub const Poll = class.Poll;
 pub const Visit = class.Visit;
@@ -45,10 +43,8 @@ pub const Kind = scan.Kind;
 pub const From = scan.From;
 pub const Module = py.Module;
 
-/// Is this Setu's stub generator (`addStubs`), which imports the extension's root file for its
-/// `module` but has no libpython? Code that comptime data points to is dropped there unless reached
-/// (see `addStubs`), so a root file rarely needs to ask.
-pub const stubgen = @hasDecl(@import("root"), "setu_stubgen");
+/// Is this Setu's stub generator (`addStubs`), which has no libpython? See `py.stubgen`.
+pub const stubgen = py.stubgen;
 
 test {
     @import("std").testing.refAllDecls(@This());

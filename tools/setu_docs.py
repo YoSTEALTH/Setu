@@ -22,12 +22,14 @@ Two parts, both used from `mkdocs.yml`:
 that as code and quotes, so each section is rewritten: `Note` / `Warning` become admonitions, `Example` (and a bare
 `>>>` session) a `pycon` block, anything else a `text` block.
 
-`write_api()` writes the API reference pages (`api/index.md` and `api/<slug>.md`) from the stub. The grouping is the
-project's, in `pyproject.toml`:
+`write_api()` writes the API reference pages (`api/index.md` and `api/<slug>.md`) from the stub; `write_llms()`
+writes `llms.txt` (an index of the pages, for AI readers) and `llms-full.txt` (every class, function and constant
+with its signature and docstring, one page) into the site root. The grouping is the project's, in `pyproject.toml`:
 
     [tool.setu_docs]
     stub = 'src/pkg/pkg.pyi'        # the generated stub (`zig build develop`)
     module = 'pkg.pkg'              # the module mkdocstrings loads (`::: pkg.pkg.name`)
+    summary = 'io_uring for Python' # optional: the one-line summary of `llms.txt`
 
     [[tool.setu_docs.pages]]        # first match wins, in this order
     slug = 'ring'
@@ -206,3 +208,69 @@ def write_api(pyproject: str | Path = 'pyproject.toml') -> None:
             lines += [f'::: {config["module"]}.{name}\n' for name in members[page['slug']]]
         with mkdocs_gen_files.open(f'api/{page["slug"]}.md', 'w') as out:
             out.write('\n'.join(lines))
+
+
+def signature(stub: list[str], node: ast.FunctionDef) -> str:
+    '''`def name(args) -> R` of a stub function, as the stub writes it (the `def` line, or the lines of a
+    parameter-per-line one joined), without the `:` and the body.'''
+    text = '\n'.join(stub[node.lineno - 1 : node.body[0].lineno])
+    body = re.search(r":(\s*#[^\n]*)?\s*(\.\.\.|''')", text)
+    text = text[: body.start()] if body else text.rstrip().removesuffix(':')
+    return re.sub(r', \)', ')', re.sub(r'\( ', '(', re.sub(r'\s*\n\s*', ' ', text.strip())))
+
+
+def entry(stub: list[str], node: ast.AST, level: int) -> list[str]:
+    '''The Markdown of one declaration of the stub (its `lines`): a heading of `level` with the signature, the
+    converted docstring, and for a class the same for each member.'''
+    head = '#' * level
+    decorators = ''.join(f'@{ast.unparse(d)} ' for d in getattr(node, 'decorator_list', ()))
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return [f'{head} {node.target.id}: {ast.unparse(node.annotation)}', '']
+    if isinstance(node, ast.FunctionDef):
+        lines = [f'{head} {decorators}{signature(stub, node)}', '']
+    elif isinstance(node, ast.ClassDef):
+        params = ', '.join(ast.unparse(p) for p in node.type_params)
+        bases = ', '.join(ast.unparse(b) for b in node.bases)
+        name = node.name + (f'[{params}]' if params else '') + (f'({bases})' if bases else '')
+        lines = [f'{head} {decorators}class {name}', '']
+    else:
+        return []
+    raw = raw_docstring(node)
+    if raw:
+        lines += [convert(raw), '']
+    if isinstance(node, ast.ClassDef):
+        for member in node.body:
+            lines += entry(stub, member, level + 1)
+    return lines
+
+
+def llms_full(stub: str, module: str) -> str:
+    '''`llms-full.txt`: every declaration of the stub text `stub`, in order, with signature and docstring.'''
+    lines = [f'# {module}', '', 'Every class, function and constant of the module, with its signature and docstring',
+             '(from the type stubs Setu generates from the `///` docs in the Zig source).', '']  # fmt: skip
+    source = stub.splitlines()
+    for node in ast.parse(stub).body:
+        lines += entry(source, node, 2)
+    return '\n'.join(lines).rstrip('\n') + '\n'
+
+
+def llms_index(config: dict) -> str:
+    '''`llms.txt` (the llms.txt convention): the module, its summary, the API pages and `llms-full.txt`.'''
+    module = config['module']
+    summary = config.get('summary', f'The Python API of `{module}`, from its type stubs.')
+    lines = [f'# {module}', '', f'> {summary}', '', '## API reference', '']
+    lines += [f'- [{p["title"]}](api/{p["slug"]}/): {p["text"]}' for p in config['pages']]
+    lines += ['', '## Full text', '', '- [llms-full.txt](llms-full.txt): every signature and docstring on one page', '']
+    return '\n'.join(lines)
+
+
+def write_llms(pyproject: str | Path = 'pyproject.toml') -> None:
+    '''Writes `llms.txt` and `llms-full.txt` into the site root (call it from a `mkdocs-gen-files` script).'''
+    import mkdocs_gen_files
+
+    config = load_config(pyproject)
+    stub = (Path(pyproject).parent / config['stub']).read_text()
+    with mkdocs_gen_files.open('llms.txt', 'w') as out:
+        out.write(llms_index(config))
+    with mkdocs_gen_files.open('llms-full.txt', 'w') as out:
+        out.write(llms_full(stub, config['module']))

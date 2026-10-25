@@ -115,7 +115,6 @@ pub inline fn newNotImplemented() *Object {
 const raise_zig = @import("raise.zig");
 const convert = @import("convert.zig");
 const args_zig = @import("args.zig");
-const source_zig = @import("source.zig");
 const export_zig = @import("export.zig");
 
 pub const raise = raise_zig.raise;
@@ -145,49 +144,26 @@ pub const Buffer = convert.Buffer;
 pub const WritableBuffer = convert.WritableBuffer;
 pub const OwnedBuffer = convert.OwnedBuffer;
 pub const OwnedWritableBuffer = convert.OwnedWritableBuffer;
-pub const isBuffer = convert.isBuffer;
 pub const Sequence = convert.Sequence;
-pub const isSequence = convert.isSequence;
 
-pub const releaseArgs = args_zig.releaseArgs;
 pub const releases = convert.releases;
 pub const owns = convert.owns;
 pub const Rest = args_zig.Rest;
 pub const Kwargs = args_zig.Kwargs;
 pub const KwOnly = args_zig.KwOnly;
-pub const positionalCount = args_zig.positionalCount;
-pub const paramNames = args_zig.paramNames;
 pub const Param = args_zig.Param;
-pub const paramList = args_zig.paramList;
-pub const selfArg = args_zig.selfArg;
-pub const fillArgs = args_zig.fillArgs;
-pub const parseArgs = args_zig.parseArgs;
-
-pub const FnSource = source_zig.FnSource;
-pub const fnSource = source_zig.fnSource;
-pub const docAbove = source_zig.docAbove;
-pub const moduleDoc = source_zig.moduleDoc;
 
 pub const method_end = export_zig.method_end;
 pub const getset_end = export_zig.getset_end;
 pub const exportFns = export_zig.exportFns;
-pub const isExported = export_zig.isExported;
 pub const methodDef = export_zig.methodDef;
-pub const MethodKind = export_zig.MethodKind;
-pub const methodKind = export_zig.methodKind;
-pub const kindDef = export_zig.kindDef;
-pub const hasRest = export_zig.hasRest;
-pub const restIndex = export_zig.restIndex;
-pub const leadCount = args_zig.leadCount;
-pub const hasKwargs = export_zig.hasKwargs;
-pub const paramText = export_zig.paramText;
 pub const getter = export_zig.getter;
 pub const Constant = export_zig.Constant;
 pub const constants = export_zig.constants;
 pub const addConstants = export_zig.addConstants;
-pub const isUpperName = export_zig.isUpperName;
 pub const Module = export_zig.Module;
 pub const exportModule = export_zig.exportModule;
+pub const stubgen = export_zig.stubgen;
 
 /// Pointer to a type's extra instance data (`Py_tp_extra_basicsize`).
 pub inline fn typeData(comptime T: type, obj: *Object, tp: *c.TypeObject) *T {

@@ -4,7 +4,7 @@
 //!
 //! One `pub` declaration `name` of an entry's `ns` becomes:
 //!
-//!     pub fn snake_name(...)              a function (lowercase name, see `py.isExported`); needs the
+//!     pub fn snake_name(...)              a function (lowercase name, see `export.zig` `isExported`); needs the
 //!                                         entry's `source`, skipped with `.functions = false`
 //!     pub const XType = setu.Class(X, s)  a class (Python name: the struct's); created bases first,
 //!                                         added to the module unless `X.hidden`
@@ -148,7 +148,7 @@ fn entryItems(comptime i: usize, comptime e: From) []const Item {
                     found = found ++ .{switch (T.setu_kind) {
                         .class => Item{
                             .kind = .class,
-                            .name = shortNameZ(T.name),
+                            .name = class_zig.shortName(T.name),
                             .entry = i,
                             .decl = name,
                             .hidden = T.hidden,
@@ -280,12 +280,6 @@ fn contains(comptime names: []const []const u8, comptime name: []const u8) bool 
 fn startsWithAny(comptime name: []const u8, comptime prefixes: []const []const u8) bool {
     for (prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
     return false;
-}
-
-/// The last dotted part of `name`, 0-terminated.
-fn shortNameZ(comptime name: [:0]const u8) [:0]const u8 {
-    const dot = std.mem.findScalarLast(u8, name, '.') orelse return name;
-    return name[dot + 1 ..];
 }
 
 const testing = @import("testing.zig");

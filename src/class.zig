@@ -129,13 +129,15 @@
 //!     // in the root file (the type is then `pkg.Point`), created by `py.exportModule`:
 //!     pub const module: setu.Module = .{ .name = "pkg", .from = &.{.{ .ns = @import("point.zig") }} };
 //!
-//!     // or by hand, in `Py_mod_exec` (a root file without `module` names it in
-//!     // `pub const setu_options: setu.Options = .{ .module = "pkg" }`):
+//!     // or by hand, in `Py_mod_exec` (the root file still declares `module`, for the name):
 //!     try PointType.create(module);
 
 const std = @import("std");
 const c = @import("capi.zig");
 const py = @import("py.zig");
+const args_zig = @import("args.zig");
+const source_zig = @import("source.zig");
+const export_zig = @import("export.zig");
 const scan_zig = @import("scan.zig");
 
 const Object = c.Object;
@@ -419,7 +421,7 @@ pub const settings = [_][]const u8{
 /// Is the declaration `name` of `T` a class attribute: an UPPER_CASE `pub const` int,
 /// float, `bool` or string?
 pub fn isClassAttr(comptime T: type, comptime name: []const u8) bool {
-    if (!py.isUpperName(name)) return false;
+    if (!export_zig.isUpperName(name)) return false;
     const V = @TypeOf(@field(T, name));
     return switch (@typeInfo(V)) {
         .int, .comptime_int, .float, .comptime_float, .bool => true,
@@ -440,14 +442,14 @@ fn picklable(comptime F: type) bool {
 pub fn isMethod(comptime T: type, comptime name: []const u8) bool {
     // Settings first: `@TypeOf` of `getset` would pull its getters into the program.
     for (settings) |n| if (std.mem.eql(u8, name, n)) return false;
-    if (!py.isExported(T, name)) return false;
+    if (!export_zig.isExported(T, name)) return false;
     if (isHook(name)) return false;
     return !isAccessor(T, name);
 }
 
 /// Is the `pub fn name` of `T` a property getter (exported `get_x`, see `isAccessor`)?
 pub fn isGetter(comptime T: type, comptime name: []const u8) bool {
-    return std.mem.startsWith(u8, name, "get_") and isAccessor(T, name) and py.isExported(T, name);
+    return std.mem.startsWith(u8, name, "get_") and isAccessor(T, name) and export_zig.isExported(T, name);
 }
 
 /// Is the `pub fn name` of `T` a property getter / setter: named `get_x` / `set_x`, and not
@@ -458,28 +460,30 @@ pub fn isAccessor(comptime T: type, comptime name: []const u8) bool {
     return true;
 }
 
-/// The last dotted part of `name` (`"pkg.Point"` -> `"Point"`).
-pub fn shortName(comptime name: []const u8) []const u8 {
+/// The last dotted part of `name` (`"pkg.Point"` -> `"Point"`), still 0-terminated.
+pub fn shortName(comptime name: [:0]const u8) [:0]const u8 {
     const dot = std.mem.findScalarLast(u8, name, '.') orelse return name;
     return name[dot + 1 ..];
 }
 
-/// Settings for every `Class`, declared in the root file as `pub const setu_options`
-/// (like `std_options`), by an extension without a `pub const module: setu.Module` there.
-pub const Options = struct {
-    /// The module a type names as its `__module__` (`"pkg"` makes `Point` `pkg.Point`),
-    /// unless the struct declares `name`.
-    module: []const u8,
-};
+/// The return type of the hook or method `f`, without its error union (`Error!u32` -> `u32`).
+pub fn resultType(comptime f: anytype) type {
+    const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
+    return if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
+}
+
+/// Does the hook `f` (`__new__` / `__init__` / `__call__`) take the raw arguments: `(self, setu.CallArgs)`?
+pub fn takesCallArgs(comptime f: anytype) bool {
+    const params = @typeInfo(@TypeOf(f)).@"fn".param_types;
+    return params.len == 2 and params[1].? == CallArgs;
+}
 
 /// The extension's module name, from the root file: `module.name` (its `pub const module:
-/// setu.Module`), else `setu_options.module`. `what` names the type that needs it, in the error.
+/// setu.Module`). `what` names the type that needs it, in the error.
 pub fn moduleName(comptime what: []const u8) []const u8 {
     const root = @import("root");
     if (@hasDecl(root, "module") and @TypeOf(root.module) == py.Module) return root.module.name;
-    if (@hasDecl(root, "setu_options")) return root.setu_options.module;
-    @compileError(what ++ ": needs `pub const module: setu.Module` (or `pub const setu_options: " ++
-        "setu.Options`) in the root file, for the module name");
+    @compileError(what ++ ": needs `pub const module: setu.Module` in the root file, for the module name");
 }
 
 /// The Python type name of `T`: `T.name`, else `<module>.<struct name>` (see `moduleName`).
@@ -494,9 +498,8 @@ fn typeName(comptime T: type) [:0]const u8 {
 fn textSignature(comptime T: type, comptime body: []const u8) ?[]const u8 {
     const hook = if (@hasDecl(T, "__init__")) "__init__" else if (@hasDecl(T, "__new__")) "__new__" else return null;
     const f = @field(T, hook);
-    const params = @typeInfo(@TypeOf(f)).@"fn".param_types;
-    if (params.len == 2 and params[1].? == CallArgs) return null;
-    return "(" ++ py.paramText(f, true, hook, body) ++ ")";
+    if (takesCallArgs(f)) return null;
+    return "(" ++ export_zig.paramText(f, true, hook, body) ++ ")";
 }
 
 /// The `Class` type for the Zig struct `T` (declared in `source`, its file's
@@ -554,10 +557,13 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         };
         /// Can Python call the type (no `instantiable = false`)?
         pub const instantiable = !@hasDecl(T, "instantiable") or T.instantiable;
+        /// The size of this type's own instance data (`T` plus Setu's `__poll__` phase and `dict` /
+        /// `weakref` pointers): 0 for a subclass that adds nothing, which then shares its base's layout.
+        pub const stored_size = @sizeOf(Stored(T));
         /// `T`'s part of the source (its methods' docs and parameter names), for `setu.stub`.
         pub const decl_source = body;
         /// The `///` doc above the struct.
-        pub const class_doc = py.docAbove(source, at);
+        pub const class_doc = source_zig.docAbove(source, at);
 
         /// The type object, set by `create` (also `Instance(T).tp`).
         pub var tp: ?*c.TypeObject = null;
@@ -637,22 +643,29 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             obj: *Object,
             args: *Object,
             kwargs: ?*Object,
-        ) Error!Result(f) {
+        ) Error!resultType(f) {
             const F = @TypeOf(f);
             const params = @typeInfo(F).@"fn".param_types;
+            // `tp_new` / `tp_init` / `tp_call` get an args tuple and a kwargs dict: nothing fills a
+            // `Rest` / `Kwargs` slot here (the trampoline does, for methods), so it would stay undefined.
+            comptime for (params[1..]) |P| {
+                if (P.? == py.Rest or P.? == py.Kwargs) @compileError(@typeName(T) ++ "." ++ hook ++
+                    ": `py.Rest` / `py.Kwargs` are not supported here; take one `setu.CallArgs` parameter");
+            };
+            const raw = comptime takesCallArgs(f);
+            const plist: []const py.Param = comptime if (raw) &.{} else args_zig.paramList(f, 1, hook, body);
             var tuple: std.meta.ArgsTuple(F) = undefined;
-            tuple[0] = py.selfArg(This, params[0].?, obj);
-            if (params.len == 2 and params[1].? == CallArgs) {
+            tuple[0] = args_zig.selfArg(This, params[0].?, obj);
+            if (raw) {
                 tuple[1] = .{ .args = args, .kwargs = kwargs };
             } else {
                 const fname = comptime shortName(name);
-                const plist = comptime py.paramList(f, 1, hook, body);
-                const names = comptime py.paramNames(plist);
-                const slots = try py.parseArgs(fname, names, 0, comptime py.positionalCount(plist), args, kwargs);
-                try py.fillArgs(F, plist, fname, &slots, &tuple);
+                const names = comptime args_zig.paramNames(plist);
+                const npos = comptime args_zig.positionalCount(plist);
+                const slots = try args_zig.parseArgs(fname, names, 0, npos, args, kwargs);
+                try args_zig.fillArgs(F, plist, fname, &slots, &tuple);
             }
-            defer if (comptime !(params.len == 2 and params[1].? == CallArgs))
-                py.releaseArgs(F, py.paramList(f, 1, hook, body), &tuple);
+            defer args_zig.releaseArgs(F, plist, &tuple); // nothing to release for `CallArgs` (empty `plist`)
             const result = @call(.auto, f, tuple);
             if (@typeInfo(@TypeOf(result)) == .error_union) return result catch |err| {
                 py.setError(err);
@@ -676,8 +689,10 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 .none => {},
             };
             if (comptime ownDict(T)) try v.add(stored(obj).dict);
-            if (@hasDecl(T, "__traverse__"))
-                try T.__traverse__(py.selfArg(This, @typeInfo(@TypeOf(T.__traverse__)).@"fn".param_types[0].?, obj), v);
+            if (@hasDecl(T, "__traverse__")) {
+                const Self = @typeInfo(@TypeOf(T.__traverse__)).@"fn".param_types[0].?;
+                try T.__traverse__(args_zig.selfArg(This, Self, obj), v);
+            }
             if (Base != void) try Base.traverseAll(obj, v);
         }
 
@@ -720,7 +735,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
 
         /// `obj` as the `self` parameter of the hook `f`.
         inline fn selfOf(comptime f: anytype, obj: *Object) @typeInfo(@TypeOf(f)).@"fn".param_types[0].? {
-            return py.selfArg(This, @typeInfo(@TypeOf(f)).@"fn".param_types[0].?, obj);
+            return args_zig.selfArg(This, @typeInfo(@TypeOf(f)).@"fn".param_types[0].?, obj);
         }
 
         // --- slots -------------------------------------------------------------------
@@ -786,19 +801,13 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
 
         /// Calls `f(self)` (always inlined: these slots are hot) and gives its result
         /// without the error union; a raised error is `error.PythonError`.
-        fn callSelf(comptime f: anytype, obj: *Object, rest: anytype) Error!Result(f) {
+        fn callSelf(comptime f: anytype, obj: *Object, rest: anytype) Error!resultType(f) {
             const result = @call(.always_inline, f, .{selfOf(f, obj)} ++ rest);
             if (@typeInfo(@TypeOf(result)) == .error_union) return result catch |err| {
                 py.setError(err);
                 return error.PythonError;
             };
             return result;
-        }
-
-        /// The return type of `f`, without an error union.
-        fn Result(comptime f: anytype) type {
-            const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
-            return if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
         }
 
         /// One step of the iterator: `__send__`, or for a `__poll__` awaitable its phases
@@ -1257,7 +1266,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             var defs: []const c.MethodDef = &.{};
             for (info.decl_names) |n| if (isMethod(T, n)) {
                 const f = @field(T, n);
-                defs = defs ++ .{py.kindDef(f, py.methodKind(f, n, body), This, n, body)};
+                defs = defs ++ .{export_zig.kindDef(f, export_zig.methodKind(f, n, body), This, n, body)};
             };
             if (pickle) defs = defs ++ .{
                 c.MethodDef{
@@ -1293,7 +1302,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             var defs: []const c.GetSetDef = &.{};
             for (info.decl_names) |n| if (isGetter(T, n)) {
                 const prop = n[4..];
-                const doc = py.fnSource(body, n).doc;
+                const doc = source_zig.fnSource(body, n).doc;
                 const setter = "set_" ++ prop;
                 defs = defs ++ .{c.GetSetDef{
                     .name = (prop ++ "\x00")[0..prop.len :0],
@@ -1316,7 +1325,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
 
         /// `Name(signature)\n--\n\n` (see `textSignature`; only when instantiable) plus the `///` doc.
         const type_doc = blk: {
-            const doc = py.docAbove(source, at);
+            const doc = source_zig.docAbove(source, at);
             const params = if (instantiable) textSignature(T, body) else null;
             const sig = if (params) |p| shortName(name) ++ p ++ "\n--\n\n" else "";
             const text = sig ++ doc;
@@ -1367,7 +1376,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 c.Slot.func(c.Py_tp_dealloc, @ptrCast(&tpDealloc)),
             };
             // a subclass with no fields of its own adds no instance data (CPython wants a size > 0)
-            if (@sizeOf(Stored(T)) > 0) s = s ++ .{c.Slot.size(c.Py_tp_extra_basicsize, @sizeOf(Stored(T)))};
+            if (stored_size > 0) s = s ++ .{c.Slot.size(c.Py_tp_extra_basicsize, stored_size)};
             if (type_doc.len > 0) s = s ++ .{c.Slot.data(c.Py_tp_doc, type_doc.ptr)};
             if (Base != void) s = s ++ .{c.Slot{ .id = c.Py_tp_base }}; // set in `create`
             if (instantiable) s = s ++ .{c.Slot.func(c.Py_tp_new, @ptrCast(&tpNew))};
@@ -1442,12 +1451,29 @@ test {
     @import("std").testing.refAllDecls(@This());
 }
 
-test "shortName / isInstancePtr" {
+test "shortName / isInstancePtr / resultType / takesCallArgs" {
     comptime {
         testing.expectText(shortName("pkg.mod.Point"), "Point");
         testing.expectText(shortName("Point"), "Point");
-        const Point = struct { x: i64 };
+        const Point = struct {
+            x: i64,
+            pub fn __init__(self: *@This(), a: CallArgs) Error!void {
+                _ = .{ self, a };
+            }
+            pub fn norm2(self: *const @This()) Error!i64 {
+                return self.x;
+            }
+        };
         testing.expect(isInstancePtr(*Point) and isInstancePtr(*const Point), "`*Point` an instance");
         testing.expect(!isInstancePtr([]Point) and !isInstancePtr(*u8) and !isInstancePtr(Point), "not instances");
+        testing.expect(resultType(Point.norm2) == i64 and resultType(Point.__init__) == void, "the payload");
+        testing.expect(takesCallArgs(Point.__init__) and !takesCallArgs(Point.norm2), "`CallArgs` hooks");
     }
 }
+
+// Compile errors (Zig can not test a `@compileError`; each was checked by hand): `py.Rest` / `py.Kwargs`
+// on `__new__` / `__init__` / `__call__` (take `setu.CallArgs`); `__poll__` with `__send__`; `__send__` /
+// `__poll__` with `__iter__` / `__next__`; `pickle` on a type with `instantiable = false` or a field
+// `pickle` can not save; `cls` not `*c.TypeObject`; `__hash__` / `__len__` / `__int__` / `__float__` /
+// `__next__` with the wrong result type; a `Path` / buffer / `Sequence` hook parameter (never released);
+// no `const Name = struct {` in the source.

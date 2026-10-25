@@ -31,6 +31,10 @@
 
 const std = @import("std");
 const py = @import("py.zig");
+const convert = @import("convert.zig");
+const args_zig = @import("args.zig");
+const source_zig = @import("source.zig");
+const export_zig = @import("export.zig");
 const class_zig = @import("class.zig");
 const scan_zig = @import("scan.zig");
 
@@ -68,7 +72,9 @@ pub fn module(w: *std.Io.Writer, comptime m: py.Module) std.Io.Writer.Error!void
 /// The `.pyi` of `m` after the imports.
 fn moduleBody(comptime m: py.Module) []const u8 {
     const S = scan_zig.Scan(m.from, &.{}); // a function `methods` replaces keeps its stub
-    var body: []const u8 = m.stub_extra;
+    // `Formatter` reads whole lines, so the extra text ends with a newline
+    const extra_ends = m.stub_extra.len == 0 or m.stub_extra[m.stub_extra.len - 1] == '\n';
+    var body: []const u8 = if (extra_ends) m.stub_extra else m.stub_extra ++ "\n";
     if (m.version != null) body = body ++ "\n__version__: str\n";
     var ks: []const py.Constant = &.{};
     for (S.constants) |it| ks = ks ++ .{py.Constant{ .name = it.name, .value = it.value.? }};
@@ -200,7 +206,7 @@ pub fn functions(comptime M: type, comptime source: []const u8) []const u8 {
     @setEvalBranchQuota(10_000_000);
     var out: []const u8 = "";
     for (@typeInfo(M).@"struct".decl_names) |name| {
-        if (py.isExported(M, name)) out = out ++ "\n" ++ function(@field(M, name), null, name, source, "");
+        if (export_zig.isExported(M, name)) out = out ++ "\n" ++ function(@field(M, name), null, name, source, "");
     }
     return out;
 }
@@ -232,7 +238,7 @@ pub fn class(comptime C: type) []const u8 {
     const base = if (C.Base == void) "" else "(" ++ shortName(C.Base.name) ++ ")";
     // No Python subclasses without `basetype`; else an instance layout of its own (PEP 800).
     const subclassable = @hasDecl(T, "basetype") and T.basetype;
-    const deco = if (!subclassable) "@final\n" else if (@sizeOf(T) > 0) "@disjoint_base\n" else "";
+    const deco = if (!subclassable) "@final\n" else if (C.stored_size > 0) "@disjoint_base\n" else "";
     const params = if (@hasDecl(T, "type_params")) "[" ++ T.type_params ++ "]" else "";
     var out: []const u8 = "\n" ++ deco ++ "class " ++ shortName(C.name) ++ params ++ base ++ ":\n" ++
         docstring(C.class_doc, "    ");
@@ -247,13 +253,16 @@ pub fn class(comptime C: type) []const u8 {
         if (!class_zig.isGetter(T, n)) continue;
         const prop = n[4..];
         const g = @field(T, n);
-        const doc = py.fnSource(body, n).doc;
+        const doc = source_zig.fnSource(body, n).doc;
         const R = docType(doc, "return") orelse pyType(@typeInfo(@TypeOf(g)).@"fn".return_type.?);
         out = out ++ "\n    @property\n    def " ++ prop ++ "(self) -> " ++ R ++ ":\n" ++
             docstring(doc, "        ");
         if (@hasDecl(T, "set_" ++ prop)) {
+            // the value's type: the setter's `Type` entry for its parameter, else its Zig type
+            const setter = source_zig.fnSource(body, "set_" ++ prop);
             const U = @typeInfo(@TypeOf(@field(T, "set_" ++ prop))).@"fn".param_types[1].?;
-            out = out ++ "\n    @" ++ prop ++ ".setter\n    def " ++ prop ++ "(self, value: " ++ pyType(U) ++
+            const ty = docType(setter.doc, setter.params[1]) orelse pyType(U);
+            out = out ++ "\n    @" ++ prop ++ ".setter\n    def " ++ prop ++ "(self, value: " ++ ty ++
                 ") -> None: ...\n";
         }
     }
@@ -261,7 +270,7 @@ pub fn class(comptime C: type) []const u8 {
     for (@typeInfo(T).@"struct".decl_names) |n| {
         if (!class_zig.isMethod(T, n)) continue;
         const f = @field(T, n);
-        out = out ++ "\n" ++ switch (py.methodKind(f, n, body)) {
+        out = out ++ "\n" ++ switch (export_zig.methodKind(f, n, body)) {
             .static => "    @staticmethod\n" ++ function(f, null, n, body, "    "),
             .class => "    @classmethod\n" ++ function(f, "cls", n, body, "    "),
             else => function(f, "self", n, body, "    "),
@@ -283,7 +292,7 @@ fn hooks(comptime C: type) []const u8 {
     // `Type` doc's `return:` type.
     const poll = @hasDecl(T, "__poll__");
     if (@hasDecl(T, "__await__") or poll) {
-        const R = docType(py.fnSource(body, if (poll) "__poll__" else "__await__").doc, "return") orelse "Any";
+        const R = docType(source_zig.fnSource(body, if (poll) "__poll__" else "__await__").doc, "return") orelse "Any";
         out = out ++ "\n    def __await__(self) -> Generator[Any, Any, " ++ R ++ "]: ...\n";
     }
     // `__send__` is `am_send`, not a Python `send()` method.
@@ -320,7 +329,7 @@ fn hooks(comptime C: type) []const u8 {
         out = out ++ hookDef(C, "__iter__", .{});
     } else if (@hasDecl(T, "__next__")) out = out ++ "\n    def __iter__(self) -> Self: ...\n";
     if (@hasDecl(T, "__next__")) {
-        const Next = resultOf(T.__next__);
+        const Next = class_zig.resultType(T.__next__);
         out = out ++ hookDef(C, "__next__", .{ .ret = pyType(@typeInfo(Next).optional.child) });
     }
     // One `nb_<op>` slot gives `__<op>__` and `__r<op>__`; a missing half is unsupported.
@@ -333,7 +342,7 @@ fn hooks(comptime C: type) []const u8 {
         out = out ++ pair(C, fwd, rev, .{ .extra = extra }, 1, 1);
         if (@hasDecl(T, inplace))
             out = out ++ hookDef(C, inplace, .{
-                .ret = if (resultOf(@field(T, inplace)) == void) "Self" else null,
+                .ret = if (class_zig.resultType(@field(T, inplace)) == void) "Self" else null,
                 // mypy wants `__pow__`'s `mod` here too, which `**=` never passes
                 .ignore = if (pow and (@hasDecl(T, fwd) or @hasDecl(T, rev))) "misc" else null,
             });
@@ -392,7 +401,7 @@ fn never(comptime name: []const u8, comptime n: usize, comptime extra: []const [
 /// `Type` section, else `over`, else the Zig types (see `pyType`).
 fn hookDef(comptime C: type, comptime name: []const u8, comptime over: Override) []const u8 {
     const f = @field(C.Data, name);
-    const src = py.fnSource(C.decl_source, name);
+    const src = source_zig.fnSource(C.decl_source, name);
     const types = @typeInfo(@TypeOf(f)).@"fn".param_types;
     var params: []const []const u8 = &.{"self"};
     for (types[1..], 1..) |P, i| {
@@ -402,15 +411,9 @@ fn hookDef(comptime C: type, comptime name: []const u8, comptime over: Override)
     }
     params = params ++ over.extra;
     if (params.len > 1) params = params ++ .{"/"};
-    const R = docType(src.doc, "return") orelse (over.ret orelse pyType(resultOf(f)));
+    const R = docType(src.doc, "return") orelse (over.ret orelse pyType(class_zig.resultType(f)));
     const ignore = if (over.ignore) |code| "  # type: ignore[" ++ code ++ "]" else "";
     return "\n" ++ defLine("    ", over.name orelse name, params, R) ++ " ..." ++ ignore ++ "\n";
-}
-
-/// The result type of `f`, without an error union.
-fn resultOf(comptime f: anytype) type {
-    const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
-    return if (@typeInfo(R) == .error_union) @typeInfo(R).error_union.payload else R;
 }
 
 /// `__init__` from the parameters of the `__init__` hook, else `__new__` (`def __new__(cls, ...) -> Self`)
@@ -424,15 +427,9 @@ fn init(comptime C: type) []const u8 {
     const new = std.mem.eql(u8, hook, "__new__");
     const first = if (new) "cls" else "self";
     const R = if (new) "Self" else "None";
-    if (takesCallArgs(f)) return "\n    def " ++ hook ++ "(" ++ first ++ ", *args: Any, **kwargs: Any) -> " ++ R ++
-        ": ...\n";
+    if (class_zig.takesCallArgs(f))
+        return "\n    def " ++ hook ++ "(" ++ first ++ ", *args: Any, **kwargs: Any) -> " ++ R ++ ": ...\n";
     return "\n" ++ signature(f, first, hook, hook, C.decl_source, C.class_doc, R, "    ") ++ " ...\n";
-}
-
-/// Does the hook `f` take the raw arguments (`self, setu.CallArgs`)?
-fn takesCallArgs(comptime f: anytype) bool {
-    const params = @typeInfo(@TypeOf(f)).@"fn".param_types;
-    return params.len == 2 and params[1].? == class_zig.CallArgs;
 }
 
 /// One `def`, with its docstring (`bound`: the name written for the skipped first parameter,
@@ -444,11 +441,11 @@ fn function(
     comptime source: []const u8,
     comptime indent: []const u8,
 ) []const u8 {
-    const doc = py.fnSource(source, name).doc;
+    const doc = source_zig.fnSource(source, name).doc;
     const R = docType(doc, "return") orelse pyType(@typeInfo(@TypeOf(f)).@"fn".return_type.?);
     if (bound != null) {
-        const first: usize = 1 + @as(usize, @intFromBool(py.hasRest(f, true)));
-        for (py.paramList(f, first, name, source)) |p| {
+        const first: usize = 1 + @as(usize, @intFromBool(export_zig.hasRest(f, true)));
+        for (args_zig.paramList(f, first, name, source)) |p| {
             if (p.kind != .kw_only and docType(doc, p.name) == null and std.mem.eql(u8, pyType(p.T), "Any"))
                 @compileError("method `" ++ name ++ "`: parameter `" ++ p.name ++ "` stubs as `Any`; if it is a " ++
                     "Zig-only helper rename it camelCase, else add a `Type` entry to its doc");
@@ -473,13 +470,13 @@ fn signature(
     const bound = self_name != null;
     var params: []const []const u8 = if (self_name) |n| &.{n} else &.{};
     var first: usize = @intFromBool(bound);
-    if (py.hasRest(f, bound)) {
-        const p = py.fnSource(source, zig_name).params[first];
+    if (export_zig.hasRest(f, bound)) {
+        const p = source_zig.fnSource(source, zig_name).params[first];
         params = params ++ .{"*" ++ p ++ ": " ++ (docType(doc, p) orelse "Any")};
         first += 1;
     }
-    const plist = py.paramList(f, first, zig_name, source);
-    const lead = py.leadCount(plist);
+    const plist = args_zig.paramList(f, first, zig_name, source);
+    const lead = args_zig.leadCount(plist);
     for (plist, 0..) |p, i| {
         if (p.kind == .kw_only) {
             params = params ++ .{"*"};
@@ -491,12 +488,12 @@ fn signature(
         const default = if (p.default == null) "" else if (none) " = None" else " = ...";
         params = params ++ .{p.name ++ ": " ++ ty ++ (if (add_none) " | None" else "") ++ default};
         if (lead > 0 and i + 1 == lead) { // positional-only, then `*args`
-            const r = py.fnSource(source, zig_name).params[py.restIndex(f).?];
+            const r = source_zig.fnSource(source, zig_name).params[export_zig.restIndex(f).?];
             params = params ++ .{ "/", "*" ++ r ++ ": " ++ (docType(doc, r) orelse "Any") };
         }
     }
-    if (py.hasKwargs(f)) {
-        const info = py.fnSource(source, zig_name);
+    if (export_zig.hasKwargs(f)) {
+        const info = source_zig.fnSource(source, zig_name);
         const k = info.params[info.params.len - 1];
         params = params ++ .{"**" ++ k ++ ": " ++ (docType(doc, k) orelse "Any")};
     }
@@ -572,8 +569,8 @@ fn withArgs(comptime ty: []const u8) []const u8 {
 pub fn pyType(comptime T: type) []const u8 {
     if (T == py.Bytes) return "bytes";
     if (T == py.Path) return "str | bytes | os.PathLike[str] | os.PathLike[bytes]";
-    if (comptime py.isBuffer(T)) return "Buffer";
-    if (comptime py.isSequence(T)) return "Sequence[" ++ pyType(T.Item) ++ "]";
+    if (comptime convert.isBuffer(T)) return "Buffer";
+    if (comptime convert.isSequence(T)) return "Sequence[" ++ pyType(T.Item) ++ "]";
     if (comptime class_zig.isInstancePtr(T)) {
         const D = @typeInfo(T).pointer.child;
         if (@hasDecl(D, "hidden") and D.hidden) return "Any"; // not in the stub

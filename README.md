@@ -36,6 +36,15 @@ tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3
 python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (ReleaseFast)
 ```
 
+## For AI sessions (and other readers in a hurry)
+
+`llms.txt` is the index to read first; `docs/setu-guide.md` is the guide to writing an extension: the rules,
+every parameter type, every class hook signature, every compile error Setu raises. A project using Setu keeps a
+copy of the guide at `docs/setu-guide.md` (`zig build setu-guide-sync` / `setu-guide-check`, see
+`addSetuGuideSteps`), so a session working on its bindings finds it inside the project.
+`tools/check_guide.py` keeps the guide in step with the source. A project's own docs site gets `llms.txt` and
+`llms-full.txt` for its Python API from `tools/setu_docs.py`.
+
 ## An extension: one `module` declaration
 
 The extension's root file lists its Zig files once. Setu finds their lowercase `pub fn`s (functions),

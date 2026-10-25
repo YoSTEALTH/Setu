@@ -18,17 +18,24 @@ pub fn raise(exc: *Object, comptime fmt: []const u8, args: anytype) Error {
     return error.PythonError;
 }
 
-/// Sets `exc` with a formatted message (up to 511 bytes; longer ones are cut).
+/// Sets `exc` with a formatted message (up to 511 bytes; a longer one is cut to the part that fits).
 ///
 /// Note
 ///     - A message without arguments or braces is a constant: set as is, with no formatting.
 pub fn setString(exc: *Object, comptime fmt: []const u8, args: anytype) void {
     if (comptime isConstant(fmt, @TypeOf(args))) return c.PyErr_SetString(exc, (fmt ++ "\x00")[0..fmt.len :0]);
     var buf: [512]u8 = undefined;
-    const room = buf[0 .. buf.len - 1];
-    const msg = std.mem.print(room, fmt, args) catch room;
+    const msg = format(buf[0 .. buf.len - 1], fmt, args);
     buf[msg.len] = 0;
     c.PyErr_SetString(exc, buf[0..msg.len :0]);
+}
+
+/// `fmt` with `args` printed into `buf`: what was written, which is all of it or, when it does not fit,
+/// the prefix that does (never the bytes of `buf` past the write, which are undefined).
+fn format(buf: []u8, comptime fmt: []const u8, args: anytype) []u8 {
+    var w: std.Io.Writer = .fixed(buf);
+    w.print(fmt, args) catch {}; // `WriteFailed`: the message is cut
+    return w.buffered();
 }
 
 /// Is `fmt` with arguments of type `Args` its own text: no arguments and no `{` / `}` (escapes)?
@@ -66,7 +73,7 @@ pub fn raiseWith(exc: *Object, args: anytype) Error {
 ///     - For an `OSError` subclass of your own, use `raiseWith(exc, .{ errno, msg })`.
 pub fn raiseOSError(errno: i32, comptime fmt: []const u8, args: anytype) Error {
     var buf: [512]u8 = undefined;
-    const msg = std.mem.print(&buf, fmt, args) catch &buf;
+    const msg = format(&buf, fmt, args);
     return raiseWith(c.PyExc_OSError, .{ errno, msg });
 }
 

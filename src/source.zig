@@ -1,6 +1,6 @@
 //! Reading the Zig source at comptime (`@embedFile` of the binding's file): parameter names
 //! and types as written, `///` docs, and argument-struct defaults as Python source text.
-//! Re-exported by `py.zig` (`fnSource`, `docAbove`, `moduleDoc`, `FnSource`).
+//! Used by `export.zig`, `class.zig` and `stub.zig` (not re-exported by `py.zig`).
 
 const std = @import("std");
 
@@ -71,18 +71,18 @@ pub fn listParts(comptime text: []const u8, comptime start: usize) []const []con
     var j = start;
     while (j < text.len) : (j += 1) {
         const ch = text[j];
-        if (std.mem.startsWith(u8, text[j..], "//")) {
-            cur = cur ++ text[begin..j] ++ " ";
-            j = std.mem.findScalarPos(u8, text, j, '\n') orelse text.len;
-            begin = j;
-            continue;
-        }
-        if (ch == '"' or ch == '\'') {
+        if (ch == '"' or ch == '\'') { // before the comment check: a `//` inside a string is text
             var k = j + 1;
             while (k < text.len and text[k] != ch) : (k += 1) {
                 if (text[k] == '\\') k += 1;
             }
             j = k;
+            continue;
+        }
+        if (std.mem.startsWith(u8, text[j..], "//")) {
+            cur = cur ++ text[begin..j] ++ " ";
+            j = std.mem.findScalarPos(u8, text, j, '\n') orelse text.len;
+            begin = j;
             continue;
         }
         if (ch == '(' or ch == '[' or ch == '{') depth += 1;
@@ -182,10 +182,16 @@ test "moduleDoc: the `//!` block at the top of a file" {
 }
 
 test "listParts: top-level parts, with strings, characters and comments skipped" {
-    comptime testing.expectTexts(
-        listParts("(a, f(b, c), \"x,)\", ',', // d, e\n [g, h]) tail", 1),
-        &.{ "a", "f(b, c)", "\"x,)\"", "','", "[g, h]" },
-    );
+    comptime {
+        testing.expectTexts(
+            listParts("(a, f(b, c), \"x,)\", ',', // d, e\n [g, h]) tail", 1),
+            &.{ "a", "f(b, c)", "\"x,)\"", "','", "[g, h]" },
+        );
+        // a `//` inside a string is not a comment
+        testing.expectTexts(listParts("(url: []const u8 = \"http://x\", b: u8)", 1), &.{
+            "url: []const u8 = \"http://x\"", "b: u8",
+        });
+    }
 }
 
 test "fnSource: doc, parameter names (unquoted) and types, comments skipped" {

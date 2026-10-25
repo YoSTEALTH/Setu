@@ -569,6 +569,16 @@ def test_check_errno():
         sc.check_errno(-(2**31))
 
 
+def test_long_message_is_cut():
+    '''A formatted exception message keeps at most 511 bytes: the prefix that fits, nothing past it.'''
+    with pytest.raises(ValueError, match='^abc$'):
+        sc.raise_long('abc')
+    text = ''.join(chr(ord('a') + i % 26) for i in range(1000))
+    with pytest.raises(ValueError) as e:
+        sc.raise_long(text)
+    assert str(e.value) == text[:511]
+
+
 def test_int_parameters():
     '''Ints convert to the exact parameter type, from `int` or `__index__`, else `OverflowError` / `TypeError`.'''
 

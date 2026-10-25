@@ -3,7 +3,7 @@ path uses (`bench_*` in `test/functions.zig`: `prep_recv` / `prep_send` with and
 buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method and `__init__`. With
 `--ref`, an A/B against another commit, so a hot-path change gets a before / after without Liburing.
 
-    python3.15 tools/bench.py                     # this tree, built ReleaseFast into a temp dir
+    python3.15 tools/bench.py                     # this tree, built `fast` (ReleaseFast) into a temp dir
     python3.15 tools/bench.py --ref HEAD          # A/B: HEAD (a temp worktree) vs this tree
     python3.15 tools/bench.py --ref v2026.10.21 --cpu 2 -k recv
     python3.15 tools/bench.py --so test/setu_classes.so     # an extension as built, no build
@@ -48,10 +48,10 @@ CASES = [
 
 
 def build(tree, out):
-    '''`zig build develop -Doptimize=ReleaseFast` of `tree`, installed under `out`; the extension's path.'''
+    '''`zig build develop -Doptimize=fast` of `tree`, installed under `out`; the extension's path.'''
     zig = os.environ.get('ZIG', 'zig')
     prefix = os.path.join(out, 'zig-out')  # `develop` installs into `<prefix>/../test`
-    cmd = [zig, 'build', 'develop', '-Doptimize=ReleaseFast', '-p', prefix]
+    cmd = [zig, 'build', 'develop', '-Doptimize=fast', '-p', prefix]
     subprocess.run(cmd, cwd=tree, check=True)
     return os.path.join(out, 'test', 'setu_classes.so')
 

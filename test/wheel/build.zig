@@ -5,15 +5,17 @@
 //!
 //!   zig build setu-build-sync    copy Setu's tools/setu_build.py into tools/
 //!   zig build setu-build-check   check that tools/setu_build.py is Setu's copy
+//!   zig build setu-guide-sync    copy Setu's docs/setu-guide.md into docs/ (`setu-guide-check` compares)
 //!   zig build --prefix <dir>     the extension, its stubs and `py.typed` into <dir>/lib/ (what the script runs)
 
 const std = @import("std");
 const setu_build = @import("setu");
 
-/// Takes the options `tools/setu_build.py` passes (`-Drelease`, `-Dstrip`, `-Dtarget`) and installs Setu's test extension and stubs from the `setu` dependency.
+/// Takes the options `tools/setu_build.py` passes (`-Drelease`, `-Dstrip`, `-Dtarget`) and installs Setu's test
+/// extension and stubs from the `setu` dependency.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .fast });
     const strip = b.option(bool, "strip", "Strip debug symbols from the extension") orelse false;
 
     const setu_dep = b.dependency("setu", .{
@@ -29,4 +31,5 @@ pub fn build(b: *std.Build) void {
     // `src/setu_classes/` has a `py.typed` too: the wheel must still hold one (the built copy).
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path("src/setu_classes/py.typed"), .lib, "py.typed").step);
     setu_build.addSetuBuildSteps(b, setu_dep);
+    setu_build.addSetuGuideSteps(b, setu_dep);
 }

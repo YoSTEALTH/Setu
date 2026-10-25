@@ -1,11 +1,16 @@
+# build and tool caches
 zig-out/
 .zig-cache/
 __pycache__/
 .mypy_cache/
 .pytest_cache/
+.ruff_cache/
+
+# `zig build develop`: the test extension and its stubs
 test/*.so
 test/*.pyi
-*.md
+
+# fixtures: what the sync steps copy in (`tools/check.sh`), and the built docs site
 test/wheel/tools/
+test/wheel/docs/
 test/docs/site/
-!test/docs/docs/index.md

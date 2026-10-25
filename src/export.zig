@@ -87,9 +87,10 @@ fn KwTrampoline(
     return struct {
         /// The C-ABI function Python calls: checks and converts the arguments, calls `f`,
         /// converts its result (or error) back.
-        fn call(self: ?*Object, args: ?[*]const *Object, nargsf: c.ssize, kwnames: ?*Object) callconv(.c) ?*Object {
-            // cast: >= 0 once PY_VECTORCALL_ARGUMENTS_OFFSET is dropped
-            const nargs: usize = @intCast(nargsf & ~@as(c.ssize, 1 << 62));
+        fn call(self: ?*Object, args: ?[*]const *Object, n: c.ssize, kwnames: ?*Object) callconv(.c) ?*Object {
+            // `METH_FASTCALL` passes the plain count: no `PY_VECTORCALL_ARGUMENTS_OFFSET` flag, which only a
+            // `vectorcallfunc` gets.
+            const nargs: usize = @intCast(n); // cast: a count, never < 0
             const argv: [*]const *Object = args orelse undefined;
             var slots: [count]?*Object = @splat(null);
             const positional = if (has_rest) @min(nargs, lead) else nargs;
@@ -335,10 +336,11 @@ pub const Module = struct {
 /// Note
 ///     - On 3.14 the module comes from a static `PyModuleDef`, whose object header differs
 ///       between 3.14 and 3.14t: both are built, `PyInit_<name>` picks one by `sys.abiflags`.
-///     - Does nothing in a program whose root file declares `setu_stubgen` (Setu's stub generator,
-///       which imports the root file for `module` and has no libpython).
+///     - Does nothing in Setu's stub generator (`stubgen`), which has no libpython.
 pub fn exportModule(comptime m: Module) void {
-    if (@hasDecl(@import("root"), "setu_stubgen")) return;
+    if (stubgen) return;
+    if (!m.generated() and (m.methods.len == 0 or m.methods[m.methods.len - 1].name != null))
+        @compileError("`Module.methods` must end with `py.method_end` (or set `from`, `version` or `init`)");
     const G = Generated(m);
     const methods: []const c.MethodDef = if (comptime m.generated()) &G.methods else m.methods;
     const exec: ?c.ModExec = if (comptime m.generated()) &G.exec else m.exec;
@@ -396,6 +398,12 @@ pub fn exportModule(comptime m: Module) void {
     @export(&E.modExport, .{ .name = "PyModExport_" ++ m.name });
     @export(&E.init, .{ .name = "PyInit_" ++ m.name });
 }
+
+/// Is this Setu's stub generator (`addStubs`)? It imports the extension's root file for its `module` but
+/// has no libpython, so `exportModule` exports nothing there; the root file declares `setu_stubgen`. Code
+/// that comptime data points to is dropped there unless reached (see `addStubs`), so a root file rarely
+/// needs to ask.
+pub const stubgen = @hasDecl(@import("root"), "setu_stubgen");
 
 /// The method table and `Py_mod_exec` Setu generates for a `Module` with `from` / `version` / `init`.
 fn Generated(comptime m: Module) type {

@@ -1,0 +1,39 @@
+# Setu
+
+> Setu (सेतु, "bridge") is a Zig <-> CPython binding layer: ordinary Zig `pub fn`s and structs become a
+> CPython extension module, one binary for CPython 3.14, 3.14t, 3.15, 3.15t and later (the stable ABI for
+> free-threading, PEP 803), with generated docstrings and a `.pyi` stub. Zig 0.17, Linux. It is the base of
+> the Liburing and Shakti projects and is not published on PyPI.
+
+Start with the guide: it has the rules, every parameter type, every class hook signature, and every compile
+error Setu raises. The source is the reference behind it; `test/` is a working example of everything.
+
+## Guide
+
+- [docs/setu-guide.md](docs/setu-guide.md): how to write an extension with Setu (read this first)
+- [README.md](README.md): what Setu is, the layout, the commands, wheels, docs site, releases
+
+## Source (what to read when the guide is not enough)
+
+- [src/class.zig](src/class.zig): `setu.Class`; the hook table is the file's top comment
+- [src/py.zig](src/py.zig): the namespace an extension uses (references, conversions, raising, the module)
+- [src/convert.zig](src/convert.zig): `fromPython` / `toPython`, `Buffer`, `Path`, `Sequence(T)` and ownership
+- [src/args.zig](src/args.zig): parameters (`Param`, `Rest`, `KwOnly`, `Kwargs`, argument structs)
+- [src/export.zig](src/export.zig): `Module`, `exportModule`, the trampolines
+- [src/scan.zig](src/scan.zig): what a `Module.from` entry exports, and its filters
+- [src/stub.zig](src/stub.zig): how the `.pyi` is derived from the same declarations
+- [src/capi.zig](src/capi.zig): the hand-declared C API, with `@compileError` tombstones for what abi3t lacks
+
+## Examples
+
+- [test/setu_classes.zig](test/setu_classes.zig): the model root file (`module`)
+- [test/classes.zig](test/classes.zig): one class per hook family
+- [test/functions.zig](test/functions.zig): one function per parameter type, constants, enums
+- [test/class_test.py](test/class_test.py): what each of those does from Python
+
+## Tools
+
+- [tools/check.sh](tools/check.sh): every check, offline, on all four interpreters
+- [tools/setu_build.py](tools/setu_build.py): the PEP 517 wheel backend projects copy
+- [tools/setu_docs.py](tools/setu_docs.py): MkDocs site helpers; writes a project's `llms.txt` / `llms-full.txt`
+- [tools/bench.py](tools/bench.py): per-call cost, A/B against a commit

@@ -322,6 +322,16 @@ pub fn check_errno(res: i64) Error!i64 {
     return py.checkErrno(res);
 }
 
+/// Raises `ValueError(text)` through `py.raise` (a formatted message): a text longer than 511 bytes is cut to
+/// the first 511.
+///
+/// Example
+///     >>> raise_long('x' * 3)
+///     ValueError: xxx
+pub fn raise_long(text: []const u8) Error!void {
+    return py.raiseValueError("{s}", .{text});
+}
+
 /// `big` and `small` back: an `i64` takes the fast path, a larger `u64` the one past it.
 ///
 /// Example
