@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Runs every Setu check: zig fmt, int casts, ruff, `zig build test`, the `setu-build-sync` /
-# `setu-build-check` and `setu-guide-*` steps on the wheel fixture `test/wheel/`, `check_guide.py`,
-# `zig build develop` (the one `setu_classes.so`
+# Runs every Setu check: zig fmt, int casts, ruff (also on the copied tools with the consumers' rules),
+# `zig build test`, the `setu-build-sync` / `setu-build-check` and `setu-guide-*` steps on the wheel fixture
+# `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_classes.so`
 # and its generated stubs, which `ruff check` lints: an import Setu writes but the stub does not use fails),
-# then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest and the
-# `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tools/setu_build.py` builds (`check_wheels.py`), then
+# then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest, the
+# `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tools/setu_build.py` builds (`check_wheels.py`) and the docs
+# site `tools/setu_docs.py` builds, serves and runs the examples of (`check_docs.py`), then
 # `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
 # Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=...; compiler: ZIG=...
 set -euo pipefail
@@ -21,7 +22,7 @@ PYTEST_ARGS=("$@")
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
 step "zig fmt"
-"$ZIG" fmt --check src test build.zig build.zig.zon
+"$ZIG" fmt --check src test tools build.zig build.zig.zon
 
 step "int casts"
 # An `@intCast` / `@truncate` needs a `// cast: <why it fits>` on its line or the line above; a value a
@@ -33,11 +34,19 @@ awk '
     }
     { prev = $0 }
     END { exit bad }
-' src/*.zig test/*.zig
+' src/*.zig test/*.zig tools/*.zig
 
 step "ruff"
 "$PY_FT" -m ruff check .
 "$PY_FT" -m ruff format --check .
+
+step "ruff on the copied tools, as the consumers see them"
+# Liburing and Shakti lint their copies with ruff's default rules (more than Setu's E/F/W) and format for
+# Python 3.14 (`except A, B:`), so the copies must pass both without their own settings.
+copied=(tools/setu_build.py tools/setu_docs.py)
+"$PY_FT" -m ruff check --isolated --line-length 120 --target-version py314 "${copied[@]}"
+"$PY_FT" -m ruff format --isolated --check --line-length 120 --target-version py314 \
+    --config 'format.quote-style = "preserve"' "${copied[@]}"
 
 step "zig build test"
 "$ZIG" build test --summary all
@@ -63,6 +72,7 @@ for py in "$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL"; do
     "$py" -m pytest "${PYTEST_ARGS[@]}"
     "$py" tools/check_wheels.py --all # glibc + musl, installed and imported here
     "$py" tools/check_wheels.py       # `build_wheel` (PEP 517)
+    "$py" tools/check_docs.py         # the docs site of test/docs/: built, served, every example run
 done
 
 step "mypy --strict + stubtest ($PY_FT)"
@@ -72,14 +82,6 @@ if "$PY_FT" -c 'import mypy' 2>/dev/null; then
     (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy.stubtest setu_classes)
 else
     echo "skipped: mypy is not installed for $PY_FT"
-fi
-
-step "setu_docs.py ($PY_FT)"
-"$PY_FT" tools/check_docs.py
-if "$PY_FT" -c 'import mkdocs, mkdocstrings, mkdocs_gen_files' 2>/dev/null; then
-    "$PY_FT" tools/check_docs.py --site
-else
-    echo "skipped: the site build needs mkdocs, mkdocstrings and mkdocs-gen-files for $PY_FT"
 fi
 
 step "all checks passed"

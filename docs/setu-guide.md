@@ -97,7 +97,7 @@ const pyi = @import("setu").addStubs(b, setu_dep, .{
 });
 b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "liburing.pyi").step);
 @import("setu").addSetuBuildSteps(b, setu_dep); // tools/setu_build.py: setu-build-sync / -check
-@import("setu").addSetuDocsSteps(b, setu_dep); // tools/setu_docs.py: setu-docs-sync / -check
+@import("setu").addSetuDocsSteps(b, setu_dep); // tools/setu_docs.py: setu-docs-sync / -check, docs-web
 @import("setu").addSetuGuideSteps(b, setu_dep); // docs/setu-guide.md: setu-guide-sync / -check
 ```
 
@@ -347,7 +347,8 @@ os.PathLike[...]`, buffers -> `Buffer`, `py.Sequence(T)` -> `Sequence[T]`, slice
 `*Object` -> `Any`. A method parameter that would stub as `Any` without a `Type` entry is a compile error
 (rename a Zig helper camelCase, or add the entry). The stub imports only the names it uses, is laid out as
 `ruff format` would, and passes `mypy --strict` and `stubtest` in Setu's checks. `tools/setu_docs.py` turns
-the same docstrings into a MkDocs site (and `llms.txt` / `llms-full.txt` for AI readers).
+the same docstrings into a static HTML site (and `llms.txt` / `llms-full.txt` for AI readers), and runs every
+`Example` to check that its output is what the doc says (`setu_docs.py check`).
 
 ## 8. Ints and casts
 

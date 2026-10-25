@@ -1,5 +1,7 @@
 //! zig build develop         build the test extension `setu_classes` (+ its stubs) into test/
-//! zig build test            type-check every declaration and run the comptime unit tests
+//! zig build test            type-check every declaration, run the comptime unit tests and the tests of
+//!                           tools/setu_docs_web.zig
+//! zig build docs-web        the docs site's Wasm module (tools/setu_docs_web.zig) into zig-out/web/docs.wasm
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
@@ -11,14 +13,15 @@
 //! Their `build.zig` can also `@import("setu")` for `addStubs` (the extension's `.pyi`, from its root
 //! file's `module`), `addSetuBuildSteps` (keeping their copy of `tools/setu_build.py`, the wheel build
 //! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
-//! site helpers), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide to writing an extension)
+//! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide
+//! to writing an extension)
 //! and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
 const std = @import("std");
 
-/// Declares the `setu` module and the `develop` and `test` steps (see the top of this file).
+/// Declares the `setu` module and the `develop`, `test` and `docs-web` steps (see the top of this file).
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     // `-Doptimize=...` (default Debug), so a dependent build can pass `.optimize` (`test/wheel/`).
@@ -26,7 +29,7 @@ pub fn build(b: *std.Build) void {
     const strip = b.option(bool, "strip", "Strip debug symbols from the test extension") orelse false;
 
     // No target / optimize: the module takes them from whatever compiles it (extension, host program, test).
-    const setu = b.addModule("setu", .{ .root_source_file = b.path("src/setu.zig") });
+    const setu = b.addModule("setu", .{ .root_source_file = b.path("src/root.zig") });
 
     // `setu_classes`: a test-only extension using every `setu.Class` hook (`test/`), and its stubs.
     const setu_test = b.addLibrary(.{
@@ -60,11 +63,20 @@ pub fn build(b: *std.Build) void {
     // Analysis type-checks every declaration (`refAllDecls` in each file) and runs the unit tests, which
     // are comptime (`@compileError` on failure); with no binary requested, nothing is emitted.
     const tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/setu.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
         .link_libc = true,
     }) });
-    b.step("test", "Type-check every declaration and run the comptime unit tests").dependOn(&tests.step);
+    const test_step = b.step("test", "Type-check every declaration, run the comptime and docs-web unit tests");
+    test_step.dependOn(&tests.step);
+
+    // The docs site's Wasm module, for the fixture `test/docs/` (`tools/check_docs.py`), and its host tests.
+    const web_source = b.path("tools/setu_docs_web.zig");
+    docsWeb(b, web_source);
+    const web_tests = b.addTest(.{
+        .root_module = b.createModule(.{ .root_source_file = web_source, .target = b.graph.host }),
+    });
+    test_step.dependOn(&b.addRunArtifact(web_tests).step);
 }
 
 /// Adds two steps to a project that keeps a copy of Setu's `tools/setu_build.py` (the wheel build
@@ -82,14 +94,35 @@ pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
 }
 
 /// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tools/setu_docs.py`:
-/// the steps `setu-docs-check` and `setu-docs-sync`.
+/// the steps `setu-docs-check` and `setu-docs-sync`, and `docs-web`, which builds the site's Wasm module
+/// from the pinned Setu's `tools/setu_docs_web.zig` (`setu_docs.py` runs it; the Zig file is not copied).
 ///
 /// Example
 ///     >>> @import("setu").addSetuDocsSteps(b, setu_dep);
 ///     $ zig build setu-docs-sync     # tools/setu_docs.py = the pinned Setu's
 ///     $ zig build setu-docs-check    # in tools/check.sh: `cmp` fails if they differ
+///     $ zig build docs-web           # zig-out/web/docs.wasm
 pub fn addSetuDocsSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
     addCopySteps(b, setu_dep, "tools/setu_docs.py", "setu-docs");
+    docsWeb(b, setu_dep.path("tools/setu_docs_web.zig"));
+}
+
+/// The `docs-web` step: `source` (`tools/setu_docs_web.zig`) as a wasm32 module with its `export fn`s,
+/// installed as `web/docs.wasm` (`zig-out/web/docs.wasm`, or under `--prefix`).
+fn docsWeb(b: *std.Build, source: std.Build.LazyPath) void {
+    const web = b.addExecutable(.{
+        .name = "docs",
+        .root_module = b.createModule(.{
+            .root_source_file = source,
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+            .optimize = .small,
+            .strip = true,
+        }),
+    });
+    web.entry = .disabled;
+    web.rdynamic = true; // keep the `export fn`s
+    const step = b.step("docs-web", "Build the docs site's Wasm module into zig-out/web/docs.wasm");
+    step.dependOn(&b.addInstallFileWithDir(web.getEmittedBin(), .{ .custom = "web" }, "docs.wasm").step);
 }
 
 /// Like `addSetuBuildSteps`, for Setu's guide to writing an extension (`docs/setu-guide.md`, what a session

@@ -35,5 +35,6 @@ error Setu raises. The source is the reference behind it; `test/` is a working e
 
 - [tools/check.sh](tools/check.sh): every check, offline, on all four interpreters
 - [tools/setu_build.py](tools/setu_build.py): the PEP 517 wheel backend projects copy
-- [tools/setu_docs.py](tools/setu_docs.py): MkDocs site helpers; writes a project's `llms.txt` / `llms-full.txt`
+- [tools/setu_docs.py](tools/setu_docs.py): the docs site builder projects copy (stdlib; HTML, `llms.txt`,
+  example runner, server); its Wasm logic is [tools/setu_docs_web.zig](tools/setu_docs_web.zig)
 - [tools/bench.py](tools/bench.py): per-call cost, A/B against a commit

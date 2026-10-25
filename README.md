@@ -14,7 +14,7 @@ either). For your own extensions, use [PyOZ](https://pyoz.dev) instead: it fills
 documented and maintained for public use.
 
 ```
-src/setu.zig      the module root (@import("setu"))
+src/root.zig      the module root (@import("setu"))
 src/capi.zig      hand-declared C API
 src/py.zig        functions, conversions, errors, the module (exportModule)
 src/scan.zig      setu.From: which declarations of a Module.from namespace Python gets
@@ -24,14 +24,18 @@ src/stub.zig      .pyi text (stub.module writes an extension's whole .pyi)
 src/stubgen.zig   the stub generator addStubs builds (no libpython)
 test/             setu_classes, a test extension with a class per hook family (the model root file)
 test/wheel/       setu_classes as a project, for the tools/setu_build.py wheel checks
+test/docs/        setu_classes as a docs site, for the tools/setu_docs.py checks
 tools/setu_build.py   the wheel build backend (PEP 517) projects copy into their tools/
+tools/setu_docs.py    the docs site builder projects copy into their tools/
+tools/setu_docs_web.zig  the site's search and Run logic (WebAssembly, zig build docs-web)
 ```
 
 Commands:
 
 ```sh
-zig build test                        # type-check every declaration + comptime unit tests
+zig build test                        # type-check every declaration + comptime and docs-web unit tests
 zig build develop                     # test extension (setu_classes.so) + stubs into test/
+python3 tools/check_docs.py           # the docs site of test/docs/ (after develop)
 tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
 python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (ReleaseFast)
 ```
@@ -111,14 +115,19 @@ bumping Setu); `zig build setu-build-check` fails if the copy differs (run it in
 
 ## Docs site: `tools/setu_docs.py`
 
-A MkDocs site built from the generated `.pyi` (the `///` docs): a griffe extension that turns the doc sections
-(`Example`, `Note`, `Type`, ...) into Markdown, and the API reference pages, grouped by a `[tool.setu_docs]`
-table in the project's `pyproject.toml` (the keys are in the script's docstring). The project keeps a
-byte-identical copy in `tools/`, like `setu_build.py`, in step with `addSetuDocsSteps` (`zig build
-setu-docs-sync` / `setu-docs-check`); its `mkdocs.yml`, pages and workflow stay its own. `test/docs/` is a
-working model (`tools/check_docs.py`; `--site` also runs `mkdocs build --strict`). The workflow runs `zig build
-develop` (the stub), then `pip install mkdocs-material "mkdocstrings[python]" mkdocs-gen-files` and
-`mkdocs build --strict`, and uploads `site/` to GitHub Pages.
+A static HTML site built by Setu's own builder, Python's standard library only: the API pages from the imported
+module's docstrings (the `///` docs; typed signatures from the `.pyi`), grouped by a `[tool.setu_docs]` table in
+the project's `pyproject.toml` (the keys are in the script's docstring), the project's Markdown pages, the
+constants, its example scripts, `llms.txt` / `llms-full.txt`, and a runner for the `>>>` examples
+(`setu_docs.py check`; project fixtures in a hooks file). Search and the Run transcript are Zig compiled to
+WebAssembly (`tools/setu_docs_web.zig`); `setu_docs.py serve` serves the site on 127.0.0.1 with Run buttons
+that run an example and show its session (only on examples that can run: none that read a name nothing defines;
+the published site has no Run buttons). A Markdown table after a `<!-- chart -->` line becomes a colored bar
+chart (GitHub shows the table). The project keeps a byte-identical copy of `setu_docs.py` in `tools/`,
+like `setu_build.py`, in step with `addSetuDocsSteps` (`zig build setu-docs-sync` / `setu-docs-check`), which
+also adds `zig build docs-web` (the Wasm module, from the pinned Setu; `setu_docs.py` runs it). `test/docs/` is
+a working model (`tools/check_docs.py`). The workflow runs `zig build develop` (the extension and its stub),
+then `python tools/setu_docs.py` (writes `site/`), and uploads `site/` to GitHub Pages.
 
 ## Releases
 

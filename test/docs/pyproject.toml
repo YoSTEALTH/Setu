@@ -1,15 +1,29 @@
 # The docs check's fixture (`tools/check_docs.py`): the site of Setu's test extension `setu_classes`, built with
-# `tools/setu_docs.py`. A real project has this table in its own `pyproject.toml`.
+# `tools/setu_docs.py` into `site/`. A real project has this table in its own `pyproject.toml`.
 
 [tool.setu_docs]
-stub = '../setu_classes.pyi'
 module = 'setu_classes'
+path = ['..']
+stub = '../setu_classes.pyi'
+summary = "Setu's test extension, as a documentation site."
+home = 'docs/index.md'
+css = 'docs/extra.css'
+edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/test/docs/'
+scripts = 'example'
+scripts_skip = ['forever.py']
+featured = 'example/hi.py'
+hooks = 'docs_hooks.py'
+
+[[tool.setu_docs.markdown]]
+file = 'docs/guide.md'
+title = 'Guide'
+section = 'Guide'
 
 [[tool.setu_docs.pages]]
 slug = 'functions'
 title = 'Functions'
 text = 'The module functions.'
-patterns = ['.']  # every function
+sources = ['../functions.zig']
 
 [[tool.setu_docs.pages]]
 slug = 'classes'
@@ -26,5 +40,6 @@ default = true
 [[tool.setu_docs.pages]]
 slug = 'constants'
 title = 'Constants'
-text = 'Grouped by the prefix before the first `_`.'
+text = 'Grouped by prefix.'
 constants = true
+groups = ['K_']

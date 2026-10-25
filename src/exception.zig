@@ -1,6 +1,6 @@
 //! Exception types: `setu.Exception(.{ .doc, .base })` declares a Python exception class of the
 //! extension, created in `Py_mod_exec` (by `py.exportModule` for a `Module.from` entry, or by hand
-//! with `create`) and raised from Zig with `raise` / `raiseWith`. Re-exported by `setu.zig`.
+//! with `create`) and raised from Zig with `raise` / `raiseWith`. Re-exported by `root.zig`.
 //!
 //! Example
 //!     pub const UnsupportedError = setu.Exception(.{

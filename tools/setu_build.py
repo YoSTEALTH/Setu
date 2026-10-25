@@ -144,7 +144,7 @@ def zig_build(target, debug, prefix):
     zig = os.environ.get('ZIG', 'zig')
     cmd = [zig, 'build', '--prefix', prefix]
     if not debug:
-        cmd += ['-Drelease', '-Dstrip']  # build.zig: ReleaseFast, no debug info
+        cmd += ['-Drelease', '-Dstrip']  # build.zig: optimize `fast`, no debug info
     if target is not None:
         cmd.append(f'-Dtarget={target}')
     subprocess.run(cmd, cwd=ROOT, check=True)
@@ -311,7 +311,7 @@ def main():
     parser.add_argument(
         '--all', action='store_true', help='build every release wheel (one per [tool.setu_build] target)'
     )
-    parser.add_argument('--debug', action='store_true', help='Debug build instead of ReleaseFast')
+    parser.add_argument('--debug', action='store_true', help='debug build instead of fast')
     parser.add_argument('-o', '--out', default=os.path.join(ROOT, 'dist'), help='output directory (default: dist/)')
     args = parser.parse_args()
     if args.all and args.target:
