@@ -67,6 +67,14 @@ The settings, in `pyproject.toml` (paths relative to it):
     groups = ['IORING_OP_', 'O_']   # optional: prefixes, first match wins (default: up to the first `_`;
                                     # a group of one goes under `Other`)
 
+The footer also reads `[project]`: `urls.Homepage` (the name links to it) and `requires-python` (`>=3.14` shows as
+`CPython 3.14+`); each is left out when missing.
+
+Code colors a `css` file may set: `--kw` (keywords), `--bi` (builtins), `--str`, `--num`, `--com` (comments),
+`--ref` (API names, linked), and, unset by default, `--con` (`None` / `True` / ...; else `--num`), `--ty` (a `class`
+name; else `--bi`), `--dec` (decorators; else `--kw`), `--fn` (a `def` name, a call), `--slf` (`self` / `cls` / a
+dunder), `--attr` (attributes), `--arg` (`name=` in brackets), `--op` (operators; these last five else the text's).
+
 Markdown: headings (with anchors), paragraphs, `-` / `1.` lists, `>` quotes, GFM tables, fenced code (python,
 pycon and sh highlighted, every block with a Copy button), inline code, links (`page.md` -> its page), images,
 `**bold**`, `*em*`, raw HTML blocks. An inline code span naming an export links to its entry.
@@ -193,6 +201,11 @@ class Project:
         self.module = importlib.import_module(self.config['module'])
         self.name = self.config.get('name', self.config['module'].rpartition('.')[2])
         self.version = getattr(self.module, '__version__', '')
+        # `[project]`: the footer links the name to `Homepage` and gives `requires-python` (`>=3.14` -> `3.14+`)
+        meta = tomllib.loads(self.pyproject.read_text()).get('project', {})
+        self.homepage = meta.get('urls', {}).get('Homepage', '')
+        requires = meta.get('requires-python', '').replace(' ', '')
+        self.requires = f'{requires[2:]}+' if re.fullmatch(r'>=[\d.]+', requires) else requires
         self.timeout = self.config.get('timeout', 20)
         self.stub = (self.root / self.config['stub']).read_text() if 'stub' in self.config else None
         hooks = self.load_hooks()
@@ -575,8 +588,11 @@ TOKEN = re.compile(
     # triple-quoted first; a one-quote string ends at its line (an apostrophe in a docstring must not pair up)
     r'''|(?P<string>[rRbBfF]{0,2}(?:\'\'\'[\s\S]*?\'\'\'|"""[\s\S]*?"""|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"))'''
     r'''|(?P<number>\b(?:0[xXoObB][\da-fA-F_]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b)'''
+    r'''|(?P<decorator>(?<![\w)\]])@[A-Za-z_][\w.]*)'''
     r'''|(?P<name>[A-Za-z_]\w*)'''
+    r'''|(?P<op>[-+*/%=<>!&|^~@:.,;]+)'''
 )
+CONSTANTS = {'None', 'True', 'False', 'Ellipsis', 'NotImplemented'}
 FENCE = re.compile(r'( *)(`{3,}|~{3,})\s*([\w+-]*)')
 HEADING = re.compile(r'(#{1,6})\s+(.*?)\s*#*\s*$')
 LIST_ITEM = re.compile(r'( *)([-*+]|\d+[.)])\s+(.*)')
@@ -652,22 +668,51 @@ class Site:
         return ''.join(f'<p>{self.inline(" ".join(p.split()))}</p>' for p in re.split(r'\n\s*\n', text) if p.strip())
 
     def highlight(self, code):
-        out, pos = [], 0
+        '''Python `code` as HTML: a `<span>` per token kind, API names as links.
+
+        Classes: `kw` keyword, `con` `None` / `True` / `False`, `bi` builtin, `slf` `self` / `cls` / a dunder
+        name, `fn` a function (`def` name, a call, a method), `ty` a `class` name, `arg` a keyword argument
+        (`name=` in brackets), `attr` an attribute, `dec` a decorator, `op` an operator or delimiter (brackets stay
+        plain), `str`, `num`, `com`; `a.ref` an API name.
+        '''
+        out, pos, prev, depth = [], 0, '', 0
         for m in TOKEN.finditer(code):
+            gap = code[pos : m.start()]
+            if gap.strip():
+                prev = ''
+                depth = max(depth + sum(gap.count(c) for c in '([{') - sum(gap.count(c) for c in ')]}'), 0)
             out.append(html.escape(code[pos : m.start()]))
             kind, text = m.lastgroup, m.group(0)
             if kind == 'name':
-                if text in KEYWORDS:
-                    out.append(f'<span class="kw">{text}</span>')
+                after = code[m.end() :].lstrip(' ')
+                call = after.startswith('(')
+                if text in CONSTANTS:
+                    cls = 'con'
+                elif text in KEYWORDS:
+                    cls = 'kw'
                 elif text in self.where:
-                    out.append(f'<a class="ref" href="{self.where[text]}">{text}</a>')
+                    cls = 'ref'
+                elif prev == 'class':
+                    cls = 'ty'
+                elif prev == 'def' or (call and text not in BUILTINS):
+                    cls = 'fn'
                 elif text in BUILTINS:
-                    out.append(f'<span class="bi">{text}</span>')
+                    cls = 'bi'
+                elif text in ('self', 'cls') or (text.startswith('__') and text.endswith('__')):
+                    cls = 'slf'
+                elif prev.endswith('.'):
+                    cls = 'attr'
+                elif depth and after.startswith('=') and not after.startswith('=='):
+                    cls = 'arg'
                 else:
-                    out.append(text)
+                    cls = ''
+                if cls == 'ref':
+                    out.append(f'<a class="ref" href="{self.where[text]}">{text}</a>')
+                else:
+                    out.append(f'<span class="{cls}">{text}</span>' if cls else text)
             else:
                 out.append(f'<span class="{kind[:3]}">{html.escape(text)}</span>')
-            pos = m.end()
+            pos, prev = m.end(), text
         out.append(html.escape(code[pos:]))
         return ''.join(out)
 
@@ -1078,36 +1123,40 @@ class Site:
         name, version = html.escape(project.name), html.escape(project.version)
         # API pages are mostly names, which Chrome takes for some other language and offers to translate
         meta = '\n<meta name="google" content="notranslate">' if api else ''
-        python = f'{sys.implementation.cache_tag}{"t" if FREE_THREADED else ""}'
+        url = project.homepage
+        footer_name = f'<a href="{html.escape(url)}">{name}</a>' if url else name
+        python = f' (CPython {html.escape(project.requires)})' if project.requires else ''
         return f'''<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">{meta}
 <title>{html.escape(title)} · {name}</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 <script>try {{ const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; }}
 catch (e) {{}}</script>
 </head>
 <body>
-<header class="top">
-  <button class="menu" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<header class="top"><div class="top-in">
   <a class="brand" href="index.html">{name} <span class="ver">{version}</span></a>
   <div class="search"><input id="q" type="search" placeholder="Search the API…" autocomplete="off">
   <div id="hits" hidden></div></div>
-  <span id="live" class="live" title="Run buttons need `setu_docs.py serve`">static</span>
+  <div class="tools">
   <button id="theme" class="theme" type="button" aria-label="Light / dark">◐</button>
-</header>
+  <span id="live" class="live" title="Run buttons need `setu_docs.py serve`">static</span>
+  <button class="menu" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+  </div>
+</div></header>
 <div class="wrap">
+<main>
+{body}
+<footer>Generated by <code>tools/setu_docs.py</code> from the docstrings of {footer_name} {version}{python}.</footer>
+</main>
 <nav class="side">
 <div class="pages">{self.nav(current)}</div>
 {f'<div class="toc"><div class="toc-h">On this page</div>{toc_html}</div>' if toc_html else ''}
 </nav>
-<main>
-{body}
-<footer>Generated by <code>tools/setu_docs.py</code> from the docstrings of
-<code>{html.escape(project.config["module"])}</code> {version} ({html.escape(python)}).</footer>
-</main>
 </div>
 <script src="app.js"></script>
 </body>
@@ -1141,9 +1190,10 @@ catch (e) {{}}</script>
                 hexa = hex(value) if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else ''
                 rows.append(f'<tr id="{n}"><td><code>{n}</code></td><td><code>{html.escape(repr(value))}</code></td>'
                             f'<td><code>{hexa}</code></td></tr>')  # fmt: skip
-            body.append(f'<h2 id="g-{html.escape(group)}">{html.escape(group)}</h2>'
+            g = html.escape(group)
+            body.append(f'<section class="group" id="g-{g}"><h2>{g}<a class="anchor" href="#g-{g}">#</a></h2>'
                         f'<table class="consts"><thead><tr><th>Name</th><th>Value</th><th>Hex</th></tr></thead>'
-                        f'<tbody>{"".join(rows)}</tbody></table>')  # fmt: skip
+                        f'<tbody>{"".join(rows)}</tbody></table></section>')  # fmt: skip
         toc = [(f'g-{g}', g) for g in groups]
         return self.page(page['slug'], page['title'], ''.join(body), toc, api=True)
 
@@ -1180,19 +1230,6 @@ catch (e) {{}}</script>
     def index_page(self):
         self.ids = set()
         project = self.project
-        cards = ''.join(
-            f'<a class="card" href="{p["slug"]}.html"><b>{html.escape(p["title"])}</b><span>{self.inline(p["text"])}'
-            f'</span><small>{len(n)} names</small></a>'
-            for p, n in self.pages
-        )
-        if page := self.constants_page:
-            cards += (f'<a class="card" href="{page["slug"]}.html"><b>{html.escape(page["title"])}</b>'
-                      f'<span>{self.inline(page["text"])}</span>'
-                      f'<small>{len(self.constants)} names</small></a>')  # fmt: skip
-        if scripts := project.scripts():
-            cards += ('<a class="card" href="examples.html"><b>Example scripts</b><span>Small programs from '
-                      f'<code>{html.escape(project.config["scripts"])}/</code>.</span>'
-                      f'<small>{len(scripts)} scripts</small></a>')  # fmt: skip
         toc = []
         if 'home' in project.config:
             path = project.root / project.config['home']
@@ -1205,10 +1242,7 @@ catch (e) {{}}</script>
         if featured := project.config.get('featured'):
             code = (project.root / featured).read_text()
             text += f'<pre class="code">{self.highlight(code.rstrip())}</pre>{_run_box(featured)}'
-        anchor = self.anchor('API')
-        toc.append((anchor, 'API'))
-        body = f'{text}<h2 id="{anchor}">API</h2><div class="cards">{cards}</div>'
-        return self.page('index', 'Home', body, toc)
+        return self.page('index', 'Home', text, toc)
 
     def search_index(self):
         out = []
@@ -1249,9 +1283,93 @@ catch (e) {{}}</script>
         if self.project.stub:
             files['llms-full.txt'] = llms_full(self.project.stub, self.project.config['module'])
         for name, text in files.items():
-            (out / name).write_text(text)
+            (out / name).write_text(pretty_html(text) if name.endswith('.html') else text)
         build_wasm(self.project.root, out / 'docs.wasm')
         return sorted([*files, 'docs.wasm'])
+
+
+# `pretty_html`: block tags go on their own line and indent what is inside; in a text block (`TEXT_TAGS`) the text
+# and inline tags stay on the opening tag's line.
+BLOCK_TAGS = frozenset({
+    'html', 'head', 'body', 'header', 'main', 'nav', 'footer', 'section', 'article', 'aside', 'div', 'h1', 'h2', 'h3',
+    'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+    'blockquote', 'details', 'summary', 'figure', 'figcaption', 'title', 'meta', 'link', 'hr',
+})  # fmt: skip
+TEXT_TAGS = frozenset({
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'dt', 'dd', 'th', 'td', 'summary', 'figcaption', 'title', 'footer',
+})  # fmt: skip
+VOID_TAGS = frozenset(
+    {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
+)
+RAW_TAGS = frozenset({'pre', 'script', 'style', 'textarea'})
+ATTRS = r'''(?:"[^"]*"|'[^']*'|[^'">])*'''  # up to a tag's `>`, which may be inside a quoted attribute value
+HTML_SPACE = ' \t\n\r\f'  # HTML's whitespace; not Python's `\s`, which takes in a no-break space (it renders)
+# a comment, `<!doctype>`, a tag (`/`, name), a word, a run of whitespace, a lone `<`
+HTML_TOKEN = re.compile(
+    rf'<!--.*?-->|<!{ATTRS}>|<(/?)([a-zA-Z][\w-]*){ATTRS}>|[^<{HTML_SPACE}]+|[{HTML_SPACE}]+|<', re.DOTALL
+)
+
+
+def pretty_html(text):
+    '''`text` with every block tag on its own line, indented 2 spaces per open block.
+
+    Only whitespace that does not render changes, so the page looks the same: next to a block tag, or a line
+    break between inline parts (one space however it is indented). Inline parts that touch stay together. A text
+    block (`<p>`, `<li>`, `<td>`, headings, ...; or any block with only inline content) keeps its text and inline
+    tags on the opening tag's line, with its closing tag; so does an empty element. `<pre>` / `<script>` /
+    `<style>` / `<textarea>` are copied as they are; only a `<pre>` / `<textarea>` with content gets a line break
+    after its opening tag, which the parser drops.
+
+    Example
+        >>> print(pretty_html('<div><p>Hi <b>there</b></p><a>x</a><a>y</a><div>z</div></div>'), end='')
+        <div>
+          <p>Hi <b>there</b></p>
+          <a>x</a><a>y</a>
+          <div>z</div>
+        </div>
+    '''
+    out, stack, pos, after_block, space, opened = [], [], 0, True, '', ''
+    while pos < len(text):
+        m = HTML_TOKEN.match(text, pos)
+        pos, token = m.end(), m.group(0)
+        tag, closing = (m.group(2) or '').lower(), bool(m.group(1))
+        if tag in RAW_TAGS and not closing:  # through its closing tag, as is
+            end = re.compile(rf'</{tag}\s*>', re.IGNORECASE).search(text, pos)
+            body_end, pos = (end.start(), end.end()) if end else (len(text), len(text))
+            token = text[m.start() : pos]
+            if tag in ('pre', 'textarea') and m.end() < body_end and text[m.end()] not in '\r\n':
+                # the parser drops one line break right after `<pre>`: the content starts on its own line, so
+                # all of its lines line up at the left edge
+                token = text[m.start() : m.end()] + '\n' + text[m.end() : pos]
+        elif not token.strip(HTML_SPACE):
+            space += token
+            continue
+        in_text = bool(stack) and stack[-1][1]
+        if tag in BLOCK_TAGS or tag in RAW_TAGS or token.startswith(('<!D', '<!d')):
+            if closing and any(t == tag for t, _ in stack):
+                while stack.pop()[0] != tag:
+                    pass
+            # `<div></div>` and `<p>text</p>` keep their closing tag on the line
+            same_line = closing and not space and (tag == opened or (not after_block and in_text))
+            out.append(token if same_line else '\n' + '  ' * len(stack) + token)
+            if not closing and tag in BLOCK_TAGS and tag not in VOID_TAGS:
+                stack.append((tag, tag in TEXT_TAGS or inline_only(text, pos, tag)))
+            after_block, opened = True, '' if closing else tag
+        else:
+            newline = (after_block and (space or not in_text)) or '\n' in space
+            out.append(('\n' + '  ' * len(stack) if newline else space) + token)
+            after_block, opened = False, ''
+        space = ''
+    return ''.join(out).strip('\n') + '\n'
+
+
+def inline_only(text, pos, tag):
+    '''Whether `text` from `pos` reaches `</tag>` before any block tag (the open `tag`'s content is all inline).'''
+    for m in HTML_TOKEN.finditer(text, pos):
+        name = (m.group(2) or '').lower()
+        if name in BLOCK_TAGS or name in RAW_TAGS:
+            return bool(m.group(1)) and name == tag
+    return False
 
 
 def build_wasm(root, dest):
@@ -1329,14 +1447,19 @@ a { color: var(--ref); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, monospace; font-size: 13px; }
 :not(pre) > code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px; height: 52px;
-  padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 700; font-size: 17px; color: var(--text); }
+.top { position: sticky; top: 0; z-index: 10; height: 52px; background: var(--panel);
+  border-bottom: 1px solid var(--line); }
+/* The bar's row is as wide as `.wrap`: the brand starts where `main`'s text does, the tools end where the nav's
+   links do, and the search sits in the middle column, so it is centered whatever the two sides hold. */
+.top-in { display: grid; grid-template-columns: 1fr minmax(0, 420px) 1fr; align-items: center; gap: 16px;
+  max-width: 1280px; height: 100%; margin: 0 auto; padding: 0 24px 0 40px; }
+.brand { justify-self: start; font-weight: 700; font-size: 17px; color: var(--text); white-space: nowrap; }
+.tools { justify-self: end; display: flex; align-items: center; gap: 12px; }
 .ver { font-weight: 400; color: var(--muted); font-size: 13px; }
 .menu { display: none; background: none; border: 0; color: var(--text); font-size: 20px; cursor: pointer; }
 .theme { background: none; border: 1px solid var(--line); border-radius: 99px; color: var(--text); cursor: pointer;
   font-size: 14px; padding: 0 8px; }
-.search { position: relative; flex: 1; max-width: 420px; }
+.search { position: relative; }
 .search input { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg); color: var(--text); font: inherit; }
 #hits { position: absolute; top: 38px; left: 0; right: 0; max-height: 60vh; overflow: auto; background: var(--bg);
@@ -1344,12 +1467,12 @@ code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
 #hits a { display: block; padding: 6px 10px; color: var(--text); border-bottom: 1px solid var(--line); }
 #hits a.sel, #hits a:hover { background: var(--accent-soft); text-decoration: none; }
 #hits small { display: block; color: var(--muted); }
-.live { margin-left: auto; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px;
+.live { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px;
   padding: 1px 8px; white-space: nowrap; }
 .live.on { color: var(--ok); border-color: var(--ok); }
 .wrap { display: flex; max-width: 1280px; margin: 0 auto; }
 .side { position: sticky; top: 52px; align-self: flex-start; width: 240px; flex: none; height: calc(100vh - 52px);
-  overflow: auto; padding: 16px 8px 32px 16px; border-right: 1px solid var(--line); }
+  overflow: auto; padding: 16px 16px 32px 8px; border-left: 1px solid var(--line); }
 .side a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--text); font-size: 14px; }
 .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nav-h { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 8px 2px; }
@@ -1385,6 +1508,10 @@ pre.code, pre.plain, pre.result { background: var(--code-bg); border: 1px solid 
 .codebox:hover .copy, .codebox .copy:focus { opacity: 1; }
 .kw { color: var(--kw); } .str { color: var(--str); } .num { color: var(--num); } .com { color: var(--com); }
 .bi { color: var(--bi); } a.ref { color: var(--ref); } .pr { color: var(--muted); user-select: none; }
+/* Token kinds a theme may color (`--fn`, ...); without one they fall back to a color above or the text's. */
+.fn { color: var(--fn, inherit); } .con { color: var(--con, var(--num)); } .slf { color: var(--slf, inherit); }
+.ty { color: var(--ty, var(--bi)); } .attr { color: var(--attr, inherit); } .dec { color: var(--dec, var(--kw)); }
+.op { color: var(--op, inherit); } .arg { color: var(--arg, inherit); }
 .out { color: var(--muted); }
 table { border-collapse: collapse; margin: 4px 0; }
 td, th { padding: 3px 14px 3px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
@@ -1393,7 +1520,14 @@ table.md { margin: 12px 0; display: block; overflow-x: auto; }
 table.md th { text-transform: none; font-size: 14px; color: var(--text); }
 .consts td:nth-child(2), .consts td:nth-child(3) { font-variant-numeric: tabular-nums; }
 .consts tr:target { background: var(--accent-soft); }
-.entry:target, .member:target { box-shadow: -14px 0 0 -11px var(--accent); }
+/* The selected entry (or constants group): a 1px bar on each side, centered in `main`'s left / right padding.
+   A border, not a 1px wide background: borders snap to whole device pixels, so a bar on a half pixel (`.wrap` is
+   centered) is not drawn 2px. */
+:is(.entry, .member, .group):target { position: relative; }
+:is(.entry, .member, .group):target::before, :is(.entry, .member, .group):target::after { content: "";
+  position: absolute; top: 11px; bottom: 11px; width: 0; border-left: 1px solid var(--accent); }
+:is(.entry, .member, .group):target::before { left: -20px; }
+:is(.entry, .member, .group):target::after { right: -20px; }
 ul, ol { padding-left: 20px; } li { margin: 2px 0; }
 ul.flags { list-style: none; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
 blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--accent); background: var(--panel); }
@@ -1423,18 +1557,16 @@ body.can-run .needs { display: block; }
 .chart .track i { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; }
 .chart .val { text-align: right; font-variant-numeric: tabular-nums; }
 .chart figcaption { margin-top: 4px; color: var(--muted); font-size: 12px; text-align: right; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line);
-  border-radius: 8px; background: var(--panel); color: var(--text); }
-.card:hover { border-color: var(--accent); text-decoration: none; }
-.card span { color: var(--muted); font-size: 14px; } .card small { color: var(--muted); margin-top: auto; }
 footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
 @media (max-width: 860px) {
   .menu { display: block; }
-  .side { position: fixed; left: 0; top: 52px; z-index: 9; background: var(--panel); transform: translateX(-100%);
+  .side { position: fixed; right: 0; top: 52px; z-index: 9; background: var(--panel); transform: translateX(100%);
     transition: transform .15s; width: 260px; }
   body.nav-open .side { transform: none; }
   main { padding: 16px 16px 48px; }
+  .top-in { padding: 0 16px; }
+  :is(.entry, .member, .group):target::before { left: -8px; }
+  :is(.entry, .member, .group):target::after { right: -8px; }
   .live { display: none; }
 }
 '''

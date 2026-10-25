@@ -255,11 +255,13 @@ export fn outLen() usize {
     return out.items.len;
 }
 
-/// Load `search.json` (an array of `Entry`); false when it does not parse.
+/// Load `search.json` (an array of `Entry`); false when it does not parse. The strings are copied: `app.js`
+/// frees the input right after.
 export fn loadIndex(ptr: [*]const u8, len: usize) bool {
     _ = index_arena.reset(.free_all);
     entries = std.json.parseFromSliceLeaky([]const Entry, index_arena.allocator(), input(ptr, len), .{
         .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
     }) catch {
         entries = &.{};
         return false;
@@ -449,6 +451,18 @@ test "exports" {
     try t.expectEqual(0, search("zzz", 3));
     try t.expectEqual(-1, move(1));
     try t.expect(!loadIndex("nope", 4));
+
+    // The index outlives its input (`app.js` frees it right after `loadIndex`).
+    const copy = try t.allocator.dupe(u8,
+        \\[{"n":"run_coroutine_threadsafe","h":"a.html#rct","p":"A","s":""},
+        \\ {"n":"run","h":"a.html#run","p":"A","s":""}]
+    );
+    try t.expect(loadIndex(copy.ptr, copy.len));
+    @memset(copy, 'x');
+    t.allocator.free(copy);
+    try t.expectEqual(2, search("run", 3));
+    try t.expect(chosen());
+    try t.expectEqualStrings("a.html#run", out.items);
 
     const pong = "{\"module\": \"pkg\", \"version\": \"2026.10.18\", \"python\": \"3.15t\"}";
     try t.expect(ping(pong.ptr, pong.len));

@@ -105,8 +105,21 @@ def check_markdown(site):
     code = "'''It's a doc.\n\nIt's long.'''\nX = {'.js': 'utf-8'}  # it's\n"
     same('highlight', site.highlight(code), (
         '<span class="str">&#x27;&#x27;&#x27;It&#x27;s a doc.\n\nIt&#x27;s long.&#x27;&#x27;&#x27;</span>\n'
-        'X = {<span class="str">&#x27;.js&#x27;</span>: <span class="str">&#x27;utf-8&#x27;</span>}  '
+        'X <span class="op">=</span> {<span class="str">&#x27;.js&#x27;</span><span class="op">:</span> '
+        '<span class="str">&#x27;utf-8&#x27;</span>}  '
         '<span class="com"># it&#x27;s</span>\n'
+    ))  # fmt: skip
+    code = '@functools.cache\nclass C(B):\n  def f(self, x=None):\n    return self.g(x, y=1) == x.__len__() @ z'
+    same('highlight kinds', site.highlight(code), (
+        '<span class="dec">@functools.cache</span>\n'
+        '<span class="kw">class</span> <span class="ty">C</span>(B)<span class="op">:</span>\n'
+        '  <span class="kw">def</span> <span class="fn">f</span>(<span class="slf">self</span>'
+        '<span class="op">,</span> <span class="arg">x</span><span class="op">=</span><span class="con">None</span>)'
+        '<span class="op">:</span>\n'
+        '    <span class="kw">return</span> <span class="slf">self</span><span class="op">.</span>'
+        '<span class="fn">g</span>(x<span class="op">,</span> <span class="arg">y</span><span class="op">=</span>'
+        '<span class="num">1</span>) <span class="op">==</span> x<span class="op">.</span>'
+        '<span class="fn">__len__</span>() <span class="op">@</span> z'
     ))  # fmt: skip
 
 
@@ -185,6 +198,19 @@ def check_site(project, out):
             fail(f'site: no {name}')
     if (out / 'docs.wasm').read_bytes()[:4] != b'\0asm':
         fail('docs.wasm is not WebAssembly')
+    for name in files:
+        if name.endswith('.html') and setu_docs.pretty_html(text := (out / name).read_text()) != text:
+            fail(f'{name}: `pretty_html` changes its own output')
+    same(
+        'pretty_html: a line break in text, then a block',
+        setu_docs.pretty_html('<li>a\nb\n<ul><li>c</li></ul></li><p>d\xa0\n<b>e</b></p>'),
+        '<li>a\n  b\n  <ul>\n    <li>c</li>\n  </ul>\n</li>\n<p>d\xa0\n  <b>e</b></p>\n',
+    )
+    same(
+        'pretty_html: `<pre>` content on its own line (the parser drops that line break), unless empty or already',
+        setu_docs.pretty_html('<div><pre class="code">a\n b</pre><pre hidden></pre><pre>\nc</pre></div>'),
+        '<div>\n  <pre class="code">\na\n b</pre>\n  <pre hidden></pre>\n  <pre>\nc</pre>\n</div>\n',
+    )
     index = {e['n']: e for e in json.loads((out / 'search.json').read_text())}
     same(
         'search vec_norm2',
@@ -210,6 +236,11 @@ def check_site(project, out):
     home = (out / 'index.html').read_text()
     if 'data-target="example/hi.py"' not in home or 'href="guide.html"' not in home:
         fail('index.html: no featured script, or no link to the guide')
+    if 'of <a href="https://github.com/YoSTEALTH/Setu">setu_classes</a> 0.0 (CPython 3.14+).</footer>' not in home:
+        fail('index.html: footer without the `[project]` homepage or `requires-python`')
+    group = '<section class="group" id="g-Other">\n          <h2>Other<a class="anchor" href="#g-Other">#</a>'
+    if group not in (out / 'constants.html').read_text():
+        fail('constants.html: a group is not a `section` with an anchor, or not formatted')
     if '--accent: #1b6fb4' not in (out / 'style.css').read_text():
         fail('style.css: `css` not appended')
     examples = (out / 'examples.html').read_text()
