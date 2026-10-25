@@ -1510,7 +1510,7 @@ CSS = '''
 * { box-sizing: border-box; }
 html { scroll-padding-top: 64px; }
 body { margin: 0; background: var(--bg); color: var(--text);
-  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
 a { color: var(--ref); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, monospace; font-size: 13px; }
@@ -1521,7 +1521,7 @@ code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
    links do, and the search sits in the middle column, so it is centered whatever the two sides hold. */
 .top-in { display: grid; grid-template-columns: 1fr minmax(0, 420px) 1fr; align-items: center; gap: 16px;
   max-width: 1280px; height: 100%; margin: 0 auto; padding: 0 24px 0 40px; }
-.brand { justify-self: start; font-weight: 700; font-size: 17px; color: var(--text); white-space: nowrap; }
+.brand { justify-self: start; font-weight: 700; font-size: 21px; color: var(--text); white-space: nowrap; }
 .tools { justify-self: end; display: flex; align-items: center; gap: 12px; }
 .ver { font-weight: 400; color: var(--muted); font-size: 13px; }
 .menu { display: none; background: none; border: 0; color: var(--text); font-size: 20px; cursor: pointer; }
@@ -1541,12 +1541,12 @@ code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
 .wrap { display: flex; max-width: 1280px; margin: 0 auto; }
 .side { position: sticky; top: 52px; align-self: flex-start; width: 240px; flex: none; height: calc(100vh - 52px);
   overflow: auto; padding: 16px 16px 32px 8px; border-left: 1px solid var(--line); }
-.side a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--text); font-size: 14px; }
+.side a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--text); font-size: 16px; }
 .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.nav-h { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 8px 2px; }
+.nav-h { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 8px 2px; }
 .toc { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
-.toc a { font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--muted); }
-.toc-h { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 8px 4px; }
+.toc a { font-family: ui-monospace, monospace; font-size: 14.5px; color: var(--muted); }
+.toc-h { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 8px 4px; }
 main { flex: 1; min-width: 0; padding: 24px 40px 64px; }
 h1 { margin: 8px 0 4px; font-size: 30px; }
 h2 { margin-top: 36px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
@@ -1596,12 +1596,14 @@ table.md { margin: 12px 0; display: block; overflow-x: auto; }
 table.md th { text-transform: none; font-size: 14px; color: var(--text); }
 .consts td:nth-child(2), .consts td:nth-child(3) { font-variant-numeric: tabular-nums; }
 .consts tr:target { background: var(--accent-soft); }
-/* The selected entry (or constants group): a 1px bar on each side, centered in `main`'s left / right padding.
+/* The selected entry (or constants group): a 1px dashed bar on each side, centered in `main`'s left / right padding.
    A border, not a 1px wide background: borders snap to whole device pixels, so a bar on a half pixel (`.wrap` is
-   centered) is not drawn 2px. */
+   centered) is not drawn 2px. The dashes (8px, 6px gap; `dashed` can not set a length) are a `border-image`, which
+   snaps the same way. */
 :is(.entry, .member, .group):target { position: relative; }
 :is(.entry, .member, .group):target::before, :is(.entry, .member, .group):target::after { content: "";
-  position: absolute; top: 11px; bottom: 11px; width: 0; border-left: 1px solid var(--accent); }
+  position: absolute; top: 11px; bottom: 11px; width: 0; border-left: 1px solid var(--accent);
+  border-image: repeating-linear-gradient(to bottom, var(--accent) 0 8px, transparent 8px 14px) 1; }
 :is(.entry, .member, .group):target::before { left: -20px; }
 :is(.entry, .member, .group):target::after { right: -20px; }
 ul, ol { padding-left: 20px; } li { margin: 2px 0; }
