@@ -384,17 +384,14 @@ pub const unary_ops = [_]struct { []const u8, u16 }{
 
 /// Names Setu handles itself instead of exporting them as methods.
 const hooks = blk: {
-    var out: []const []const u8 = &.{
+    const out: []const []const u8 = &.{
         "__new__",     "__init__",    "__traverse__", "__clear__",    "__del__",     "__finalize__",
         "__send__",    "__await__",   "__bool__",     "__repr__",     "__getitem__", "__poll__",
         "__setitem__", "__delitem__", "__len__",      "__contains__", "__str__",     "__hash__",
         "__call__",    "__iter__",    "__next__",     "__getattr__",  "__setattr__", "__delattr__",
         "__get__",     "__set__",     "__delete__",
     };
-    out = out ++ compare_hooks;
-    for (number_ops) |op| out = out ++ .{ "__" ++ op.name ++ "__", "__r" ++ op.name ++ "__", "__i" ++ op.name ++ "__" };
-    for (unary_ops) |op| out = out ++ .{op[0]};
-    break :blk out;
+    break :blk out ++ compare_hooks ++ number_names;
 };
 
 /// The number hooks (binary, reflected, in-place, unary), in stub order.
@@ -540,6 +537,8 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         pub const hidden = @hasDecl(T, "hidden") and T.hidden;
         /// The Python type name (`pkg.Name`).
         pub const name = typeName(T);
+        /// `name` without its package (`Name`), as messages say it.
+        const short_name = shortName(name);
         /// The base `Class`, or `void`.
         pub const Base = if (@hasDecl(T, "base")) T.base else void;
         /// Do instances support weak references (`weakref` here or in a base)?
@@ -659,11 +658,10 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             if (raw) {
                 tuple[1] = .{ .args = args, .kwargs = kwargs };
             } else {
-                const fname = comptime shortName(name);
                 const names = comptime args_zig.paramNames(plist);
                 const npos = comptime args_zig.positionalCount(plist);
-                const slots = try args_zig.parseArgs(fname, names, 0, npos, args, kwargs);
-                try args_zig.fillArgs(F, plist, fname, &slots, &tuple);
+                const slots = try args_zig.parseArgs(short_name, names, 0, npos, args, kwargs);
+                try args_zig.fillArgs(F, plist, short_name, &slots, &tuple);
             }
             defer args_zig.releaseArgs(F, plist, &tuple); // nothing to release for `CallArgs` (empty `plist`)
             const result = @call(.auto, f, tuple);
@@ -868,25 +866,15 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             return obj;
         }
 
-        /// `am_await`: `__await__`.
-        fn amAwait(obj: *Object) callconv(.c) ?*Object {
-            return py.toPython(callSelf(T.__await__, obj, .{}));
-        }
-
         /// `nb_bool`: `__bool__`.
         fn nbBool(obj: *Object) callconv(.c) c_int {
             return @intFromBool(callSelf(T.__bool__, obj, .{}) catch return -1);
         }
 
-        /// `tp_repr`: `__repr__`.
-        fn tpRepr(obj: *Object) callconv(.c) ?*Object {
-            return py.toPython(callSelf(T.__repr__, obj, .{}));
-        }
-
         /// `mp_subscript`: `__getitem__`, with `key` converted to its parameter type.
         fn mpSubscript(obj: *Object, key: *Object) callconv(.c) ?*Object {
             const K = @typeInfo(@TypeOf(T.__getitem__)).@"fn".param_types[1].?;
-            const what = "`" ++ comptime shortName(name) ++ "[key]`";
+            const what = "`" ++ short_name ++ "[key]`";
             const k = if (K == *Object) key else argAs(K, key, what) catch return null;
             return py.toPython(callSelf(T.__getitem__, obj, .{k}));
         }
@@ -933,14 +921,9 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         /// Calls the binary hook `f(self, other)`: `NotImplemented` when `other` has another
         /// type, else the converted result.
         fn binary(comptime f: anytype, comptime hook: []const u8, obj: *Object, other: *Object) ?*Object {
-            const what = "`" ++ comptime shortName(name) ++ "." ++ hook ++ "(other)`";
+            const what = "`" ++ short_name ++ "." ++ hook ++ "(other)`";
             const arg = (otherAs(ParamOf(f, 1), other, what) catch return null) orelse return py.newNotImplemented();
             return py.toPython(callSelf(f, obj, .{arg}));
-        }
-
-        /// `tp_str`: `__str__`.
-        fn tpStr(obj: *Object) callconv(.c) ?*Object {
-            return py.toPython(callSelf(T.__str__, obj, .{}));
         }
 
         /// `tp_richcompare`: the comparison hooks; `!=` is `not ==` without `__ne__`.
@@ -978,45 +961,40 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             if (@typeInfo(N) != .int or @typeInfo(N).int.signedness != .unsigned)
                 @compileError(@typeName(T) ++ ".__len__ must return an unsigned int");
             return std.math.cast(c.ssize, n) orelse {
-                py.setString(c.PyExc_OverflowError, "`len()` of a `{s}` is too large", .{comptime shortName(name)});
+                py.setString(c.PyExc_OverflowError, "`len()` of a `{s}` is too large", .{short_name});
                 return -1;
             };
         }
 
         /// `sq_contains`: `__contains__`; an `item` of another type is not contained.
         fn sqContains(obj: *Object, item: *Object) callconv(.c) c_int {
-            const what = "`" ++ comptime shortName(name) ++ ".__contains__(item)`";
+            const what = "`" ++ short_name ++ ".__contains__(item)`";
             const arg = (otherAs(ParamOf(T.__contains__, 1), item, what) catch return -1) orelse return 0;
             return @intFromBool(callSelf(T.__contains__, obj, .{arg}) catch return -1);
         }
 
         /// `mp_ass_subscript`: `__setitem__` (a `value`) or `__delitem__` (none).
         fn mpAssSubscript(obj: *Object, key: *Object, value: ?*Object) callconv(.c) c_int {
-            const what = "`" ++ comptime shortName(name) ++ "[key]`";
+            const what = "`" ++ short_name ++ "[key]`";
             if (value) |v| {
                 if (!@hasDecl(T, "__setitem__")) {
                     const msg = "`{s}` does not support item assignment";
-                    py.setString(c.PyExc_TypeError, msg, .{comptime shortName(name)});
+                    py.setString(c.PyExc_TypeError, msg, .{short_name});
                     return -1;
                 }
                 const f = T.__setitem__;
                 const k = argAs(ParamOf(f, 1), key, what) catch return -1;
-                const x = argAs(ParamOf(f, 2), v, "`" ++ comptime shortName(name) ++ "[key] = value`") catch return -1;
+                const x = argAs(ParamOf(f, 2), v, "`" ++ short_name ++ "[key] = value`") catch return -1;
                 _ = callSelf(f, obj, .{ k, x }) catch return -1;
                 return 0;
             }
             if (!@hasDecl(T, "__delitem__")) {
-                py.setString(c.PyExc_TypeError, "`{s}` does not support item deletion", .{comptime shortName(name)});
+                py.setString(c.PyExc_TypeError, "`{s}` does not support item deletion", .{short_name});
                 return -1;
             }
             const k = argAs(ParamOf(T.__delitem__, 1), key, what) catch return -1;
             _ = callSelf(T.__delitem__, obj, .{k}) catch return -1;
             return 0;
-        }
-
-        /// `tp_iter`: `__iter__`.
-        fn tpIter(obj: *Object) callconv(.c) ?*Object {
-            return py.toPython(callSelf(T.__iter__, obj, .{}));
         }
 
         /// `tp_iternext`: `__next__`; `null` ends the iteration.
@@ -1047,7 +1025,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 fn call3(a: *Object, b: *Object, m: *Object) callconv(.c) ?*Object {
                     if (m != py.none()) {
                         const msg = "`{s}` does not support pow() with a modulus";
-                        py.setString(c.PyExc_TypeError, msg, .{comptime shortName(name)});
+                        py.setString(c.PyExc_TypeError, msg, .{short_name});
                         return null;
                     }
                     return call(a, b);
@@ -1061,7 +1039,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             return struct {
                 fn call(a: *Object, b: *Object) callconv(.c) ?*Object {
                     const f = @field(T, hook);
-                    const what = "`" ++ comptime shortName(name) ++ "." ++ hook ++ "(other)`";
+                    const what = "`" ++ short_name ++ "." ++ hook ++ "(other)`";
                     const arg = (otherAs(ParamOf(f, 1), b, what) catch return null) orelse
                         return py.newNotImplemented();
                     const r = callSelf(f, a, .{arg}) catch return null;
@@ -1079,8 +1057,9 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
             };
         }
 
-        /// `nb_<op>` for a unary hook (`__neg__`, `__int__`, ...).
-        fn Unary(comptime hook: []const u8) type {
+        /// The slot for a hook without arguments: `tp_repr`, `tp_str`, `tp_iter`, `am_await`, or
+        /// `nb_<op>` for a unary one (`__neg__`, `__int__`, ...).
+        fn NoArg(comptime hook: []const u8) type {
             return struct {
                 fn call(a: *Object) callconv(.c) ?*Object {
                     const r = callSelf(@field(T, hook), a, .{}) catch return null;
@@ -1115,8 +1094,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 if (!@hasDecl(T, "__setattr__")) return c.PyObject_GenericSetAttr(obj, attr, v);
                 const f = T.__setattr__;
                 const n = argAs(ParamOf(f, 1), attr, "attribute name") catch return -1;
-                const x = argAs(ParamOf(f, 2), v, "`" ++ comptime shortName(name) ++ ".__setattr__(value)`") catch
-                    return -1;
+                const x = argAs(ParamOf(f, 2), v, "`" ++ short_name ++ ".__setattr__(value)`") catch return -1;
                 _ = callSelf(f, obj, .{ n, x }) catch return -1;
                 return 0;
             }
@@ -1137,16 +1115,15 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         fn tpDescrSet(obj: *Object, instance: *Object, value: ?*Object) callconv(.c) c_int {
             if (value) |v| {
                 if (!@hasDecl(T, "__set__")) {
-                    py.setString(c.PyExc_AttributeError, "`{s}` is read-only", .{comptime shortName(name)});
+                    py.setString(c.PyExc_AttributeError, "`{s}` is read-only", .{short_name});
                     return -1;
                 }
-                const x = argAs(ParamOf(T.__set__, 2), v, "`" ++ comptime shortName(name) ++ ".__set__(value)`") catch
-                    return -1;
+                const x = argAs(ParamOf(T.__set__, 2), v, "`" ++ short_name ++ ".__set__(value)`") catch return -1;
                 _ = callSelf(T.__set__, obj, .{ instance, x }) catch return -1;
                 return 0;
             }
             if (!@hasDecl(T, "__delete__")) {
-                py.setString(c.PyExc_AttributeError, "can not delete a `{s}`", .{comptime shortName(name)});
+                py.setString(c.PyExc_AttributeError, "can not delete a `{s}`", .{short_name});
                 return -1;
             }
             _ = callSelf(T.__delete__, obj, .{instance}) catch return -1;
@@ -1203,7 +1180,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                         break :blk item;
                     };
                     py.decref(old);
-                } else @field(d, f) = try py.fromPythonAs(F, item, "`" ++ shortName(name) ++ "." ++ f ++ "`");
+                } else @field(d, f) = try py.fromPythonAs(F, item, "`" ++ short_name ++ "." ++ f ++ "`");
                 i += 1;
             }
         }
@@ -1225,7 +1202,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 py.setString(
                     c.PyExc_TypeError,
                     "`{s}.__setstate__` takes a tuple of {d} items",
-                    .{ comptime shortName(name), state_len },
+                    .{ short_name, state_len },
                 );
                 return null;
             }
@@ -1258,7 +1235,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                         py.setString(c.PyExc_AttributeError, "can not delete `{s}`", .{prop});
                         return -1;
                     };
-                    const arg = argAs(U, v, "`" ++ shortName(name) ++ "." ++ prop ++ "`") catch return -1;
+                    const arg = argAs(U, v, "`" ++ short_name ++ "." ++ prop ++ "`") catch return -1;
                     callSelf(s, obj, .{arg}) catch return -1;
                     return 0;
                 }
@@ -1331,7 +1308,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         const type_doc = blk: {
             const doc = source_zig.docAbove(source, at);
             const params = if (instantiable) textSignature(T, body) else null;
-            const sig = if (params) |p| shortName(name) ++ p ++ "\n--\n\n" else "";
+            const sig = if (params) |p| short_name ++ p ++ "\n--\n\n" else "";
             const text = sig ++ doc;
             break :blk (text ++ "\x00")[0..text.len :0];
         };
@@ -1399,20 +1376,20 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 c.Slot.func(c.Py_tp_iter, @ptrCast(&tpIterSelf)),
             };
             if (@hasDecl(T, "__iter__")) {
-                s = s ++ .{c.Slot.func(c.Py_tp_iter, @ptrCast(&tpIter))};
+                s = s ++ .{c.Slot.func(c.Py_tp_iter, @ptrCast(&NoArg("__iter__").call))};
             } else if (@hasDecl(T, "__next__")) s = s ++ .{c.Slot.func(c.Py_tp_iter, @ptrCast(&tpIterSelf))};
             if (@hasDecl(T, "__next__")) s = s ++ .{c.Slot.func(c.Py_tp_iternext, @ptrCast(&tpNext))};
             if (@hasDecl(T, "__await__")) {
-                s = s ++ .{c.Slot.func(c.Py_am_await, @ptrCast(&amAwait))};
+                s = s ++ .{c.Slot.func(c.Py_am_await, @ptrCast(&NoArg("__await__").call))};
             } else if (poll) s = s ++ .{c.Slot.func(c.Py_am_await, @ptrCast(&tpIterSelf))}; // `self`
             if (@hasDecl(T, "__bool__")) s = s ++ .{c.Slot.func(c.Py_nb_bool, @ptrCast(&nbBool))};
-            if (@hasDecl(T, "__repr__")) s = s ++ .{c.Slot.func(c.Py_tp_repr, @ptrCast(&tpRepr))};
+            if (@hasDecl(T, "__repr__")) s = s ++ .{c.Slot.func(c.Py_tp_repr, @ptrCast(&NoArg("__repr__").call))};
             if (@hasDecl(T, "__getitem__")) s = s ++ .{c.Slot.func(c.Py_mp_subscript, @ptrCast(&mpSubscript))};
             if (@hasDecl(T, "__setitem__") or @hasDecl(T, "__delitem__"))
                 s = s ++ .{c.Slot.func(c.Py_mp_ass_subscript, @ptrCast(&mpAssSubscript))};
             if (@hasDecl(T, "__len__")) s = s ++ .{c.Slot.func(c.Py_mp_length, @ptrCast(&mpLength))};
             if (@hasDecl(T, "__contains__")) s = s ++ .{c.Slot.func(c.Py_sq_contains, @ptrCast(&sqContains))};
-            if (@hasDecl(T, "__str__")) s = s ++ .{c.Slot.func(c.Py_tp_str, @ptrCast(&tpStr))};
+            if (@hasDecl(T, "__str__")) s = s ++ .{c.Slot.func(c.Py_tp_str, @ptrCast(&NoArg("__str__").call))};
             if (has_compare) s = s ++ .{c.Slot.func(c.Py_tp_richcompare, @ptrCast(&tpRichcompare))};
             if (@hasDecl(T, "__hash__")) {
                 s = s ++ .{c.Slot.func(c.Py_tp_hash, @ptrCast(&tpHash))};
@@ -1434,7 +1411,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                 }
             }
             for (unary_ops) |op| if (@hasDecl(T, op[0])) {
-                s = s ++ .{c.Slot.func(op[1], @ptrCast(&Unary(op[0]).call))};
+                s = s ++ .{c.Slot.func(op[1], @ptrCast(&NoArg(op[0]).call))};
             };
             if (@hasDecl(T, "__getattr__")) s = s ++ .{c.Slot.func(c.Py_tp_getattro, @ptrCast(&tpGetattro))};
             if (@hasDecl(T, "__setattr__") or @hasDecl(T, "__delattr__"))
