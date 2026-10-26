@@ -43,6 +43,8 @@ CASES = [
     ('o.rank = 1', 'o.rank = 1'),
     ('o.rank', 'o.rank'),
     ('v.norm2()', 'v.norm2()'),
+    ('v == v', 'v == v'),
+    ('v == None', 'v == None'),
     ('Vec(1, 2)', 'Vec(1, 2)'),
 ]
 

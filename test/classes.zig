@@ -172,6 +172,17 @@ pub const Labeled = struct {
         py.incref(l);
         return l;
     }
+
+    /// Sets the label; `None` is refused (a plain Zig error: `RuntimeError: NoLabel`).
+    ///
+    /// Type
+    ///     value: object
+    pub fn set_label(self: *Labeled, value: *Object) error{NoLabel}!void {
+        if (value == py.none()) return error.NoLabel;
+        py.incref(value);
+        py.decref(self.label);
+        self.label = value;
+    }
 };
 pub const LabeledType = setu.Class(Labeled, @embedFile("classes.zig"));
 

@@ -918,6 +918,11 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         /// `argAs` for the other operand of a comparison / operator: `null` (not handled, so
         /// `NotImplemented`) when it has another type.
         fn otherAs(comptime P: type, obj: *Object, comptime what: []const u8) Error!?P {
+            // An instance parameter is checked without making a `TypeError` to clear (`v == None`).
+            if (comptime isInstancePtr(P)) {
+                const I = Instance(@typeInfo(P).pointer.child);
+                return if (I.check(obj)) I.data(obj) else null;
+            }
             return argAs(P, obj, what) catch |err| {
                 if (c.PyErr_ExceptionMatches(c.PyExc_TypeError) == 0) return err;
                 c.PyErr_Clear();
@@ -1254,8 +1259,7 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                         return -1;
                     };
                     const arg = argAs(U, v, "`" ++ shortName(name) ++ "." ++ prop ++ "`") catch return -1;
-                    const result = s(selfOf(s, obj), arg);
-                    if (@typeInfo(@TypeOf(result)) == .error_union) result catch return -1;
+                    callSelf(s, obj, .{arg}) catch return -1;
                     return 0;
                 }
             };

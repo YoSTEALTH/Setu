@@ -336,7 +336,8 @@ fn argError(comptime p: Param, comptime fname: []const u8, comptime T: type, err
 }
 
 /// Keyword lookup for the parameter `names`: the index of a keyword, or `null` if no
-/// parameter takes it. `skip` is the `KwOnly` marker's index (no keyword), or `names.len`.
+/// parameter takes it. `skip` is the `KwOnly` marker's index (no keyword), or `names.len`; an
+/// empty name (positional-only) takes no keyword either.
 ///
 /// Example
 ///     >>> KwNames(&.{ "path", "mode" }, 2).find(key)  // key: the str 'mode'
@@ -353,12 +354,17 @@ pub fn KwNames(comptime names: []const [:0]const u8, comptime skip: usize) type 
         /// The index of the keyword `key` in `names`, or `null`.
         pub fn find(key: *Object) ?usize {
             inline for (0..names.len) |i| {
-                if (i != skip and (load(i) orelse intern(i)) == key) return i;
+                if (comptime takes(i)) if ((load(i) orelse intern(i)) == key) return i;
             }
             inline for (names, 0..) |n, i| {
-                if (i != skip and c.PyUnicode_EqualToUTF8(key, n) != 0) return i;
+                if (comptime takes(i)) if (c.PyUnicode_EqualToUTF8(key, n) != 0) return i;
             }
             return null;
+        }
+
+        /// Does name `i` take a keyword? Not the `KwOnly` marker, not a positional-only `""`.
+        fn takes(comptime i: usize) bool {
+            return i != skip and names[i].len != 0;
         }
 
         /// The interned name `i`, if made already.

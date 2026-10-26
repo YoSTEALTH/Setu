@@ -39,8 +39,13 @@ def test_compare():
     # Another type: `NotImplemented`, so `==` falls back to identity and `<` raises.
     assert Vec(1, 2) != (1, 2)
     assert (Vec(1, 2) == 'x') is False
+    assert (Vec(1, 2) == None) is False and Vec(1, 2) != None  # noqa: E711
+    assert Vec(1, 2) not in [None, 'x', (1, 2)]
+    assert Vec(0, 0) == Labeled('a')  # a subclass instance is a `Vec`
     with pytest.raises(TypeError, match="'<' not supported"):
         Vec(1, 2) < 3
+    with pytest.raises(TypeError, match="'<' not supported"):
+        Vec(1, 2) < None
     with pytest.raises(TypeError):
         Vec(1, 2) <= Vec(1, 2)  # no `__le__`
 
@@ -194,9 +199,12 @@ def test_positional_only_rest_kwargs():
     with pytest.raises(TypeError):
         a.collect()  # `first` is required
     assert a.collect(1, first=2) == (11, (), {'first': 2})  # positional-only: the name is free
+    assert a.collect(1, **{'': 5}) == (11, (), {'': 5})  # no parameter is named ''
     assert a.count() == 0
     assert a.count(1, 2, 3) == 3  # a leading `*args` on a method
     assert str(inspect.signature(a.count)) == '(*args)'
+    with pytest.raises(TypeError, match='takes no keyword arguments'):
+        a.count(**{'': 1})
 
 
 def test_plain_methods():
@@ -358,6 +366,15 @@ def test_pickle_with_base():
         w.__setstate__((1, 2))
     with pytest.raises(OverflowError):
         w.__setstate__((2**64, 2, None))
+
+
+def test_setter_error():
+    lab = Labeled('a')
+    lab.label = 'b'
+    assert lab.label == 'b'
+    with pytest.raises(RuntimeError, match='^NoLabel$'):  # a plain Zig error, not `SystemError`
+        lab.label = None
+    assert lab.label == 'b'
 
 
 def test_generic():
