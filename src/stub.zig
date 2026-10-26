@@ -300,8 +300,7 @@ fn hooks(comptime C: type) []const u8 {
         "\n    def __iter__(self) -> Self: ...\n" ++
         "\n    def __next__(self) -> Any: ...\n";
     if (@hasDecl(T, "__bool__")) out = out ++ "\n    def __bool__(self) -> bool: ...\n";
-    if (@hasDecl(T, "__repr__")) out = out ++ "\n    def __repr__(self) -> str: ...\n";
-    if (@hasDecl(T, "__str__")) out = out ++ "\n    def __str__(self) -> str: ...\n";
+    // No `__repr__` / `__str__`: `object` declares both the same way (ruff PYI029).
     if (@hasDecl(T, "__getitem__")) out = out ++ hookDef(C, "__getitem__", .{});
     out = out ++ pair(C, "__setitem__", "__delitem__", .{ .ret = "None" }, 2, 1);
     if (@hasDecl(T, "__len__")) out = out ++ "\n    def __len__(self) -> int: ...\n";

@@ -2,7 +2,7 @@
 # Runs every Setu check: zig fmt, int casts, ruff (also on the copied tools with the consumers' rules),
 # `zig build test`, the `setu-build-sync` / `setu-build-check` and `setu-guide-*` steps on the wheel fixture
 # `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_classes.so`
-# and its generated stubs, which `ruff check` lints: an import Setu writes but the stub does not use fails),
+# and its generated stubs, which `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest, the
 # `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tools/setu_build.py` builds (`check_wheels.py`) and the docs
 # site `tools/setu_docs.py` builds, serves and runs the examples of (`check_docs.py`), then
@@ -62,7 +62,8 @@ step "zig build develop"
 "$ZIG" build develop # test/setu_classes.so: one binary for every interpreter below
 
 step "ruff check (generated stubs)"
-"$PY_FT" -m ruff check test/setu_classes.pyi # gitignored, so `ruff check .` above skips it
+# gitignored, so `ruff check .` above skips it; flake8-pyi too (PYI021: the docstrings are on purpose)
+"$PY_FT" -m ruff check --extend-select PYI --extend-ignore PYI021 test/setu_classes.pyi
 "$PY_FT" -m ruff format --check test/setu_classes.pyi
 
 for py in "$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL"; do

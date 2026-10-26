@@ -346,7 +346,8 @@ os.PathLike[...]`, buffers -> `Buffer`, `py.Sequence(T)` -> `Sequence[T]`, slice
 `tuple[T, U]`, `void` -> `None`, `?T` -> `T | None = None`, `*T` -> the class name (`Any` if hidden),
 `*Object` -> `Any`. A method parameter that would stub as `Any` without a `Type` entry is a compile error
 (rename a Zig helper camelCase, or add the entry). The stub imports only the names it uses, is laid out as
-`ruff format` would, and passes `mypy --strict` and `stubtest` in Setu's checks. `tools/setu_docs.py` turns
+`ruff format` would, leaves out `__repr__` / `__str__` (`object` declares them), and passes `mypy --strict`,
+`stubtest` and ruff's flake8-pyi rules (`PYI`, apart from `PYI021`: the docstrings stay) in Setu's checks. `tools/setu_docs.py` turns
 the same docstrings into a static HTML site (and `llms.txt` / `llms-full.txt` for AI readers), and runs every
 `Example` to check that its output is what the doc says (`setu_docs.py check`).
 

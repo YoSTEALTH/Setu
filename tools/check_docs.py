@@ -75,11 +75,27 @@ def check_markdown(site):
          'b</th></tr></thead><tbody><tr><td>1</td><td style="text-align: right">x | y</td></tr></tbody></table>'),
         ('- a\n  b\n  - c\n- d\n\n1. e', '<ul><li>a b<ul><li>c</li></ul></li><li>d</li></ul><ol><li>e</li></ol>'),
         ('```sh\nls  # list\n```\n\n```\nplain <x>\n```',
-         '<pre class="code" data-lang="sh">ls  <span class="com"># list</span></pre>'
+         '<pre class="code" data-lang="sh"><span class="fn">ls</span>  <span class="com"># list</span></pre>'
          '<pre class="code">plain &lt;x&gt;</pre>'),
         ('> q\n\n---\n\n<div>raw</div>', '<blockquote><p>q</p></blockquote><hr><div>raw</div>'),
-        ('## X\n\n## X', '<h2 id="x">X<a class="anchor" href="#x">#</a></h2><h2 id="x-2">X<a class="anchor" '
-         'href="#x-2">#</a></h2>'),
+        ('## X\n\n### Y\n\n#### Z\n\n## X', '<section class="part" id="x"><h2>X<a class="anchor" href="#x">#</a></h2>'
+         '<section class="part" id="y"><h3>Y<a class="anchor" href="#y">#</a></h3><h4 id="z">Z<a class="anchor" '
+         'href="#z">#</a></h4></section></section><section class="part" id="x-2"><h2>X<a class="anchor" '
+         'href="#x-2">#</a></h2></section>'),
+        ('```bash\nX=1 cc -o "$OUT" <file> 2>&1 | grep -v x && echo ${A}; if true; then ls; fi\n```',
+         '<pre class="code" data-lang="bash">X=1 <span class="fn">cc</span> <span class="arg">-o</span> '
+         '<span class="str">&quot;$OUT&quot;</span> <span class="arg">&lt;file&gt;</span> '
+         '<span class="op">2&gt;&amp;1</span> <span class="op">|</span> <span class="fn">grep</span> '
+         '<span class="arg">-v</span> x <span class="op">&amp;&amp;</span> <span class="fn">echo</span> '
+         '<span class="bi">${A}</span><span class="op">;</span> <span class="kw">if</span> <span class="fn">true</span>'
+         '<span class="op">;</span> <span class="kw">then</span> <span class="fn">ls</span><span class="op">;</span> '
+         '<span class="kw">fi</span></pre>'),
+        ('```console\n$ echo hi\nhi\n```', '<pre class="code" data-lang="console"><span class="pr">$ </span><span '
+         'class="fn">echo</span> hi\n<span class="out">hi</span></pre>'),
+        ('```c\n#include <a.h>\nint f(void) { return NULL; } // c\n```',
+         '<pre class="code" data-lang="c"><span class="dec">#include</span><span class="str"> &lt;a.h&gt;</span>\n'
+         '<span class="ty">int</span> <span class="fn">f</span>(<span class="ty">void</span>) { <span class="kw">'
+         'return</span> <span class="con">NULL</span><span class="op">;</span> } <span class="com">// c</span></pre>'),
     ):  # fmt: skip
         same(f'markdown {text!r}', render(text), want)
     same('chart_number', [setu_docs.chart_number(c) for c in ('627,427', '**1.5k**', '48 ns', '-')],
@@ -255,8 +271,17 @@ def check_site(project, out):
     home = (out / 'index.html').read_text()
     if 'data-target="example/hi.py"' not in home or 'href="guide.html"' not in home:
         fail('index.html: no featured script, or no link to the guide')
-    if 'of <a href="https://github.com/YoSTEALTH/Setu">setu_classes</a> 0.0 (CPython 3.14+).</footer>' not in home:
-        fail('index.html: footer without the `[project]` homepage or `requires-python`')
+    footer = 'of <a href="https://github.com/YoSTEALTH/Setu" target="_blank" rel="noopener">setu_classes</a> 0.0'
+    if f'{footer} (CPython 3.14+).</footer>' not in home:
+        fail('index.html: footer without the `[project]` homepage or `requires-python`, or not in a new tab')
+    repo = '<a class="repo" href="https://github.com/YoSTEALTH/Setu"'
+    if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
+        fail('index.html: no repository link from the `[project]` homepage')
+    external, target = r'<a\b[^>]*href="https?://[^>]*>', r'<a\b[^>]* target='
+    if any(not re.match(target, a) for a in re.findall(external, home + guide)):
+        fail('index.html / guide.html: an external link that does not open a new tab')
+    if re.search(target, re.sub(external, '', home + guide)):
+        fail('index.html / guide.html: a site link that opens a new tab')
     group = '<section class="group" id="g-Other">\n          <h2>Other<a class="anchor" href="#g-Other">#</a>'
     if group not in (out / 'constants.html').read_text():
         fail('constants.html: a group is not a `section` with an anchor, or not formatted')
