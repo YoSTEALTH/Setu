@@ -243,6 +243,11 @@ pub fn bench_nop(v: *Vec) void {
 /// Example
 ///     >>> bench_recv(Vec(), -1, bytearray(4), 0)
 ///     -1
+///
+/// Flags
+///     K_ONE    # the first `K_` constant, linked like `ANSWER`
+///     K_TWO (default)
+///     0        # none
 pub fn bench_recv(v: *Vec, fd: i32, buf: ?py.WritableBuffer, flags: ?i32) i32 {
     _ = .{ v, buf, flags };
     return fd;

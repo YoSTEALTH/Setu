@@ -207,7 +207,8 @@ def check_examples(project):
 
 
 def check_site(project, out):
-    files = setu_docs.Site(project).write(out)
+    site = setu_docs.Site(project)
+    files = site.write(out)
     pages = ('index', 'guide', 'functions', 'classes', 'types', 'constants', 'examples')
     for name in (*(f'{p}.html' for p in pages), 'search.json', 'style.css', 'app.js', 'docs.wasm', 'llms.txt',
                  'llms-full.txt'):  # fmt: skip
@@ -268,6 +269,20 @@ def check_site(project, out):
         fail('guide.html: no chart')
     if 'class="needs"' in page:
         fail('functions.html: an example without Run')
+    flags = (
+        '<ul class="flags described">\n'
+        '            <li><code><a href="constants.html#K_ONE">K_ONE</a></code> the first <code>K_</code> constant,'
+        ' linked like <code><a href="constants.html#ANSWER">ANSWER</a></code></li>\n'
+        '            <li><code><a href="constants.html#K_TWO">K_TWO (default)</a></code></li>\n'
+        '            <li><code>0</code> none</li>\n'
+    )
+    if flags not in page:
+        fail('functions.html: `bench_recv` Flags: a name not linked, or its `# comment` not text')
+    same(
+        'flags: names only wrap as a row',
+        site.flags('O_RDONLY\nO_WRONLY'),
+        '<ul class="flags"><li><code>O_RDONLY</code></li><li><code>O_WRONLY</code></li></ul>',
+    )
     home = (out / 'index.html').read_text()
     if 'data-target="example/hi.py"' not in home or 'href="guide.html"' not in home:
         fail('index.html: no featured script, or no link to the guide')

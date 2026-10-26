@@ -1150,6 +1150,18 @@ class Site:
                 items.append(line.strip())
         return '<ul>' + ''.join(f'<li>{self.inline(i)}</li>' for i in items) + '</ul>'
 
+    def flags(self, text):
+        '''A `Flags` section: one entry per line, a name (as code, linked when it is an export) and an optional
+        `# comment` after it, shown as text (`IORING_TIMEOUT_ABS  # ts is a point in time`). With comments the
+        entries stack, else they wrap as a row.
+        '''
+        entries = [re.split(r'\s+#\s*', line.strip(), maxsplit=1) for line in text.splitlines() if line.strip()]
+        items = ''.join(
+            f'<li>{self.code(e[0])}' + (f' {self.inline(e[1])}' if len(e) > 1 else '') + '</li>' for e in entries
+        )
+        described = ' described' if any(len(e) > 1 for e in entries) else ''
+        return f'<ul class="flags{described}">{items}</ul>'
+
     def doc(self, name, obj):
         '''A docstring as HTML: description, Type, Example (+ fixture and Run), Note, others.'''
         parts = sections(obj.__doc__)
@@ -1174,9 +1186,7 @@ class Site:
             elif header in ('Note', 'Warning'):
                 out.append(self.bullets(text))
             elif header == 'Flags':
-                out.append('<ul class="flags">' + ''.join(
-                    f'<li><code>{self.link(f.strip())}</code></li>' for f in text.splitlines() if f.strip()
-                ) + '</ul>')  # fmt: skip
+                out.append(self.flags(text))
             else:
                 out.append(f'<pre class="plain">{html.escape(text)}</pre>')
         return ''.join(out)
@@ -1769,6 +1779,7 @@ table.md th { text-transform: none; font-size: 14px; color: var(--text); }
 :is(.entry, .member, .group, .part):target::after { right: -20px; }
 ul, ol { padding-left: 20px; } li { margin: 2px 0; }
 ul.flags { list-style: none; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+ul.flags.described { display: block; }
 blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--accent); background: var(--panel); }
 hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 img { max-width: 100%; }
