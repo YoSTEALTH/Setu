@@ -1,32 +1,47 @@
 '''Line coverage of an extension's Zig code: pytest under kcov, with the extension loaded first, then a per-file
 table. `zig build coverage` runs it (`addCoverageSteps` in `build.zig`), with an LLVM Debug build of the extension.
+With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zig build coverage-zig`).
 
     zig build coverage                             # Setu: setu_classes + class_test.py (-Dpython=...)
     zig build coverage -- --missed -k vec          # after `--`: these options, the rest goes to pytest
     zig build coverage -- --python /opt/python/3.14/bin/python3   # 3.14's paths too, merged
     python3 tools/check_coverage.py --name setu_classes --include src --include test <ext.so> [-- pytest args]
+    python3 tools/check_coverage.py --exe --include tools <test executable> [-- its args]
 
 Options
+    --exe             the path is a Zig test executable (`b.addTest`, built `.use_llvm = true`), run under kcov
+                      with the arguments after `--`; no pytest, `--name` or `--python`
     --name NAME       the name the tests import the extension by: `setu_classes`, `liburing.liburing` (inside a
-                      package, whose `from .liburing import ...` then gets this build)
+                      package, whose `from .liburing import ...` then gets this build; `liburing.liburing` is set
+                      on the package, as a normal import does)
     --include DIR     a source directory to report (kcov `--include-path`), repeatable
     --python PATH     run the tests under this interpreter too (after the one running this script), repeatable;
                       the table merges the runs: a line ran if it ran in any
     --min PERCENT     fail when the total is lower
-    --out DIR         kcov's report (`index.html`, `codecov.json`, ...); default `zig-out/coverage`, one report per
-                      interpreter in `<DIR>/<3.15t, 3.14, ...>/` when there are several; replaced on each run
-                      (refused unless it is empty or an earlier report)
+    --json FILE       the result, merged over the interpreters (format below); default `zig-out/coverage.json`,
+                      replaced on each run (refused unless it is an earlier result)
+    --html DIR        also keep kcov's HTML report, one per interpreter in `<DIR>/<3.15t, 3.14, ...>/index.html`;
+                      replaced on each run (refused unless it is empty or an earlier report). Without it kcov writes
+                      into a temporary directory, removed after the run
     --max-memory GB   stop the run (kcov and the tests under it) when together they use more memory (resident);
                       default 8
     --missed          list the lines that never ran (red), with their source
     --partial         list the lines that ran at some of their addresses only (yellow), with `hits/possible`
                       (with several interpreters: the largest `hits` of a run)
 
-    Arguments that are none of these (and all after a `--`) go to pytest.
+    Arguments that are none of these (and all after a `--`) go to pytest (with `--exe`: to the executable).
+
+The `--json` file (paths as in the table: relative to the current directory, `<package>/<path>` for a Zig
+package's file outside it, `setu/src/args.zig`; `hits` of `possible` addresses ran)
+    {"total": {"covered": 1025, "lines": 1028},
+     "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "covered": 1019, "lines": 1028,
+                               "files": {"src/args.zig": [94, 94], ...}}, ...},
+     "files": {"src/args.zig": {"covered": 94, "lines": 94, "hits": {"318": [2, 2], ...}}, ...}}
+    With `--exe`, `interpreters` holds the one run, named after the executable: {"test": {"exe": "<path>", ...}}.
 
 Note
-    - Needs kcov (43 tested), readelf and pytest (in each interpreter). Exit status: pytest's when tests fail,
-      else 1 when the coverage check fails, else 0.
+    - Needs kcov (43 tested), readelf and pytest (in each interpreter; not with `--exe`). Exit status: pytest's
+      (the executable's) when tests fail, else 1 when the coverage check fails, else 0.
     - Zig's default Debug backend (self-hosted x86_64) writes `.debug_info` elfutils rejects ("Bogus
       end-of-siblings marker"), so kcov sees none of the extension's Zig lines: build it with `.use_llvm = true`.
       readelf's warnings fail the check before kcov runs.
@@ -40,7 +55,7 @@ Note
       for code the tests are not meant to run, so every red line is a gap, but for LLVM's line-table slips: a red
       comment or `fn` line is an instruction LLVM gave that line (a jump nothing takes).
     - The runs are merged here, not by `kcov --merge`, which counts the `coverage-off` lines again; so there is no
-      merged HTML report, only one per interpreter.
+      merged HTML report, only one per interpreter (`--html`).
     - Child processes of the tests (a test running `python3 example.py`) do not get kcov's `libkcov_sowrapper.so`
       preload: they import the normal build of the extension, not this one, so they add no coverage, and kcov
       parsing that build's self-hosted-backend DWARF grew to 25 GB in one of Liburing's runs (OOM-killed, desktop
@@ -52,10 +67,12 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 
 
 def fail(message):
@@ -64,14 +81,14 @@ def fail(message):
     raise SystemExit(1)
 
 
-VALUED = ('--name', '--include', '--python', '--min', '--max-memory', '--out')
-FLAGS = ('--missed', '--partial')
+VALUED = ('--name', '--include', '--python', '--min', '--max-memory', '--json', '--html')
+FLAGS = ('--exe', '--missed', '--partial')
 
 
 def options(argv):
     '''The options, the extension's path and the pytest arguments from `argv`.'''
-    opts = {'name': None, 'include': [], 'python': [], 'min': None, 'max_memory': 8.0}
-    opts['out'] = os.path.join('zig-out', 'coverage')
+    opts = {'name': None, 'include': [], 'python': [], 'min': None, 'max_memory': 8.0, 'html': None}
+    opts['json'] = os.path.join('zig-out', 'coverage.json')
     opts |= {flag[2:]: False for flag in FLAGS}
     path, pytest_args = None, []
     args = iter(argv)
@@ -96,12 +113,36 @@ def options(argv):
             path = arg
         else:
             pytest_args.append(arg)
-    if path is None or not opts['name'] or not opts['include']:
+    if opts['exe'] and (opts['name'] or opts['python']):
+        fail('--exe runs a test executable: no --name or --python')
+    if path is None or not (opts['name'] or opts['exe']) or not opts['include']:
         fail(
             'usage: check_coverage.py --name NAME --include DIR [--python PATH] [--min PERCENT] [--max-memory GB] '
-            '[--out DIR] [--missed] [--partial] <ext.so> [pytest args]'
+            '[--json FILE] [--html DIR] [--missed] [--partial] <ext.so> [pytest args]\n'
+            '       check_coverage.py --exe --include DIR [...] <test executable> [its args]'
         )
     return opts, path, pytest_args
+
+
+class BindToPackage:
+    '''A pytest plugin: makes the extension loaded as `pkg.ext` the attribute `ext` of package `pkg`, as a normal
+    import does. The package's own `from . import ext` finds it in `sys.modules` and does not bind it, so
+    `pkg.ext.__file__` in a test would raise `AttributeError`. At `pytest_configure`: after pytest's `pythonpath`
+    setting, which the package may need, and before the tests.'''
+
+    def __init__(self, name, module):
+        self.name, self.module = name, module
+
+    def pytest_configure(self, config):
+        parent_name, dot, child = self.name.rpartition('.')
+        if not dot:
+            return
+        try:
+            parent = importlib.import_module(parent_name)
+        except Exception as e:  # noqa: BLE001  (any import error: say which package)
+            fail(f'--name {self.name}: cannot import its package `{parent_name}`: {type(e).__name__}: {e}')
+        if not hasattr(parent, child):
+            setattr(parent, child, self.module)
 
 
 def run_tests(name, path, pytest_args):
@@ -120,7 +161,7 @@ def run_tests(name, path, pytest_args):
         os.environ.pop('LD_PRELOAD', None)
     import pytest  # after the extension: see the module's Note
 
-    status = pytest.main(pytest_args)
+    status = pytest.main(pytest_args, plugins=[BindToPackage(name, module)])
     base = os.path.basename(path)
     others = {
         m.__file__ for m in list(sys.modules.values()) if os.path.basename(getattr(m, '__file__', None) or '') == base
@@ -140,7 +181,7 @@ def check_debug_info(path):
         fail(
             f'{path}: readelf cannot read its .debug_info, so kcov would see no Zig line:\n  '
             + '\n  '.join(warnings[:3])
-            + '\nbuild the extension in Debug with `.use_llvm = true` (`addCoverageSteps` does)'
+            + '\nbuild it in Debug with `.use_llvm = true` (`addCoverageSteps` / `addZigTestCoverage` do)'
         )
 
 
@@ -226,14 +267,66 @@ def is_report(out):
     return all(os.path.isdir(os.path.join(e, 'kcov-merged')) for e in entries)
 
 
-def listing(files, title, keep):
-    '''The lines `keep(hits, possible)` selects, with their source.'''
+def is_result(path):
+    '''Whether the file `path` holds an earlier `--json` result.'''
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.keys() == {'total', 'interpreters', 'files'}
+
+
+def result(runs, files):
+    '''The `--json` result of `runs` (`(label, origin, files)`, `origin` `{"python": ...}` or `{"exe": ...}`) and
+    their merge `files`.'''
+
+    def summary(lines):
+        covered, total = totals(lines)
+        return {'covered': covered, 'lines': total}
+
+    return {
+        'total': summary(files),
+        'interpreters': {
+            label: {
+                **origin,
+                **summary(run),
+                'files': {shown(path): list(counts(lines)) for path, lines in sorted(run.items())},
+            }
+            for label, origin, run in runs
+        },
+        'files': {
+            path: {**summary({path: lines}), 'hits': {str(n): list(lines[n]) for n in sorted(lines)}}
+            for path, lines in sorted(files.items())
+        },
+    }
+
+
+def shown(path):
+    '''`path` as the table and `--json` show it: relative to the current directory when under it (kcov strips
+    that), else `<package>/<path in it>` for a file of a Zig package (`.name` of the nearest `build.zig.zon` above
+    it: `setu/src/args.zig`, wherever the dependency lives), else as is.'''
+    if not os.path.isabs(path):
+        return path
+    d = os.path.dirname(path)
+    while d != os.path.dirname(d):
+        zon = os.path.join(d, 'build.zig.zon')
+        if os.path.isfile(zon):
+            with open(zon) as f:
+                name = re.search(r'\.name\s*=\s*\.(\w+)', f.read())
+            return f'{name[1]}/{os.path.relpath(path, d)}' if name else path
+        d = os.path.dirname(d)
+    return path
+
+
+def listing(files, sources, title, keep):
+    '''The lines `keep(hits, possible)` selects, with their source (`sources`: shown path -> real path).'''
     print(f'\n{title}:')
     for path in sorted(files):
         lines = sorted(n for n, (hits, possible) in files[path].items() if keep(hits, possible))
         if not lines:
             continue
-        with open(path) as f:
+        with open(sources[path]) as f:
             source = f.read().splitlines()
         for n in lines:
             hits, possible = files[path][n]
@@ -297,56 +390,73 @@ def main():
     if not kcov:
         fail('kcov not found (Ubuntu 25.04+ / Arch: the `kcov` package)')
     check_debug_info(path)
-    pythons = [sys.executable]
-    for python in opts['python']:
-        found = shutil.which(python)
-        if not found:
-            fail(f'--python {python}: not found')
-        pythons.append(found)
-    labels = [interpreter_label(python) for python in pythons]
-    if len(set(labels)) < len(labels):
-        fail(f'--python: the same interpreter version twice ({", ".join(labels)})')
+    # what kcov runs: `(label, origin for --json, command)`
+    if opts['exe']:
+        targets = [(os.path.basename(path), {'exe': path}, [path])]
+    else:
+        pythons = [sys.executable]
+        for python in opts['python']:
+            found = shutil.which(python)
+            if not found:
+                fail(f'--python {python}: not found')
+            pythons.append(found)
+        labels = [interpreter_label(python) for python in pythons]
+        if len(set(labels)) < len(labels):
+            fail(f'--python: the same interpreter version twice ({", ".join(labels)})')
+        runner = [os.path.abspath(__file__), '--run', opts['name'], path, '--']
+        targets = [(label, {'python': python}, [python, *runner]) for python, label in zip(pythons, labels)]
 
+    out_json, html = opts['json'], opts['html']
+    if os.path.exists(out_json) and not is_result(out_json):
+        fail(f'{out_json} is not an earlier --json result: not overwriting it')
     # kcov keeps every earlier run (one directory per command line) and lists them all in `index.html`.
-    out = opts['out']
-    if os.path.isdir(out) and os.listdir(out):
-        if not is_report(out):
-            fail(f'{out} is not a kcov report directory: not overwriting it')
-        shutil.rmtree(out)
+    if html and os.path.isdir(html) and os.listdir(html):
+        if not is_report(html):
+            fail(f'{html} is not a kcov report directory: not overwriting it')
+        shutil.rmtree(html)
 
     include = ','.join(os.path.abspath(d) for d in opts['include'])
     # paths relative to here (others stay absolute); `coverage-off` ... `coverage-on`: not code
     cmd = [kcov, '--clean', f'--include-path={include}', f'--strip-path={os.getcwd()}']
     cmd += ['--exclude-region=coverage-off:coverage-on']
     status, runs = 0, []
-    for python, label in zip(pythons, labels):
-        run_out = os.path.join(out, label) if len(pythons) > 1 else out
-        if len(pythons) > 1:
-            print(f'\n{label}: {python}', flush=True)
-        os.makedirs(run_out, exist_ok=True)  # kcov makes the last directory only
-        run = [*cmd, run_out, python, os.path.abspath(__file__), '--run', opts['name'], path, '--']
-        returncode = run_capped([*run, *pytest_args], opts['max_memory'])
-        status = status or returncode
-        runs.append((label, run_out, report(run_out)))
+    with tempfile.TemporaryDirectory(prefix='check_coverage-') as tmp:
+        for label, origin, command in targets:
+            run_out = os.path.join(html or tmp, label)
+            if len(targets) > 1:
+                print(f'\n{label}: {command[0]}', flush=True)
+            os.makedirs(run_out, exist_ok=True)  # kcov makes the last directory only
+            returncode = run_capped([*cmd, run_out, *command, *pytest_args], opts['max_memory'])
+            status = status or returncode
+            runs.append((label, origin, report(run_out)))
 
     print()
-    files = merge(r[2] for r in runs)
+    merged = merge(r[2] for r in runs)
+    sources = {shown(p): p for p in merged}
+    files = {name: merged[p] for name, p in sources.items()}
     table(files)
     covered, total = totals(files)
     if total == 0:
-        fail(f'kcov recorded no line under {include}: wrong --include, or the extension was not loaded first')
+        why = 'not built `.use_llvm = true`' if opts['exe'] else 'or the extension was not loaded first'
+        fail(f'kcov recorded no line under {include}: wrong --include, {why}')
+    os.makedirs(os.path.dirname(out_json) or '.', exist_ok=True)
+    with open(out_json, 'w') as f:
+        json.dump(result(runs, files), f, indent=1)
+        f.write('\n')
     width = len(str(total))
     if len(runs) > 1:
-        for label, run_out, run_files in runs:
-            print(row(*totals(run_files), width, f'{label}; report: {os.path.join(run_out, "index.html")}'))
-        print(row(covered, total, width, 'total, merged'))
+        for label, _, run_files in runs:
+            report_path = f'; report: {os.path.join(html, label, "index.html")}' if html else ''
+            print(row(*totals(run_files), width, label + report_path))
+        print(row(covered, total, width, f'total, merged; {out_json}'))
     else:
-        print(row(covered, total, width, f'total; report: {os.path.join(out, "index.html")}'))
+        report_path = f'; report: {os.path.join(html, runs[0][0], "index.html")}' if html else ''
+        print(row(covered, total, width, f'total; {out_json}{report_path}'))
     percent = covered / total * 100
     if opts['missed']:
-        listing(files, 'Never ran (red)', lambda hits, possible: hits == 0)
+        listing(files, sources, 'Never ran (red)', lambda hits, possible: hits == 0)
     if opts['partial']:
-        listing(files, 'Ran at some addresses only (yellow)', lambda hits, possible: 0 < hits < possible)
+        listing(files, sources, 'Ran at some addresses only (yellow)', lambda hits, possible: 0 < hits < possible)
     if status != 0:
         return status
     if opts['min'] is not None and percent < opts['min']:

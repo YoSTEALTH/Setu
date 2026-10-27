@@ -4,6 +4,7 @@
 //! zig build docs-web        the docs site's Wasm module (tools/setu_docs_web.zig) into zig-out/web/docs.wasm
 //! zig build coverage        line coverage of the test extension under class_test.py (kcov; arguments
 //!                           after `--` go to pytest)
+//! zig build coverage-zig    line coverage of tools/setu_docs_web.zig's unit tests (kcov)
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
@@ -18,7 +19,8 @@
 //! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
 //! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide
 //! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
-//! `tools/check_coverage.py`) and `ext_suffix`.
+//! `tools/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests) and
+//! `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -87,6 +89,10 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{ .root_source_file = web_source, .target = b.graph.host }),
     });
     test_step.dependOn(&b.addRunArtifact(web_tests).step);
+    zigTestCoverage(b, b.path("tools/check_coverage.py"), web_tests, .{
+        .include = &.{b.path("tools")},
+        .python = python,
+    });
 }
 
 /// Adds two steps to a project that keeps a copy of Setu's `tools/setu_build.py` (the wheel build
@@ -251,12 +257,13 @@ pub const CoverageOptions = struct {
 /// The step `coverage`: line coverage of the extension `ext`'s Zig code under the project's pytest, by kcov.
 /// It builds `ext.root_module` again as a second library through LLVM (Zig's default Debug backend writes
 /// `.debug_info` kcov cannot read), then runs Setu's `tools/check_coverage.py` from the pinned Setu in the
-/// project's root: pytest with the extension loaded first, a per-file table, kcov's report in `zig-out/coverage/`.
+/// project's root: pytest with the extension loaded first, a per-file table, the result in `zig-out/coverage.json`.
 ///
 /// Note
 ///     - Needs kcov (43 tested) and readelf; `ext.root_module` in Debug with debug info (else the step fails).
 ///     - After `--`: the runner's `--missed` (red lines) / `--partial` (yellow lines) / `--python <path>` (the
-///       tests under that interpreter too, merged; repeatable), the rest goes to pytest.
+///       tests under that interpreter too, merged; repeatable) / `--html <dir>` (kcov's HTML report too), the rest
+///       goes to pytest.
 ///       Code between `// coverage-off` and `// coverage-on` is not counted.
 ///     - Not for CI as is: kcov is packaged for Ubuntu 25.04+ only.
 ///
@@ -267,7 +274,7 @@ pub const CoverageOptions = struct {
 ///     >>>     .include = &.{ b.path("src/liburing"), setu_dep.path("src") },
 ///     >>>     .python = b.option([]const u8, "python", "Python for `coverage`") orelse "python3",
 ///     >>> });
-///     $ zig build coverage                    # the table; zig-out/coverage/index.html
+///     $ zig build coverage                    # the table; zig-out/coverage.json
 ///     $ zig build coverage -- --missed -k recv  # the lines never run; pytest's `-k recv`
 ///     $ zig build coverage -- --python /opt/python/3.14/bin/python3  # 3.14's paths too
 pub fn addCoverageSteps(
@@ -317,6 +324,76 @@ fn coverage(
     run.addFileArg2(so, .{ .make_absolute = true });
     run.addPassthruArgs(); // the runner's options (`--missed`), the rest is pytest's
     run.has_side_effects = true; // the tests are no input the step knows of
+    step.dependOn(&run.step);
+}
+
+/// What `addZigTestCoverage` takes.
+pub const ZigTestCoverageOptions = struct {
+    /// The source directories to report.
+    include: []const std.Build.LazyPath,
+    /// The step's name; the result is `zig-out/<step_name>.json`.
+    step_name: []const u8 = "coverage-zig",
+    /// The interpreter that runs `tools/check_coverage.py` (no pytest needed).
+    python: []const u8 = "python3",
+    /// Fail when the total line coverage is lower (percent).
+    min: ?f64 = null,
+};
+
+/// The step `coverage-zig` (`options.step_name`): line coverage of Zig unit tests, by kcov. It builds `tests`
+/// (a `b.addTest`) again through LLVM (see `addCoverageSteps`), runs it under kcov with Setu's
+/// `tools/check_coverage.py --exe`, prints the per-file table and writes `zig-out/coverage-zig.json`, in the
+/// format of `addCoverageSteps`' `coverage.json`.
+///
+/// Note
+///     - Needs kcov (43 tested) and readelf; `tests.root_module` in Debug with debug info (else the step fails).
+///     - After `--`: the runner's `--missed` / `--partial` / `--html <dir>` / `--max-memory GB`, the rest goes to
+///       the test executable. Code between `// coverage-off` and `// coverage-on` is not counted.
+///     - For tests that do not call libpython: an extension's code runs under pytest (`addCoverageSteps`).
+///
+/// Example
+///     >>> const tests = b.addTest(.{ .root_module = core });
+///     >>> @import("setu").addZigTestCoverage(b, setu_dep, tests, .{ .include = &.{b.path("src/core")} });
+///     $ zig build coverage-zig                # the table; zig-out/coverage-zig.json
+///     $ zig build coverage-zig -- --missed    # the lines never run
+pub fn addZigTestCoverage(
+    b: *std.Build,
+    setu_dep: *std.Build.Dependency,
+    tests: *std.Build.Step.Compile,
+    options: ZigTestCoverageOptions,
+) void {
+    zigTestCoverage(b, setu_dep.path("tools/check_coverage.py"), tests, options);
+}
+
+/// `addZigTestCoverage` with Setu's `tools/check_coverage.py` given (Setu's own build has no dependency).
+fn zigTestCoverage(
+    b: *std.Build,
+    runner: std.Build.LazyPath,
+    tests: *std.Build.Step.Compile,
+    options: ZigTestCoverageOptions,
+) void {
+    const step = b.step(options.step_name, "Line coverage of the Zig unit tests (kcov)");
+    const module = tests.root_module;
+    if ((module.optimize orelse .debug) != .debug or module.strip == true) {
+        const message = b.fmt("{s}: the tests' module must be Debug, not stripped", .{options.step_name});
+        step.dependOn(&b.addFail(message).step);
+        return;
+    }
+    // Through LLVM, as in `coverage`: kcov can not read the default Debug backend's `.debug_info`.
+    const exe = b.addTest(.{
+        .name = tests.name,
+        .root_module = module,
+        .filters = tests.filters,
+        .use_llvm = true,
+    });
+    const run = b.addSystemCommand(&.{options.python});
+    run.setCwd(b.path("."));
+    run.addFileArg2(runner, .{ .make_absolute = true });
+    run.addArgs(&.{ "--exe", b.fmt("--json=zig-out/{s}.json", .{options.step_name}) });
+    for (options.include) |dir| run.addDirectoryArg2(dir, .{ .prefix = "--include=", .make_absolute = true });
+    if (options.min) |min| run.addArg(b.fmt("--min={d}", .{min}));
+    run.addArtifactArg2(exe, .{ .make_absolute = true });
+    run.addPassthruArgs(); // the runner's options (`--missed`), the rest is the executable's
+    run.has_side_effects = true; // kcov's run is no input the step knows of
     step.dependOn(&run.step);
 }
 

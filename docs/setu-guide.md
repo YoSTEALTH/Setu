@@ -450,16 +450,20 @@ Setu it pins). After a Setu bump: `zig build setu-build-sync setu-docs-sync setu
 
 Line coverage: `zig build coverage [-Dpython=...] [-- --missed --partial pytest args]` (`addCoverageSteps`; kcov 43
 and readelf) prints a per-file table, with `--missed` the lines that never ran, with `--partial` the yellow ones,
-and writes kcov's report to `zig-out/coverage/index.html`. A local tool, not for CI:
+and writes the numbers to `zig-out/coverage.json` (totals, per interpreter, per file and line; the format is in
+`tools/check_coverage.py`). Files are named relative to the project, a dependency's as `<package>/<path>`
+(`setu/src/args.zig`), wherever it lives. kcov's own output (an HTML report, XML, JSON: some 70 files per
+interpreter) goes to a temporary directory, removed after the run; `-- --html DIR` keeps its HTML report. A local
+tool, not for CI:
 
 - It builds the extension's (Debug) module again through LLVM: the default Debug backend's `.debug_info` is
   unreadable to kcov (readelf: "Bogus end-of-siblings marker"), which would record no Zig line.
 - kcov records nothing from a shared library loaded once about 24 are mapped, and `import pytest` maps more, so
   `tools/check_coverage.py` loads the extension first, as `.module_name`; a test importing another copy fails.
 - Zig compiles only referenced code: a function nothing calls is not counted as missed.
-- The report's colours: green ran, red never ran, yellow ran at some of its addresses only (counted as covered).
-  In Zig, yellow is mostly a generic line (`fromPython(T)`, a trampoline) whose instance for some type never ran:
-  `hits` of `possible_hits` addresses, e.g. 48 of 56 int conversions.
+- kcov's colours (`--html`; the runner's terms too): green ran, red never ran, yellow ran at some of its addresses
+  only (counted as covered). In Zig, yellow is mostly a generic line (`fromPython(T)`, a trampoline) whose instance
+  for some type never ran: `hits` of `possible` addresses, e.g. 48 of 56 int conversions.
 - Code the tests are not meant to run (benchmark helpers, out-of-memory branches) goes between `// coverage-off`
   and `// coverage-on` comments and is not counted, so every red line is a gap, but for LLVM's line-table slips: a
   red comment or `fn` line is an instruction LLVM gave that line (a jump nothing takes), nothing to test.
@@ -469,8 +473,20 @@ and writes kcov's report to `zig-out/coverage/index.html`. A local tool, not for
   preload out of them. A run is stopped once kcov and the tests use more than `-- --max-memory GB` (default 8).
 - `-- --python /opt/python/3.14/bin/python3` (repeatable) runs the tests under that interpreter too; the table
   merges the runs (a line ran if it ran in any), so code only one interpreter reaches (3.14's `PyInit_` entry)
-  counts. Each interpreter's report is then in `zig-out/coverage/<3.15t, 3.14, ...>/index.html`; there is no
+  counts. `--html DIR` then keeps one report per interpreter, `DIR/<3.15t, 3.14, ...>/index.html`; there is no
   merged HTML report (`kcov --merge` counts the `coverage-off` lines again).
+
+Zig unit tests (code that does not call libpython) get the same through `addZigTestCoverage`: kcov over a
+`b.addTest` executable, built again through LLVM, the same table, options after `--` (`--missed`, `--html DIR`, the
+rest to the executable) and JSON format, in `zig-out/coverage-zig.json`:
+
+```zig
+const tests = b.addTest(.{ .root_module = core });
+@import("setu").addZigTestCoverage(b, setu_dep, tests, .{ // zig build coverage-zig
+    .include = &.{b.path("src/core")}, // the sources to report
+    .step_name = "coverage-zig", // the default; the result is zig-out/<step_name>.json
+});
+```
 
 Memory errors and leaks: valgrind memcheck over the project's pytest, by hand (no build step):
 
