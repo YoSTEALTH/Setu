@@ -354,7 +354,9 @@ repeated `Example` header starts another block (one per call form: `Sqe()`, then
 Run and run on its own, in a new namespace. Setu numbers repeated headers in the docstring: `help()`, the stub and
 the site show `Example #1`, `Example #2`, ... (`setu_docs.py run Sqe:2` runs `Example #2`); write plain `Example`,
 a hand-written `Example #<n>` is a compile error. A `Flags` section lists one name per line, optionally with a
-note (`IORING_TIMEOUT_ABS  # ts is a point in time`): the site links the name and shows the note as text.
+note (`IORING_TIMEOUT_ABS  # ts is a point in time`): the site links the name and shows the note as text. A bare
+`https://` URL anywhere in a docstring (outside backticks) becomes a link that opens in a new tab; a trailing `.`,
+`,` or `)` stays text unless the `)` closes a `(` in the URL.
 
 ## 8. Ints and casts
 

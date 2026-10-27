@@ -244,8 +244,9 @@ pub fn bench_nop(v: *Vec) void {
     _ = v;
 }
 
-/// The arguments of Liburing's `io_uring_prep_recv(sqe, sockfd, buf, flags)`, converted and released
-/// after the call (`tools/bench.py`); returns `fd`.
+/// The arguments of Liburing's `io_uring_prep_recv(sqe, sockfd, buf, flags)`
+/// (https://man7.org/linux/man-pages/man3/io_uring_prep_recv.3.html), converted and released after the call
+/// (`tools/bench.py`); returns `fd`.
 ///
 /// Example
 ///     >>> bench_recv(Vec(), -1, bytearray(4), 0)
@@ -254,7 +255,7 @@ pub fn bench_nop(v: *Vec) void {
 /// Flags
 ///     K_ONE    # the first `K_` constant, linked like `ANSWER`
 ///     K_TWO (default)
-///     0        # none
+///     0        # none, see https://man7.org/linux/man-pages/man2/recv.2.html.
 pub fn bench_recv(v: *Vec, fd: i32, buf: ?py.WritableBuffer, flags: ?i32) i32 {
     _ = .{ v, buf, flags };
     return fd;

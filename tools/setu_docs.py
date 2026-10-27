@@ -728,8 +728,8 @@ INLINE = re.compile(
     r'|(?P<em>(?<![\w*])\*(?P<etext>[^*\s](?:[^*]*[^*\s])?)\*(?![\w*])'
     r'|(?<!\w)_(?P<etext2>[^_\s](?:[^_]*[^_\s])?)_(?!\w))'
 )
-# A bare URL in a docstring; trailing punctuation (`see https://x.org/a.`) stays text
-BARE_URL = re.compile(r'''https?://[^\s<>`"']*[^\s<>`"'.,;:!?)\]]''')
+# A bare URL in a docstring; `autolink` leaves trailing punctuation (`see https://x.org/a.`) as text
+BARE_URL = re.compile(r'''https?://[^\s<>`"']+''')
 
 
 class Site:
@@ -1638,12 +1638,22 @@ def inline_only(text, pos, tag):
 
 
 def autolink(text):
-    '''Escape `text`, turning bare `http(s)://` URLs into links.'''
+    '''Escape `text`, turning bare `http(s)://` URLs into links. Trailing `.,;:!?)]` stays text, except a `)` that
+    closes a `(` in the URL (as GFM does).
+
+    Example
+        >>> autolink('(see https://en.wikipedia.org/wiki/Io_(moon).)')
+        '(see <a href="https://en.wikipedia.org/wiki/Io_(moon)">https://en.wikipedia.org/wiki/Io_(moon)</a>.)'
+    '''
     out, pos = [], 0
     for m in BARE_URL.finditer(text):
-        url = html.escape(m.group(0))
-        out.append(f'{html.escape(text[pos : m.start()])}<a href="{url}">{url}</a>')
-        pos = m.end()
+        url = m.group(0)
+        while url[-1] in '.,;:!?)]' and not (url[-1] == ')' and url.count('(') >= url.count(')')):
+            url = url[:-1]
+        if url.endswith('//'):  # nothing after the scheme
+            continue
+        out.append(f'{html.escape(text[pos : m.start()])}<a href="{html.escape(url)}">{html.escape(url)}</a>')
+        pos = m.start() + len(url)
     out.append(html.escape(text[pos:]))
     return ''.join(out)
 

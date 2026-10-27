@@ -50,6 +50,14 @@ def check_text():
          '**Example #1**\n\n```pycon\n>>> 1\n```\n\n**Example #2**\n\n```pycon\n>>> 2\n```')  # fmt: skip
     same('sections: a repeated header keeps the first', setu_docs.sections('Note\n    a\nNote\n    b'),
          {'': '', 'Note': 'a'})  # fmt: skip
+    for text, want in (
+        ('(see https://en.wikipedia.org/wiki/Io_(moon).)', '(see <a href="https://en.wikipedia.org/wiki/Io_(moon)">'
+         'https://en.wikipedia.org/wiki/Io_(moon)</a>.)'),
+        ('https://x.org/a), b', '<a href="https://x.org/a">https://x.org/a</a>), b'),
+        ('https://x.org/?a=1&b=<2>', '<a href="https://x.org/?a=1&amp;b=">https://x.org/?a=1&amp;b=</a>&lt;2&gt;'),
+        ('http://. or http://', 'http://. or http://'),
+    ):  # fmt: skip
+        same(f'autolink {text!r}', setu_docs.autolink(text), want)
     same(
         'steps',
         [(s.source, s.expected) for s in setu_docs.steps('>>> x = 1\n>>> x + 1\n2')],
@@ -304,10 +312,15 @@ def check_site(project, out):
         '            <li><code><a href="constants.html#K_ONE">K_ONE</a></code> the first <code>K_</code> constant,'
         ' linked like <code><a href="constants.html#ANSWER">ANSWER</a></code></li>\n'
         '            <li><code><a href="constants.html#K_TWO">K_TWO (default)</a></code></li>\n'
-        '            <li><code>0</code> none</li>\n'
+        '            <li><code>0</code> none, see <a href="https://man7.org/linux/man-pages/man2/recv.2.html" '
+        'target="_blank" rel="noopener">https://man7.org/linux/man-pages/man2/recv.2.html</a>.</li>\n'
     )
     if flags not in page:
-        fail('functions.html: `bench_recv` Flags: a name not linked, or its `# comment` not text')
+        fail('functions.html: `bench_recv` Flags: a name or URL not linked, or its `# comment` not text')
+    recv = 'https://man7.org/linux/man-pages/man3/io_uring_prep_recv.3.html'
+    if f'(<a href="{recv}" target="_blank" rel="noopener">{recv}</a>), converted' not in page:
+        fail('functions.html: `bench_recv` URL in its description not linked, or not in a new tab')
+    same('inline: a URL in backticks stays code', site.inline('`https://x.org`'), '<code>https://x.org</code>')
     same(
         'flags: names only wrap as a row',
         site.flags('O_RDONLY\nO_WRONLY'),
@@ -323,10 +336,10 @@ def check_site(project, out):
     if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
         fail('index.html: no repository link from the `[project]` homepage')
     external, target = r'<a\b[^>]*href="https?://[^>]*>', r'<a\b[^>]* target='
-    if any(not re.match(target, a) for a in re.findall(external, home + guide)):
-        fail('index.html / guide.html: an external link that does not open a new tab')
-    if re.search(target, re.sub(external, '', home + guide)):
-        fail('index.html / guide.html: a site link that opens a new tab')
+    if any(not re.match(target, a) for a in re.findall(external, home + guide + page)):
+        fail('index.html / guide.html / functions.html: an external link that does not open a new tab')
+    if re.search(target, re.sub(external, '', home + guide + page)):
+        fail('index.html / guide.html / functions.html: a site link that opens a new tab')
     group = '<section class="group" id="g-Other">\n          <h2>Other<a class="anchor" href="#g-Other">#</a>'
     if group not in (out / 'constants.html').read_text():
         fail('constants.html: a group is not a `section` with an anchor, or not formatted')
