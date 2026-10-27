@@ -50,7 +50,7 @@ const setu = @import("setu");
 const py = setu.py;
 
 pub const module: setu.Module = .{
-    .name = "liburing", // the extension's file name: `liburing.so`
+    .name = "liburing", // the import name: `liburing/__init__.so` (or `liburing.so`)
     .version = build_options.version, // `__version__`
     .from = &.{
         .{ .ns = @import("ring.zig") }, // classes only: no `source` needed
@@ -95,19 +95,21 @@ const pyi = @import("setu").addStubs(b, setu_dep, .{
     .root_source_file = b.path("src/liburing/root.zig"),
     .imports = &.{.{ .name = "build_options", .module = options.createModule() }}, // what the root imports
 });
-b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "liburing.pyi").step);
+b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "__init__.pyi").step); // next to __init__.so
 @import("setu").addSetuBuildSteps(b, setu_dep); // tools/setu_build.py: setu-build-sync / -check
 @import("setu").addSetuDocsSteps(b, setu_dep); // tools/setu_docs.py: setu-docs-sync / -check, docs-web
 @import("setu").addSetuGuideSteps(b, setu_dep); // docs/setu-guide.md: setu-guide-sync / -check
 @import("setu").addCoverageSteps(b, setu_dep, ext, .{ // zig build coverage: kcov over pytest (see 11.)
-    .module_name = "liburing.liburing", // the name the tests import the extension by
+    .module_name = "liburing", // the name the tests import the extension by
+    .package = true, // it is `liburing/__init__.so`
     .include = &.{ b.path("src/liburing"), setu_dep.path("src") }, // the sources to report
     .stub = pyi, // for tests that read the .pyi next to the extension
     .python = b.option([]const u8, "python", "Python for `coverage`") orelse "python3",
 });
 ```
 
-The extension is `<name>.so` (`@import("setu").ext_suffix`), the wheel `cp314.cp315-abi3.abi3t.cp314t.cp315t`
+The extension is the package itself, `<name>/__init__.so` next to `__init__.pyi` and `py.typed` (section 7), or a
+plain `<name>.so` (`@import("setu").ext_suffix`); the wheel `cp314.cp315-abi3.abi3t.cp314t.cp315t`
 (`tools/setu_build.py`, a PEP 517 backend each project keeps a byte-identical copy of).
 
 ## 3. Functions
@@ -364,6 +366,33 @@ a hand-written `Example #<n>` is a compile error. A `Flags` section lists one na
 note (`IORING_TIMEOUT_ABS  # ts is a point in time`): the site links the name and shows the note as text. A bare
 `https://` URL anywhere in a docstring (outside backticks) becomes a link that opens in a new tab; a trailing `.`,
 `,` or `)` stays text unless the `)` closes a `(` in the URL.
+
+Ship the extension as its package's `__init__.so`, with the stub as `__init__.pyi` and a `py.typed` (PEP 561 marks
+packages only, so a bare top-level `liburing.so` gets no typing): `import liburing` loads the extension itself, a
+package (`__path__`), on every supported interpreter; `from liburing import *` gives its public names, and its
+classes' `__module__` is the import name. No `__init__.py`: next to an `__init__.so` it never runs (extensions are
+found first), and `tools/setu_build.py` refuses to ship one. Python code goes in submodules (`liburing/util.py`).
+The stub must be `__init__.pyi`: a `liburing.pyi` next to `__init__.so` types a `liburing.liburing` that is not
+there, and `liburing` itself gets no types. Moving from the
+submodule layout below: `liburing.liburing` no longer exists (use `liburing`), delete the old `liburing.so` /
+`liburing.pyi` copies in `src/liburing/` (`setu_build.py` refuses them: `import liburing.liburing` would load a stale
+extension), and pass `.package = true` to `addCoverageSteps`.
+
+Only a package with Python code at its top level needs the extension as a submodule (`pkg/ext.so` next to `ext.pyi`,
+`.name = "ext"`) re-exported from `__init__.py`. To keep the submodule out of `from pkg import *`, give the package
+an `__all__`, not a `del ext` (that breaks `import pkg.ext; pkg.ext.Ring`). Hide the computed `__all__` from type
+checkers: they cannot evaluate it and would then see none of the stub's names (`mypy --strict` reports every one
+`name-defined`):
+
+```python
+from . import ext
+from .ext import *
+
+TYPE_CHECKING = False
+if not TYPE_CHECKING:
+    __all__ = [name for name in dir(ext) if not name.startswith("_")]
+del TYPE_CHECKING
+```
 
 ## 8. Ints and casts
 

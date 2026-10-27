@@ -48,12 +48,11 @@ def check_wheel(path, platform):
     tag = f'{TAG}-{platform}'
     if name != f'{NAME}-{VERSION}-{tag}.whl':
         fail(f'{name}: expected {NAME}-{VERSION}-{tag}.whl')
-    ext = f'{NAME}/{NAME}.so'  # one name every CPython 3.14+ imports
+    ext = f'{NAME}/__init__.so'  # the package itself; one name every CPython 3.14+ imports
     dist = f'{NAME}-{VERSION}.dist-info'
     want = {
-        f'{NAME}/__init__.py',
         f'{NAME}/py.typed',
-        f'{NAME}/{NAME}.pyi',
+        f'{NAME}/__init__.pyi',
         ext,
         f'{dist}/METADATA',
         f'{dist}/WHEEL',
@@ -107,7 +106,10 @@ def check_import(path):
         out = subprocess.run([*pip, '--target', tmp, path], capture_output=True, text=True)
         if out.returncode != 0:
             fail(f'{os.path.basename(path)}: pip install failed\n{out.stdout}{out.stderr}')
-        code = f'import {NAME}; assert {NAME}.vec_norm2({NAME}.Vec(3, 4)) == 25; print({NAME}.__file__)'
+        code = (
+            f'import {NAME}; assert {NAME}.vec_norm2({NAME}.Vec(3, 4)) == 25; assert {NAME}.__path__; '
+            f'print({NAME}.__file__)'
+        )
         # `-I`: nothing from the checkout or the environment, only the installed wheel on `sys.path`.
         out = subprocess.run(
             [sys.executable, '-I', '-c', f'import sys; sys.path.insert(0, {tmp!r}); {code}'],
@@ -151,6 +153,18 @@ def check_hook(out):
         except SystemExit:
             continue
         fail(f'pep440({ver!r}) did not raise')
+    for stale in ('__init__.py', f'{NAME}.so', f'{NAME}.pyi'):  # left from the `pkg/pkg.so` layout
+        file = os.path.join(FIXTURE, 'src', NAME, stale)
+        open(file, 'x').close()  # fails if it is there already: never removes a file of the checkout
+        try:
+            backend.build_wheel(out)
+        except SystemExit as e:
+            if stale not in str(e):
+                fail(f'build_wheel with src/{NAME}/{stale}: {e}')
+        else:
+            fail(f'build_wheel shipped a wheel with src/{NAME}/{stale} next to __init__.so')
+        finally:
+            os.remove(file)
     path = os.path.join(out, backend.build_wheel(out))
     libs = check_wheel(path, 'linux_x86_64')
     check_import(path)

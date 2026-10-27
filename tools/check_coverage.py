@@ -11,9 +11,10 @@ With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zi
 Options
     --exe             the path is a Zig test executable (`b.addTest`, built `.use_llvm = true`), run under kcov
                       with the arguments after `--`; no pytest, `--name` or `--python`
-    --name NAME       the name the tests import the extension by: `setu_classes`, `liburing.liburing` (inside a
-                      package, whose `from .liburing import ...` then gets this build; `liburing.liburing` is set
-                      on the package, as a normal import does)
+    --name NAME       the name the tests import the extension by: `setu_classes`; `liburing` for a package's
+                      `__init__.so` (the path then `.../liburing/__init__.so`: a package, as normally imported);
+                      `pkg.ext` inside a package (whose `from .ext import ...` then gets this build, bound to the
+                      package as by a normal import)
     --include DIR     a source directory to report (kcov `--include-path`), repeatable
     --python PATH     run the tests under this interpreter too (after the one running this script), repeatable;
                       the table merges the runs: a line ran if it ran in any
@@ -46,8 +47,8 @@ Note
       end-of-siblings marker"), so kcov sees none of the extension's Zig lines: build it with `.use_llvm = true`.
       readelf's warnings fail the check before kcov runs.
     - kcov records nothing from a shared library loaded once about 24 are mapped, and `import pytest` maps more,
-      so the extension is loaded before pytest, under `--name` (`sys.modules`); a test importing another copy fails
-      the check.
+      so the extension is loaded before pytest; importing `--name` gets it (a `sys.meta_path` finder); a test
+      importing another copy fails the check.
     - Zig compiles only referenced code: a function nothing calls is not counted as missed.
     - In the report, yellow lines ran at some of their addresses only (counted as covered): mostly a generic line
       whose instance for some comptime type never ran.
@@ -124,25 +125,24 @@ def options(argv):
     return opts, path, pytest_args
 
 
-class BindToPackage:
-    '''A pytest plugin: makes the extension loaded as `pkg.ext` the attribute `ext` of package `pkg`, as a normal
-    import does. The package's own `from . import ext` finds it in `sys.modules` and does not bind it, so
-    `pkg.ext.__file__` in a test would raise `AttributeError`. At `pytest_configure`: after pytest's `pythonpath`
-    setting, which the package may need, and before the tests.'''
+class Preloaded:
+    '''A `sys.meta_path` finder and loader: the import of `name` gets `module`, already loaded. Not put in
+    `sys.modules` beforehand, so the import system does the rest as for a normal import: `from . import ext` in
+    package `pkg` binds `pkg.ext` then, and a package that deletes it (`del ext`, to keep it out of
+    `from pkg import *`) keeps it deleted.'''
 
-    def __init__(self, name, module):
-        self.name, self.module = name, module
+    def __init__(self, spec, module):
+        self.spec, self.module = spec, module
+        spec.loader = self
 
-    def pytest_configure(self, config):
-        parent_name, dot, child = self.name.rpartition('.')
-        if not dot:
-            return
-        try:
-            parent = importlib.import_module(parent_name)
-        except Exception as e:  # noqa: BLE001  (any import error: say which package)
-            fail(f'--name {self.name}: cannot import its package `{parent_name}`: {type(e).__name__}: {e}')
-        if not hasattr(parent, child):
-            setattr(parent, child, self.module)
+    def find_spec(self, fullname, path=None, target=None):
+        return self.spec if fullname == self.spec.name else None
+
+    def create_module(self, spec):
+        return self.module
+
+    def exec_module(self, module):
+        pass  # ran in `run_tests`, before pytest
 
 
 def run_tests(name, path, pytest_args):
@@ -151,8 +151,8 @@ def run_tests(name, path, pytest_args):
     loader = importlib.machinery.ExtensionFileLoader(name, path)
     spec = importlib.util.spec_from_file_location(name, path, loader=loader)
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
     loader.exec_module(module)
+    sys.meta_path.insert(0, Preloaded(spec, module))
     # kcov's preload, kept from child processes (see the module's Note)
     preload = [p for p in os.environ.get('LD_PRELOAD', '').replace(':', ' ').split() if 'libkcov_sowrapper' not in p]
     if preload:
@@ -161,7 +161,7 @@ def run_tests(name, path, pytest_args):
         os.environ.pop('LD_PRELOAD', None)
     import pytest  # after the extension: see the module's Note
 
-    status = pytest.main(pytest_args, plugins=[BindToPackage(name, module)])
+    status = pytest.main(pytest_args)
     base = os.path.basename(path)
     others = {
         m.__file__ for m in list(sys.modules.values()) if os.path.basename(getattr(m, '__file__', None) or '') == base

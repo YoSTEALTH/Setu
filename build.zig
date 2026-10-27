@@ -240,9 +240,13 @@ fn stubs(
 
 /// What `addCoverageSteps` takes.
 pub const CoverageOptions = struct {
-    /// The name the tests import the extension by: `"setu_classes"`, or `"liburing.liburing"` for one inside a
-    /// package (whose `from .liburing import ...` then gets the coverage build).
+    /// The name the tests import the extension by: `"setu_classes"`, `"liburing"` for a package's `__init__.so`
+    /// (`package`), or `"pkg.ext"` for one inside a package (whose `from .ext import ...` then gets the coverage
+    /// build).
     module_name: []const u8,
+    /// The extension is its package's `__init__.so` (`liburing/__init__.so`): the coverage build is put there too,
+    /// so it is imported as a package (`__path__`, its `__file__` in a `liburing/` directory).
+    package: bool = false,
     /// The source directories to report: the extension's, and `setu_dep.path("src")` for Setu's code as the
     /// extension uses it.
     include: []const std.Build.LazyPath,
@@ -270,7 +274,8 @@ pub const CoverageOptions = struct {
 /// Example
 ///     >>> // the project's build.zig (`setu` in its build.zig.zon)
 ///     >>> @import("setu").addCoverageSteps(b, setu_dep, ext, .{
-///     >>>     .module_name = "liburing.liburing",
+///     >>>     .module_name = "liburing",
+///     >>>     .package = true, // liburing/__init__.so
 ///     >>>     .include = &.{ b.path("src/liburing"), setu_dep.path("src") },
 ///     >>>     .python = b.option([]const u8, "python", "Python for `coverage`") orelse "python3",
 ///     >>> });
@@ -306,14 +311,15 @@ fn coverage(
     const lib = b.addLibrary(.{ .name = ext.name, .linkage = .dynamic, .root_module = module });
     lib.linker_allow_shlib_undefined = ext.linker_allow_shlib_undefined;
     lib.use_llvm = true;
-    // `<name>.so`, the file name the tests see (`__file__`), not `lib<name>.so`.
+    // `<name>.so` (or `<name>/__init__.so`), the file name the tests see (`__file__`), not `lib<name>.so`.
     const base = if (std.mem.findScalarLast(u8, options.module_name, '.')) |dot|
         options.module_name[dot + 1 ..]
     else
         options.module_name;
+    const stem = if (options.package) b.fmt("{s}/__init__", .{base}) else base;
     const files = b.addWriteFiles();
-    const so = files.addCopyFile(lib.getEmittedBin(), b.fmt("{s}{s}", .{ base, ext_suffix }));
-    if (options.stub) |pyi| _ = files.addCopyFile(pyi, b.fmt("{s}.pyi", .{base}));
+    const so = files.addCopyFile(lib.getEmittedBin(), b.fmt("{s}{s}", .{ stem, ext_suffix }));
+    if (options.stub) |pyi| _ = files.addCopyFile(pyi, b.fmt("{s}.pyi", .{stem}));
 
     const run = b.addSystemCommand(&.{options.python});
     run.setCwd(b.path("."));
