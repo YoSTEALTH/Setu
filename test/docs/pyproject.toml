@@ -15,6 +15,7 @@ stub = '../setu_classes.pyi'
 summary = "Setu's test extension, as a documentation site."
 home = 'docs/index.md'
 css = 'docs/extra.css'
+favicon = 'docs/icon.svg'
 edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/test/docs/'
 scripts = 'example'
 scripts_skip = ['forever.py']

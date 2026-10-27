@@ -7,6 +7,7 @@ python3 tools/check_docs.py
 '''
 
 import ast
+import html
 import json
 import os
 import re
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -348,6 +350,19 @@ def check_site(project, out):
         fail('constants.html: a group is not a `section` with an anchor, or not formatted')
     if '--accent: #1b6fb4' not in (out / 'style.css').read_text():
         fail('style.css: `css` not appended')
+    icon = (project.root / 'docs/icon.svg').read_bytes()
+    if 'favicon.svg' not in files or (out / 'favicon.svg').read_bytes() != icon:
+        fail('site: `favicon` not copied to favicon.svg')
+    if '<link rel="icon" href="favicon.svg">' not in home:
+        fail('index.html: no link to `favicon`')
+    project.favicon, favicon = '', project.favicon
+    icon = re.search(r'<link rel="icon" href="data:image/svg\+xml,([^"]*)">', site.page('index', 'Home', ''))
+    project.favicon = favicon
+    if not icon or '>S</text></svg>' not in urllib.parse.unquote(html.unescape(icon[1])):
+        fail('a site without `favicon`: no inline letter icon (else the browser asks for /favicon.ico, a 404)')
+    icons = [urllib.parse.unquote(setu_docs.letter_icon(n)) for n in ('_x', '9', '_')]
+    letters = [re.search(r'>([^<]*)</text>', i)[1] for i in icons]
+    same('letter_icon: the first letter or digit, upper case', letters, ['X', '9', '?'])
     # the light theme, the system's dark and the ◐ button's dark: each sets every color
     blocks = re.findall(r':root[^{]*\{([^}]*--bg:[^}]*)\}', setu_docs.CSS)
     themes = [set(re.findall(r'(--[\w-]+):', b)) for b in blocks]

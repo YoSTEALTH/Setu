@@ -30,6 +30,7 @@ The settings, in `pyproject.toml` (paths relative to it):
     out = 'site'                    # optional: where the site goes (the default)
     home = 'docs/index.md'          # optional: the home page's text (default: the module docstring)
     css = 'docs/extra.css'          # optional: appended to `style.css` (colors: `--accent`, ...)
+    favicon = 'docs/icon.svg'       # optional: the tab icon (`.svg`, `.png`, `.ico`; default: the name's letter)
     edit = 'https://github.com/me/pkg/edit/dev/'  # optional: an Edit link on Markdown pages (+ the file)
     repo = 'https://github.com/me/pkg'  # optional: the header's repository link (default: from `[project.urls]`)
     scripts = 'example'             # optional: runnable example scripts, a page of their own
@@ -151,8 +152,9 @@ EXAMPLE = re.compile(r'Example(?: #\d+)?')
 
 # --- settings ---------------------------------------------------------------------------------
 
-KEYS = {'module', 'path', 'stub', 'name', 'summary', 'out', 'home', 'css', 'edit', 'scripts', 'scripts_skip',
-        'featured', 'runner', 'hooks', 'serial', 'timeout', 'markdown', 'pages'}  # fmt: skip
+KEYS = {'module', 'path', 'stub', 'name', 'summary', 'out', 'home', 'css', 'favicon', 'edit', 'scripts',
+        'scripts_skip', 'featured', 'runner', 'hooks', 'serial', 'timeout', 'markdown', 'pages'}  # fmt: skip
+FAVICON_TYPES = ('.svg', '.png', '.ico')
 PAGE_KEYS = {'slug', 'title', 'text', 'classes', 'functions', 'patterns', 'sources', 'default', 'constants', 'groups'}
 MARKDOWN_KEYS = {'file', 'title', 'section', 'slug'}
 
@@ -172,6 +174,8 @@ def load_config(pyproject='pyproject.toml'):
     for key in ('module', 'pages'):
         if key not in config:
             fail(f'[tool.setu_docs] needs `{key}`')
+    if 'favicon' in config and pathlib.Path(config['favicon']).suffix not in FAVICON_TYPES:
+        fail(f'`favicon` is not one of {", ".join(FAVICON_TYPES)}: {config["favicon"]}')
     pages = config['pages']
     for page in pages:
         for key in ('slug', 'title', 'text'):
@@ -198,6 +202,18 @@ def load_config(pyproject='pyproject.toml'):
 
 def md_slug(page):
     return page.get('slug') or pathlib.Path(page['file']).stem
+
+
+def letter_icon(name):
+    '''The tab icon without a `favicon`: `name`'s first letter, white on the dark theme's `--accent-soft` (an icon
+    is its own document, so no CSS variables), as a `data:` URL.'''
+    letter = html.escape(next((c for c in name if c.isalnum()), '?').upper())
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6"'
+        ' fill="#283457"/><text x="16" y="17" text-anchor="middle" dominant-baseline="central" fill="#fff"'
+        f' font-family="system-ui, sans-serif" font-size="22" font-weight="700">{letter}</text></svg>'
+    )
+    return 'data:image/svg+xml,' + urllib.parse.quote(svg, safe=' "=/:,')
 
 
 class Project:
@@ -228,6 +244,10 @@ class Project:
         self.requires = f'{requires[2:]}+' if re.fullmatch(r'>=[\d.]+', requires) else requires
         self.timeout = self.config.get('timeout', 20)
         self.stub = (self.root / self.config['stub']).read_text() if 'stub' in self.config else None
+        # the site's copy of `favicon` (`favicon.svg`, ...), else '' (`letter_icon`, inline: no `/favicon.ico` 404)
+        self.favicon = 'favicon' + pathlib.Path(self.config['favicon']).suffix if 'favicon' in self.config else ''
+        if self.favicon and not (self.root / self.config['favicon']).is_file():
+            fail(f'`favicon` not found: {self.config["favicon"]}')
         hooks = self.load_hooks()
         self.fixtures = getattr(hooks, 'FIXTURES', {})
         self.skip = getattr(hooks, 'SKIP', {})
@@ -1345,7 +1365,7 @@ class Site:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">{meta}
 <title>{html.escape(title)} · {name}</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="{html.escape(project.favicon or letter_icon(project.name))}">
 <link rel="stylesheet" href="style.css">
 <script>try {{ const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; }}
 catch (e) {{}}</script>
@@ -1498,8 +1518,12 @@ catch (e) {{}}</script>
             files['llms-full.txt'] = llms_full(self.project.stub, self.project.config['module'])
         for name, text in files.items():
             (out / name).write_text(pretty_html(text) if name.endswith('.html') else text)
+        copied = ['docs.wasm']
+        if self.project.favicon:
+            shutil.copyfile(self.project.root / self.project.config['favicon'], out / self.project.favicon)
+            copied.append(self.project.favicon)
         build_wasm(self.project.root, out / 'docs.wasm')
-        return sorted([*files, 'docs.wasm'])
+        return sorted([*files, *copied])
 
 
 # `pretty_html`: block tags go on their own line and indent what is inside; in a text block (`TEXT_TAGS`) the text
@@ -2170,6 +2194,7 @@ TYPES = {
     '.wasm': 'application/wasm',
     '.svg': 'image/svg+xml',
     '.png': 'image/png',
+    '.ico': 'image/x-icon',
 }
 FREE_THREADED = not getattr(sys, '_is_gil_enabled', lambda: True)()
 PYTHON = f'{sys.version_info.major}.{sys.version_info.minor}{"t" if FREE_THREADED else ""}'
