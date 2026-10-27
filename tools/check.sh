@@ -3,11 +3,13 @@
 # `zig build test`, the `setu-build-sync` / `setu-build-check` and `setu-guide-*` steps on the wheel fixture
 # `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_classes.so`
 # and its generated stubs, which `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails),
-# then with each interpreter (3.15t, 3.15, 3.14t, 3.14) `check_abi.py`, `check_symbols.py`, pytest, the
-# `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tools/setu_build.py` builds (`check_wheels.py`) and the docs
-# site `tools/setu_docs.py` builds, serves and runs the examples of (`check_docs.py`), then
+# then with each interpreter (3.15t, 3.15, 3.14t, 3.14, and 3.16t-dev / 3.16-dev when installed)
+# `check_abi.py`, `check_symbols.py`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels
+# `tools/setu_build.py` builds (`check_wheels.py`) and the docs site `tools/setu_docs.py` builds, serves and runs
+# the examples of (`check_docs.py`), then
 # `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
-# Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=...; compiler: ZIG=...
+# Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=..., PY316_FT=... / PY316_GIL=...
+# (the next CPython's alphas, for early warning only: skipped when missing); compiler: ZIG=...
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,6 +17,8 @@ PY_FT=${PY_FT:-/opt/python/3.15t/bin/python3}
 PY_GIL=${PY_GIL:-/opt/python/3.15/bin/python3}
 PY314_FT=${PY314_FT:-/opt/python/3.14t/bin/python3}
 PY314_GIL=${PY314_GIL:-/opt/python/3.14/bin/python3}
+PY316_FT=${PY316_FT:-/opt/python/3.16t-dev/bin/python3}
+PY316_GIL=${PY316_GIL:-/opt/python/3.16-dev/bin/python3}
 ZIG=${ZIG:-zig}
 [[ ${1:-} == -- ]] && shift
 PYTEST_ARGS=("$@")
@@ -66,7 +70,11 @@ step "ruff check (generated stubs)"
 "$PY_FT" -m ruff check --extend-select PYI --extend-ignore PYI021 test/setu_classes.pyi
 "$PY_FT" -m ruff format --check test/setu_classes.pyi
 
-for py in "$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL"; do
+pythons=("$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL")
+for py in "$PY316_FT" "$PY316_GIL"; do
+    if [[ -x $py ]]; then pythons+=("$py"); else echo "skipped: $py is not installed"; fi
+done
+for py in "${pythons[@]}"; do
     step "$py"
     "$py" tools/check_abi.py
     "$py" tools/check_symbols.py test/setu_classes.so
