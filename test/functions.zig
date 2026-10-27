@@ -360,6 +360,39 @@ pub fn int_pair(big: u64, small: i8) struct { u64, i8 } {
     return .{ big, small };
 }
 
+const texts_ok = [_][]const u8{ "a", "b", "c" };
+const texts_bad = [_][]const u8{ "a", "\xff", "c" };
+
+/// `['a', 'b', 'c']`; with `bad` the middle text is not UTF-8, so making the list fails midway.
+///
+/// Example
+///     >>> text_list(False)
+///     ['a', 'b', 'c']
+///     >>> text_list(True)
+///     UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+pub fn text_list(bad: bool) []const []const u8 {
+    return if (bad) &texts_bad else &texts_ok;
+}
+
+/// `(first, text, last)`, `text` decoded as UTF-8: invalid UTF-8 fails the tuple midway, which drops `last`
+/// (a new reference not yet in it).
+///
+/// Type
+///     first: object
+///     last: object
+///     return: tuple[object, str, object]
+///
+/// Example
+///     >>> text_tuple(1, b'x', 2)
+///     (1, 'x', 2)
+///     >>> text_tuple(1, b'\xff', 2)
+///     UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+pub fn text_tuple(first: *Object, text: py.Bytes, last: *Object) struct { *Object, []const u8, *Object } {
+    py.incref(first);
+    py.incref(last);
+    return .{ first, text.data, last };
+}
+
 // --- module constants (`py.addConstants`) -------------------------------------------------
 
 /// A small constant.

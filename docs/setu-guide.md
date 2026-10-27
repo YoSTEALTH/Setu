@@ -460,3 +460,7 @@ and writes kcov's report to `zig-out/coverage/index.html`. A local tool, not for
   `hits` of `possible_hits` addresses, e.g. 48 of 56 int conversions.
 - Code the tests are not meant to run (benchmark helpers) goes between `// coverage-off` and `// coverage-on`
   comments and is not counted, so every red line is a gap.
+- `-- --python /opt/python/3.14/bin/python3` (repeatable) runs the tests under that interpreter too; the table
+  merges the runs (a line ran if it ran in any), so code only one interpreter reaches (3.14's `PyInit_` entry)
+  counts. Each interpreter's report is then in `zig-out/coverage/<3.15t, 3.14, ...>/index.html`; there is no
+  merged HTML report (`kcov --merge` counts the `coverage-off` lines again).

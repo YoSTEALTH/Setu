@@ -35,6 +35,7 @@ def test_compare():
     assert not (Vec(1, 2) != Vec(1, 2))
     assert Vec(1, 0) < Vec(1, 1)
     assert Vec(1, 1) > Vec(1, 0)  # reflected `__lt__`
+    assert Vec(0, 1) < Vec(1, 0) and not Vec(1, 0) < Vec(0, 1)  # same length: by `x`
     assert sorted([Vec(3, 0), Vec(0, 1), Vec(2, 0)]) == [Vec(0, 1), Vec(2, 0), Vec(3, 0)]
     # Another type: `NotImplemented`, so `==` falls back to identity and `<` raises.
     assert Vec(1, 2) != (1, 2)
@@ -221,8 +222,26 @@ def test_call():
     assert callable(add)
     with pytest.raises(TypeError, match="missing required argument 'a'"):
         add()
-    with pytest.raises(TypeError, match='unexpected keyword'):
+    with pytest.raises(TypeError, match="unexpected keyword argument 'c'$"):
         add(1, c=2)
+
+
+def test_argument_errors():
+    '''Too many positional arguments, an unknown keyword, a parameter given twice: module functions and `__init__`.'''
+    v = Vec(3, 4)
+    with pytest.raises(TypeError, match=r'^vec_norm2\(\) takes at most 1 positional arguments \(2 given\)$'):
+        sc.vec_norm2(v, 1)
+    with pytest.raises(TypeError, match=r"^vec_norm2\(\) got an unexpected keyword argument 'zz'$"):
+        sc.vec_norm2(v, zz=1)
+    with pytest.raises(TypeError, match=r"^Vec\(\) got an unexpected keyword argument 'é'$"):
+        Vec(**{'é': 1})
+    for call in (sc.vec_norm2, Vec):  # a name with no UTF-8 form is left out
+        with pytest.raises(TypeError, match=r'^\w+\(\) got an unexpected keyword argument$'):
+            call(**{'\udc80': 1})
+    with pytest.raises(TypeError, match=r"^vec_norm2\(\) got multiple values for argument 'v'$"):
+        sc.vec_norm2(v, v=v)
+    with pytest.raises(TypeError, match=r"^Vec\(\) got multiple values for argument 'x'$"):
+        Vec(1, x=2)
 
 
 def test_attributes():
@@ -237,6 +256,7 @@ def test_attributes():
     assert d.sets == 2
     del d.anything
     assert d.dels == 1
+    assert d.__getattr__('abc') == 3  # as a method (`super().__getattr__` in a subclass)
 
 
 def test_descriptor():
@@ -299,6 +319,7 @@ def test_finalize():
     del w
     assert seen == [1]  # once, at dealloc
     w = Watch(lambda: seen.append(2))
+    assert w.link is None
     w.link = w  # a cycle: the GC finalizes it before clearing the fields
     del w
     gc.collect()
@@ -353,6 +374,8 @@ def test_pickle():
         assert type(w) is Vec and w == v
     assert copy.copy(v) == v and copy.copy(v) is not v
     assert copy.deepcopy(v) == v
+    with pytest.raises(TypeError, match='cannot be interpreted as an integer'):
+        v.__setstate__((1, 'y'))
 
 
 def test_pickle_with_base():
@@ -374,6 +397,9 @@ def test_setter_error():
     assert lab.label == 'b'
     with pytest.raises(RuntimeError, match='^NoLabel$'):  # a plain Zig error, not `SystemError`
         lab.label = None
+    assert lab.label == 'b'
+    with pytest.raises(AttributeError, match='^can not delete `label`$'):
+        del lab.label
     assert lab.label == 'b'
 
 
@@ -505,6 +531,8 @@ def test_take():
         b.append(1)
     sc.hold()
     b.append(1)
+    sc.hold(bufs=[])  # nothing to take but the sequence itself
+    sc.hold()
     with pytest.raises(TypeError):
         sc.hold(b, 'x')  # a later argument fails: `hold` is not called, nothing taken
     b.append(1)
@@ -614,6 +642,9 @@ def test_int_parameters():
         (-(2**63) - 1, 0, r'`int_pair\(big\)` = -9223372036854775809 is out of range'),
         (0, 128, r'`int_pair\(small\)` = 128 is out of range -128\.\.127'),
         (0, -(2**63), r'`int_pair\(small\)` = -9223372036854775808 is out of range -128\.\.127'),
+        (2**200, 0, f'`int_pair\\(big\\)` = {2**200} is out of range'),  # past 128 bits: up to 32 bytes in digits
+        (-(2**250), 0, f'`int_pair\\(big\\)` = {-(2**250)} is out of range'),
+        (2**300, 0, r'`int_pair\(big\)` = an int of 38 bytes is out of range 0\.\.18446744073709551615'),
     ]:
         with pytest.raises(OverflowError, match=f'^{message}'):
             sc.int_pair(big, small)
@@ -626,6 +657,19 @@ def test_int_parameters():
     assert o.rank == -(2**63)
     with pytest.raises(OverflowError, match=r'^`Ordered.rank` = 9223372036854775808 is out of range'):
         o.rank = 2**63
+
+
+def test_result_fails_midway():
+    '''A list / tuple result whose item fails to convert raises, and drops the items not yet in it.'''
+    assert sc.text_list(False) == ['a', 'b', 'c']
+    assert sc.text_tuple(1, b'x', 2) == (1, 'x', 2)
+    with pytest.raises(UnicodeDecodeError):
+        sc.text_list(True)
+    first, last = object(), object()
+    before = sys.getrefcount(first), sys.getrefcount(last)
+    with pytest.raises(UnicodeDecodeError):
+        sc.text_tuple(first, b'\xff', last)
+    assert (sys.getrefcount(first), sys.getrefcount(last)) == before
 
 
 def test_module_constants():

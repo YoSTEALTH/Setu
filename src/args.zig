@@ -7,6 +7,7 @@ const c = @import("capi.zig");
 const py = @import("py.zig");
 const convert = @import("convert.zig");
 const raiseTypeError = @import("raise.zig").raiseTypeError;
+const setString = @import("raise.zig").setString;
 const source_zig = @import("source.zig");
 const class_zig = @import("class.zig");
 const stub = @import("stub.zig");
@@ -335,6 +336,23 @@ fn argError(comptime p: Param, comptime fname: []const u8, comptime T: type, err
     return err;
 }
 
+/// Sets `TypeError` for the keyword `key` (a `str`) that no parameter of `fname` takes, naming it
+/// like CPython; a name with no UTF-8 form (a lone surrogate) is left out.
+///
+/// Example
+///     >>> open('a.txt', bogus=1)
+///     TypeError: open() got an unexpected keyword argument 'bogus'
+pub fn setUnexpectedKeyword(comptime fname: []const u8, key: *Object) void {
+    @branchHint(.cold);
+    var len: c.ssize = 0;
+    const name = c.PyUnicode_AsUTF8AndSize(key, &len) orelse {
+        c.PyErr_Clear();
+        return setString(c.PyExc_TypeError, "{s}() got an unexpected keyword argument", .{fname});
+    };
+    // cast: a size, never < 0
+    setString(c.PyExc_TypeError, "{s}() got an unexpected keyword argument '{s}'", .{ fname, name[0..@intCast(len)] });
+}
+
 /// Keyword lookup for the parameter `names`: the index of a keyword, or `null` if no
 /// parameter takes it. `skip` is the `KwOnly` marker's index (no keyword), or `names.len`; an
 /// empty name (positional-only) takes no keyword either.
@@ -416,8 +434,10 @@ pub fn parseArgs(
         var key: ?*Object = null;
         var value: ?*Object = null;
         while (c.PyDict_Next(kw, &pos, &key, &value) != 0) {
-            const at = KwNames(names, max_positional).find(key.?) orelse
-                return raiseTypeError("{s}() got an unexpected keyword argument", .{fname});
+            const at = KwNames(names, max_positional).find(key.?) orelse {
+                setUnexpectedKeyword(fname, key.?);
+                return error.PythonError;
+            };
             if (out[at] != null) return raiseTypeError(
                 "{s}() got multiple values for argument '{s}'",
                 .{ fname, names[at] },

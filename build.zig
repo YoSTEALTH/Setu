@@ -255,7 +255,8 @@ pub const CoverageOptions = struct {
 ///
 /// Note
 ///     - Needs kcov (43 tested) and readelf; `ext.root_module` in Debug with debug info (else the step fails).
-///     - After `--`: the runner's `--missed` (red lines) / `--partial` (yellow lines), the rest goes to pytest.
+///     - After `--`: the runner's `--missed` (red lines) / `--partial` (yellow lines) / `--python <path>` (the
+///       tests under that interpreter too, merged; repeatable), the rest goes to pytest.
 ///       Code between `// coverage-off` and `// coverage-on` is not counted.
 ///     - Not for CI as is: kcov is packaged for Ubuntu 25.04+ only.
 ///
@@ -268,6 +269,7 @@ pub const CoverageOptions = struct {
 ///     >>> });
 ///     $ zig build coverage                    # the table; zig-out/coverage/index.html
 ///     $ zig build coverage -- --missed -k recv  # the lines never run; pytest's `-k recv`
+///     $ zig build coverage -- --python /opt/python/3.14/bin/python3  # 3.14's paths too
 pub fn addCoverageSteps(
     b: *std.Build,
     setu_dep: *std.Build.Dependency,
@@ -290,7 +292,10 @@ fn coverage(
         step.dependOn(&b.addFail("coverage: the extension's module must be Debug, not stripped").step);
         return;
     }
-    // The same module again, through LLVM: its `.debug_info` is one elfutils (kcov) reads.
+    // The same module again, through LLVM: its `.debug_info` is one elfutils (kcov) reads. Zig bug (0.17.0
+    // still): the self-hosted x86_64 backend's DWARF has a "Bogus end-of-siblings marker" (readelf), so elfutils
+    // drops the compile unit and kcov sees no Zig line; valgrind reads its line table only partly. Reported as
+    // github.com/ziglang/zig/issues/22949; related: codeberg.org/ziglang/zig/issues/36561. `ext` stays as built.
     const lib = b.addLibrary(.{ .name = ext.name, .linkage = .dynamic, .root_module = module });
     lib.linker_allow_shlib_undefined = ext.linker_allow_shlib_undefined;
     lib.use_llvm = true;

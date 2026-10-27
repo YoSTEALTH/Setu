@@ -61,7 +61,7 @@ fn defKw(comptime name: [:0]const u8, comptime call: c.FastCallKw, comptime doc:
 ///     >>> await open('a.txt', O_CREAT | O_WRONLY, mode=0o600)  # resolve, dir_fd: None
 ///     3
 ///     >>> await open('a.txt', bogus=1)
-///     TypeError: open() got an unexpected keyword argument
+///     TypeError: open() got an unexpected keyword argument 'bogus'
 ///
 /// Note
 ///     - `Owner` is the `setu.Class` whose instance data a `self: *T` receives
@@ -122,7 +122,7 @@ fn KwTrampoline(
                             if (c.PyDict_SetItem(extra.?, key, argv[nargs + j]) < 0) return null;
                             continue;
                         }
-                        setString(c.PyExc_TypeError, "{s}() got an unexpected keyword argument", .{fname});
+                        args_zig.setUnexpectedKeyword(fname, key);
                         return null;
                     };
                     if (slots[at] != null) {
