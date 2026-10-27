@@ -1,5 +1,13 @@
 # Setu
 
+[![ci](https://github.com/YoSTEALTH/Setu/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YoSTEALTH/Setu/actions/workflows/ci.yml?query=branch%3Amain)
+[![tag](https://img.shields.io/github/v/tag/YoSTEALTH/Setu?sort=date&label=tag)](https://github.com/YoSTEALTH/Setu/tags)
+[![zig](https://img.shields.io/badge/zig-0.17.0-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/download/)
+[![python](https://img.shields.io/badge/python-3.14%20%7C%203.14t%20%7C%203.15%20%7C%203.15t-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![abi](https://img.shields.io/badge/abi-abi3t%20(PEP%20803)-3776AB)](https://peps.python.org/pep-0803/)
+[![platform](https://img.shields.io/badge/platform-linux-FCC624?logo=linux&logoColor=black)](https://kernel.org/)
+[![license](https://img.shields.io/github/license/YoSTEALTH/Setu)](LICENSE.txt)
+
 Setu (सेतु, "bridge"): a generic Zig <-> CPython binding layer. One build loads on
 CPython 3.14, 3.14t, 3.15, 3.15t and later: a single `<name>.so` in one
 `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel per platform (the 3.15 stable ABI for free-threading,
