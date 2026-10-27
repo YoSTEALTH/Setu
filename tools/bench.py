@@ -3,7 +3,7 @@ path uses (`bench_*` in `test/functions.zig`: `prep_recv` / `prep_send` with and
 buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method and `__init__`. With
 `--ref`, an A/B against another commit, so a hot-path change gets a before / after without Liburing.
 
-    python3.15 tools/bench.py                     # this tree, built `fast` (ReleaseFast) into a temp dir
+    python3.15 tools/bench.py                     # this tree, built `-Doptimize=fast` into a temp dir
     python3.15 tools/bench.py --ref HEAD          # A/B: HEAD (a temp worktree) vs this tree
     python3.15 tools/bench.py --ref v2026.10.21 --cpu 2 -k recv
     python3.15 tools/bench.py --so test/setu_classes.so     # an extension as built, no build

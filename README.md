@@ -36,6 +36,7 @@ test/docs/        setu_classes as a docs site, for the tools/setu_docs.py checks
 tools/setu_build.py   the wheel build backend (PEP 517) projects copy into their tools/
 tools/setu_docs.py    the docs site builder projects copy into their tools/
 tools/setu_docs_web.zig  the site's search and Run logic (WebAssembly, zig build docs-web)
+tools/check_coverage.py  line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
 ```
 
 Commands:
@@ -45,7 +46,8 @@ zig build test                        # type-check every declaration + comptime 
 zig build develop                     # test extension (setu_classes.so) + stubs into test/
 python3 tools/check_docs.py           # the docs site of test/docs/ (after develop)
 tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
-python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (ReleaseFast)
+python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
+zig build coverage -Dpython=python3   # line coverage of the test extension (kcov), zig-out/coverage/
 ```
 
 ## For AI sessions (and other readers in a hurry)

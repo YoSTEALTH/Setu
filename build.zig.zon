@@ -1,7 +1,7 @@
 .{
     .name = .setu,
     // year.month.day (no zero padding: semver)
-    .version = "2026.10.27-2",
+    .version = "2026.10.27-3",
     .fingerprint = 0x7deee0e42718577f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},
@@ -12,6 +12,7 @@
         "tools/setu_build.py", // the wheel build backend projects copy (their check.sh compares)
         "tools/setu_docs.py", // the docs site builder projects copy (`setu-docs-sync` / `setu-docs-check`)
         "tools/setu_docs_web.zig", // its Wasm module, built by a project's `docs-web` step (`addSetuDocsSteps`)
+        "tools/check_coverage.py", // the `coverage` step's runner (`addCoverageSteps`), run from the dependency
         "docs/setu-guide.md", // the guide projects copy (`setu-guide-sync` / `setu-guide-check`)
         "llms.txt",
         "LICENSE.txt",

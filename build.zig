@@ -2,9 +2,12 @@
 //! zig build test            type-check every declaration, run the comptime unit tests and the tests of
 //!                           tools/setu_docs_web.zig
 //! zig build docs-web        the docs site's Wasm module (tools/setu_docs_web.zig) into zig-out/web/docs.wasm
+//! zig build coverage        line coverage of the test extension under class_test.py (kcov; arguments
+//!                           after `--` go to pytest)
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
+//!   -Dpython=<path>         the interpreter `coverage` runs pytest with (default python3)
 //!
 //! One build serves CPython 3.14, 3.14t, 3.15, 3.15t and later: the extension is `<name>.so`
 //! (`ext_suffix`), which every one of them imports (see `src/capi.zig`).
@@ -14,8 +17,8 @@
 //! file's `module`), `addSetuBuildSteps` (keeping their copy of `tools/setu_build.py`, the wheel build
 //! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
 //! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide
-//! to writing an extension)
-//! and `ext_suffix`.
+//! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
+//! `tools/check_coverage.py`) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -27,6 +30,7 @@ pub fn build(b: *std.Build) void {
     // `-Doptimize=...` (default Debug), so a dependent build can pass `.optimize` (`test/wheel/`).
     const optimize = b.standardOptimizeOption(.{});
     const strip = b.option(bool, "strip", "Strip debug symbols from the test extension") orelse false;
+    const python = b.option([]const u8, "python", "The interpreter `coverage` runs pytest with") orelse "python3";
 
     // No target / optimize: the module takes them from whatever compiles it (extension, host program, test).
     const setu = b.addModule("setu", .{ .root_source_file = b.path("src/root.zig") });
@@ -58,6 +62,12 @@ pub fn build(b: *std.Build) void {
         b.fmt("setu_classes{s}", .{ext_suffix}),
     ).step);
     develop.dependOn(&b.addInstallFileWithDir(setu_pyi, test_dir, "setu_classes.pyi").step);
+    coverage(b, b.path("tools/check_coverage.py"), setu_test, .{
+        .module_name = "setu_classes",
+        .include = &.{ b.path("src"), b.path("test") },
+        .stub = setu_pyi, // `test_stub_matches_module` reads it next to the extension
+        .python = python,
+    });
 
     // Compiled, never linked or run: Setu's functions call libpython, which only the interpreter provides.
     // Analysis type-checks every declaration (`refAllDecls` in each file) and runs the unit tests, which
@@ -220,6 +230,89 @@ fn stubs(
     exe.link_data_sections = true;
     exe.link_gc_sections = true;
     return b.addRunArtifact(exe).captureStdOut(.{ .basename = "stubs.pyi" });
+}
+
+/// What `addCoverageSteps` takes.
+pub const CoverageOptions = struct {
+    /// The name the tests import the extension by: `"setu_classes"`, or `"liburing.liburing"` for one inside a
+    /// package (whose `from .liburing import ...` then gets the coverage build).
+    module_name: []const u8,
+    /// The source directories to report: the extension's, and `setu_dep.path("src")` for Setu's code as the
+    /// extension uses it.
+    include: []const std.Build.LazyPath,
+    /// The `.pyi` (`addStubs`), put next to the coverage build for tests that read it there.
+    stub: ?std.Build.LazyPath = null,
+    /// The interpreter that runs pytest (pytest installed).
+    python: []const u8 = "python3",
+    /// Fail when the total line coverage is lower (percent).
+    min: ?f64 = null,
+};
+
+/// The step `coverage`: line coverage of the extension `ext`'s Zig code under the project's pytest, by kcov.
+/// It builds `ext.root_module` again as a second library through LLVM (Zig's default Debug backend writes
+/// `.debug_info` kcov cannot read), then runs Setu's `tools/check_coverage.py` from the pinned Setu in the
+/// project's root: pytest with the extension loaded first, a per-file table, kcov's report in `zig-out/coverage/`.
+///
+/// Note
+///     - Needs kcov (43 tested) and readelf; `ext.root_module` in Debug with debug info (else the step fails).
+///     - After `--`: the runner's `--missed` (red lines) / `--partial` (yellow lines), the rest goes to pytest.
+///       Code between `// coverage-off` and `// coverage-on` is not counted.
+///     - Not for CI as is: kcov is packaged for Ubuntu 25.04+ only.
+///
+/// Example
+///     >>> // the project's build.zig (`setu` in its build.zig.zon)
+///     >>> @import("setu").addCoverageSteps(b, setu_dep, ext, .{
+///     >>>     .module_name = "liburing.liburing",
+///     >>>     .include = &.{ b.path("src/liburing"), setu_dep.path("src") },
+///     >>>     .python = b.option([]const u8, "python", "Python for `coverage`") orelse "python3",
+///     >>> });
+///     $ zig build coverage                    # the table; zig-out/coverage/index.html
+///     $ zig build coverage -- --missed -k recv  # the lines never run; pytest's `-k recv`
+pub fn addCoverageSteps(
+    b: *std.Build,
+    setu_dep: *std.Build.Dependency,
+    ext: *std.Build.Step.Compile,
+    options: CoverageOptions,
+) void {
+    coverage(b, setu_dep.path("tools/check_coverage.py"), ext, options);
+}
+
+/// `addCoverageSteps` with Setu's `tools/check_coverage.py` given (Setu's own build has no dependency).
+fn coverage(
+    b: *std.Build,
+    runner: std.Build.LazyPath,
+    ext: *std.Build.Step.Compile,
+    options: CoverageOptions,
+) void {
+    const step = b.step("coverage", "Line coverage of the extension's Zig code under pytest (kcov)");
+    const module = ext.root_module;
+    if ((module.optimize orelse .debug) != .debug or module.strip == true) {
+        step.dependOn(&b.addFail("coverage: the extension's module must be Debug, not stripped").step);
+        return;
+    }
+    // The same module again, through LLVM: its `.debug_info` is one elfutils (kcov) reads.
+    const lib = b.addLibrary(.{ .name = ext.name, .linkage = .dynamic, .root_module = module });
+    lib.linker_allow_shlib_undefined = ext.linker_allow_shlib_undefined;
+    lib.use_llvm = true;
+    // `<name>.so`, the file name the tests see (`__file__`), not `lib<name>.so`.
+    const base = if (std.mem.findScalarLast(u8, options.module_name, '.')) |dot|
+        options.module_name[dot + 1 ..]
+    else
+        options.module_name;
+    const files = b.addWriteFiles();
+    const so = files.addCopyFile(lib.getEmittedBin(), b.fmt("{s}{s}", .{ base, ext_suffix }));
+    if (options.stub) |pyi| _ = files.addCopyFile(pyi, b.fmt("{s}.pyi", .{base}));
+
+    const run = b.addSystemCommand(&.{options.python});
+    run.setCwd(b.path("."));
+    run.addFileArg2(runner, .{ .make_absolute = true });
+    run.addArgs(&.{ "--name", options.module_name });
+    for (options.include) |dir| run.addDirectoryArg2(dir, .{ .prefix = "--include=", .make_absolute = true });
+    if (options.min) |min| run.addArg(b.fmt("--min={d}", .{min}));
+    run.addFileArg2(so, .{ .make_absolute = true });
+    run.addPassthruArgs(); // the runner's options (`--missed`), the rest is pytest's
+    run.has_side_effects = true; // the tests are no input the step knows of
+    step.dependOn(&run.step);
 }
 
 /// The extension module's suffix: `<name>.so`, the one name CPython 3.14, 3.14t, 3.15, 3.15t and

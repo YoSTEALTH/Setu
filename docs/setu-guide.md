@@ -99,6 +99,12 @@ b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "liburing.pyi").
 @import("setu").addSetuBuildSteps(b, setu_dep); // tools/setu_build.py: setu-build-sync / -check
 @import("setu").addSetuDocsSteps(b, setu_dep); // tools/setu_docs.py: setu-docs-sync / -check, docs-web
 @import("setu").addSetuGuideSteps(b, setu_dep); // docs/setu-guide.md: setu-guide-sync / -check
+@import("setu").addCoverageSteps(b, setu_dep, ext, .{ // zig build coverage: kcov over pytest (see 11.)
+    .module_name = "liburing.liburing", // the name the tests import the extension by
+    .include = &.{ b.path("src/liburing"), setu_dep.path("src") }, // the sources to report
+    .stub = pyi, // for tests that read the .pyi next to the extension
+    .python = b.option([]const u8, "python", "Python for `coverage`") orelse "python3",
+});
 ```
 
 The extension is `<name>.so` (`@import("setu").ext_suffix`), the wheel `cp314.cp315-abi3.abi3t.cp314t.cp315t`
@@ -378,7 +384,7 @@ all four interpreters):
   paths stay out of line (`intArg`, `outOfRange`, `notWritable`: `@branchHint(.cold)`).
 - Whether a copy happens depends on LLVM's inlining, so identical source can run 2x apart between builds:
   compare A/B builds with `objdump -d`, interleaved, best of several runs.
-- `inline` changes nothing in ReleaseFast (`-Doptimize=fast`): LLVM inlines the call path anyway. A moved
+- `inline` changes nothing in `fast` builds (`-Doptimize=fast`): LLVM inlines the call path anyway. A moved
   trampoline can read ~1 ns slower with identical code (placement).
 - A flag on an argument (marking a `take`n copy) cost 6-8 ns per buffer argument; `take` takes a second view
   instead. `OwnedBuffer` saves that view (24-43 ns in Liburing's buffer preps).
@@ -439,3 +445,18 @@ What the message says: the cause.
 A project using Setu runs its own `tools/check.sh`, which includes `zig build setu-build-check`,
 `setu-docs-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
 Setu it pins). After a Setu bump: `zig build setu-build-sync setu-docs-sync setu-guide-sync`.
+
+Line coverage: `zig build coverage [-Dpython=...] [-- --missed --partial pytest args]` (`addCoverageSteps`; kcov 43
+and readelf) prints a per-file table, with `--missed` the lines that never ran, with `--partial` the yellow ones,
+and writes kcov's report to `zig-out/coverage/index.html`. A local tool, not for CI:
+
+- It builds the extension's (Debug) module again through LLVM: the default Debug backend's `.debug_info` is
+  unreadable to kcov (readelf: "Bogus end-of-siblings marker"), which would record no Zig line.
+- kcov records nothing from a shared library loaded once about 24 are mapped, and `import pytest` maps more, so
+  `tools/check_coverage.py` loads the extension first, as `.module_name`; a test importing another copy fails.
+- Zig compiles only referenced code: a function nothing calls is not counted as missed.
+- The report's colours: green ran, red never ran, yellow ran at some of its addresses only (counted as covered).
+  In Zig, yellow is mostly a generic line (`fromPython(T)`, a trampoline) whose instance for some type never ran:
+  `hits` of `possible_hits` addresses, e.g. 48 of 56 int conversions.
+- Code the tests are not meant to run (benchmark helpers) goes between `// coverage-off` and `// coverage-on`
+  comments and is not counted, so every red line is a gap.

@@ -236,6 +236,8 @@ pub fn owned_sum(data: py.OwnedBuffer) u64 {
     return total;
 }
 
+// coverage-off: the `bench_*` functions are `tools/bench.py`'s (`zig build coverage`)
+
 /// `v` converted, nothing else: the cheapest call for `tools/bench.py` (Liburing's `io_uring_prep_nop(sqe)`).
 ///
 /// Example
@@ -305,6 +307,8 @@ pub fn bench_send(v: *Vec, fd: i32, buf: ?py.Buffer, flags: ?i32) i32 {
     _ = .{ v, buf, flags };
     return fd;
 }
+
+// coverage-on
 
 /// A `Secret` (a hidden class) holding `value`.
 ///

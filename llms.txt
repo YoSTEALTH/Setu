@@ -38,3 +38,5 @@ error Setu raises. The source is the reference behind it; `test/` is a working e
 - [tools/setu_docs.py](tools/setu_docs.py): the docs site builder projects copy (stdlib; HTML, `llms.txt`,
   example runner, server); its Wasm logic is [tools/setu_docs_web.zig](tools/setu_docs_web.zig)
 - [tools/bench.py](tools/bench.py): per-call cost, A/B against a commit
+- [tools/check_coverage.py](tools/check_coverage.py): line coverage under pytest (kcov), run by `zig build
+  coverage` (`addCoverageSteps` in `build.zig`)
