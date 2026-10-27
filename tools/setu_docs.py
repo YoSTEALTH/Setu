@@ -13,6 +13,7 @@ Usage (after `zig build develop`, from the project root)
     python3 tools/setu_docs.py build --out DIR    # ... somewhere else
     python3 tools/setu_docs.py serve              # serve it on http://127.0.0.1:8000, Run buttons enabled
     python3 tools/setu_docs.py run read           # run the `read` example, print the session
+    python3 tools/setu_docs.py run read:2         # ... only its second `Example` block
     python3 tools/setu_docs.py run --json File.read
     python3 tools/setu_docs.py run example/hi.py  # run an example script
     python3 tools/setu_docs.py check              # run every example, report mismatches
@@ -101,6 +102,10 @@ The hooks file is plain Python; each of these is optional:
 in a new temporary directory; fds it leaves open are closed after. An example without a fixture that reads a name
 nothing defines (`ring`: not the module's, a builtin, in `NAMESPACE` or assigned in the example) gets no Run button
 and is not run by `check`, which lists those names instead.
+
+A repeated `Example` header starts another block (`Sqe()`, then `Sqe(2)`, ...; a first `# comment` line labels
+it): each block is shown with its own Run and runs on its own, in a new namespace with the name's fixture run
+again. `run Sqe` runs every block, `run Sqe:2` the second.
 
 The site also gets `llms.txt` (an index of the pages, for AI readers) and, with `stub`, `llms-full.txt` (every
 class, function and constant with its signature and docstring, one Markdown page).
@@ -306,23 +311,27 @@ class Project:
         for _page, names in self.api()[0]:
             for name in names:
                 obj = self.find(name)
-                if 'Example' in sections(obj.__doc__):
+                if example_blocks(obj.__doc__):
                     out.append(name)
                 if isinstance(obj, type) and not issubclass(obj, BaseException):
                     for member, _kind, mobj in members(obj):
-                        if 'Example' in sections(getattr(mobj, '__doc__', None)):
+                        if example_blocks(getattr(mobj, '__doc__', None)):
                             out.append(f'{name}.{member}')
         return out
 
+    def blocks(self, name):
+        '''The `Example` blocks of the documented name `name` (`example_blocks`).'''
+        return example_blocks(self.find(name).__doc__)
+
     def needs(self, name, example=None):
-        '''The names `name`'s example (or `example`) reads that nothing gives it, sorted: not the module's, a
-        builtin, in `NAMESPACE` or assigned at the example's top level (a name a function, lambda, class body or
-        comprehension binds is its own; skipped statements left out). With a fixture: none, the fixture sets them
-        up.'''
+        '''The names `name`'s example block `example` (default: each block, merged) reads that nothing gives it,
+        sorted: not the module's, a builtin, in `NAMESPACE` or assigned at the block's top level (a name a
+        function, lambda, class body or comprehension binds is its own; skipped statements left out). With a
+        fixture: none, the fixture sets them up.'''
         if name in self.fixtures:
             return []
         if example is None:
-            example = sections(self.find(name).__doc__).get('Example', '')
+            return sorted({n for block in self.blocks(name) for n in self.needs(name, block)})
         sources = []
         for step in steps(example):
             if (name, step.source) not in self.skip:
@@ -392,21 +401,39 @@ def members(cls):
 # --- docstring parsing ------------------------------------------------------------------------
 
 
+def parts(doc):
+    '''Split a docstring into its description and `Header` sections (content dedented 4), in order; a header
+    may repeat (one `Example` per block).
+
+    Example
+        >>> parts('Read it.\\n\\nExample\\n    >>> 1\\n    1\\nExample\\n    >>> 2\\n    2\\n')
+        [('', 'Read it.'), ('Example', '>>> 1\\n1'), ('Example', '>>> 2\\n2')]
+    '''
+    out = [('', [])]
+    for line in (doc or '').splitlines():
+        if line and not line[0].isspace() and HEADER.fullmatch(line.strip()) and line.strip() != line.strip().upper():
+            out.append((line.strip(), []))
+        else:
+            out[-1][1].append(line[4:] if out[-1][0] and line.startswith('    ') else line)
+    return [(k, '\n'.join(v).strip('\n')) for k, v in out]
+
+
 def sections(doc):
-    '''Split a docstring into its description and `Header` sections (content dedented 4).
+    '''`parts` as a dict: a repeated header keeps its first section (`example_blocks` gives every `Example`).
 
     Example
         >>> sections('Read it.\\n\\nType\\n    return: int\\n')
         {'': 'Read it.', 'Type': 'return: int'}
     '''
-    out, cur = {'': []}, ''
-    for line in (doc or '').splitlines():
-        if line and not line[0].isspace() and HEADER.fullmatch(line.strip()) and line.strip() != line.strip().upper():
-            cur = line.strip()
-            out[cur] = []
-        else:
-            out[cur].append(line[4:] if cur and line.startswith('    ') else line)
-    return {k: '\n'.join(v).strip('\n') for k, v in out.items()}
+    out = {}
+    for header, text in parts(doc):
+        out.setdefault(header, text)
+    return out
+
+
+def example_blocks(doc):
+    '''The docstring's `Example` sections that are not empty, in order: each runs on its own.'''
+    return [text for header, text in parts(doc) if header == 'Example' and text.strip()]
 
 
 @dataclasses.dataclass
@@ -417,6 +444,7 @@ class Step:
     expected: str
     got: str = ''
     status: str = ''  # ok, fail, loose (output not compared), skip
+    block: int = 0  # which `Example` block of the docstring (1, 2, ...), when `run_example` runs them all
 
 
 def steps(example):
@@ -461,13 +489,18 @@ def _open_fds():
 
 
 def run_example(project, name, example=None):
-    '''Run the `Example` section of `name` (`read`, `File.read`) in a new temporary directory.
+    '''Run the example block `example` of `name` (`read`, `File.read`) in a new temporary directory, with a new
+    namespace (and its fixture); without `example`, each of `name`'s blocks so (`Step.block`: 1, 2, ...).
 
     Note
         - Gives up after the project's `timeout` (`SIGALRM`), so call it from the main thread.
     '''
     if example is None:
-        example = sections(project.find(name).__doc__)['Example']
+        return [
+            dataclasses.replace(s, block=k)
+            for k, block in enumerate(project.blocks(name), 1)
+            for s in run_example(project, name, block)
+        ]
     todo = steps(example)
     ns = {**vars(project.module), **project.namespace, '__name__': '__example__', '_keep': [], '_cleanup': [],
           '_name': name}  # fmt: skip
@@ -542,15 +575,23 @@ def run_script(project, path, timeout=30):
 
 
 def run_target(project, target):
-    '''Run a documented name's example or an example script; JSON-ready result.'''
+    '''Run a documented name's examples (`Sqe`: every block, `Sqe:2`: the second) or an example script;
+    JSON-ready result.'''
     if target.endswith('.py'):
         if target not in {p for p, runnable in project.scripts() if runnable}:
             raise LookupError(f'not a runnable example script: {target!r}')
         code, output = run_script(project, target)
         return {'target': target, 'ok': code == 0, 'returncode': code, 'output': output}
-    if target not in project.examples():
-        raise LookupError(f'no documented example named {target!r}')
-    todo = run_example(project, target)
+    name, colon, k = target.partition(':')
+    if name not in project.examples():
+        raise LookupError(f'no documented example named {name!r}')
+    if colon:
+        blocks = project.blocks(name)
+        if not (k.isascii() and k.isdigit()) or not 1 <= int(k) <= len(blocks):
+            raise LookupError(f'{name!r} has {len(blocks)} example block(s), no {k!r}')
+        todo = run_example(project, name, blocks[int(k) - 1])
+    else:
+        todo = run_example(project, name)
     return {
         'target': target,
         'ok': all(s.status != 'fail' for s in todo),
@@ -1163,26 +1204,29 @@ class Site:
         return f'<ul class="flags{described}">{items}</ul>'
 
     def doc(self, name, obj):
-        '''A docstring as HTML: description, Type, Example (+ fixture and Run), Note, others.'''
-        parts = sections(obj.__doc__)
-        out = [self.paragraphs(parts.get('', ''))]
-        for header, text in parts.items():
-            if not header or not text.strip():
+        '''A docstring as HTML: description, Type, Example (+ fixture and Run; each block its own), Note,
+        others.'''
+        split = parts(obj.__doc__)
+        blocks = len(example_blocks(obj.__doc__))
+        out, k = [self.paragraphs(split[0][1])], 0
+        for header, text in split[1:]:
+            if not text.strip():
                 continue
             out.append(f'<h4>{html.escape(header)}</h4>')
             if header == 'Type':
                 out.append(self.type_table(text))
             elif header == 'Example':
+                k += 1
                 out.append(self.session(text))
-                if setup := self.project.fixtures.get(name):
+                if k == 1 and (setup := self.project.fixtures.get(name)):  # the same for every block: shown once
                     with contextlib.suppress(OSError, TypeError):
                         src = re.sub(r'^@.*\n', '', inspect.getsource(setup))  # without the decorator
                         out.append(
                             '<details class="fixture"><summary>Setup used to run this example</summary>'
                             f'<pre class="code">{self.highlight(src.rstrip())}</pre></details>'
                         )
-                needs = self.project.needs(name)
-                out.append(_needs(needs) if needs else _run_box(name))
+                needs = self.project.needs(name, text)
+                out.append(_needs(needs) if needs else _run_box(name if blocks == 1 else f'{name}:{k}'))
             elif header in ('Note', 'Warning'):
                 out.append(self.bullets(text))
             elif header == 'Flags':
@@ -1721,6 +1765,7 @@ code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
 main { flex: 1; min-width: 0; padding: 24px 40px 64px; }
 h1 { margin: 8px 0 4px; font-size: 30px; }
 h2 { margin-top: 36px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3 { font-size: 22px; }
 h1:hover .anchor, h2:hover .anchor, h3:hover .anchor { color: var(--muted); }
 .lead { color: var(--muted); font-size: 16px; margin-top: 4px; }
 .edit { float: right; font-size: 13px; margin-top: 14px; }
@@ -1733,7 +1778,7 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor { color: var(--muted); }
   border-radius: 99px; padding: 0 6px; vertical-align: 2px; }
 .anchor { margin-left: 8px; color: var(--line); font-weight: 400; }
 .entry:hover .anchor, .member:hover .anchor { color: var(--muted); }
-h4 { margin: 14px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+h4 { margin: 14px 0 4px; font-size: 15px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 h4.mh { text-transform: none; letter-spacing: 0; font: 600 14px/1.5 ui-monospace, monospace; color: var(--text); }
 .members { margin: 12px 0 0 0; padding-left: 16px; border-left: 3px solid var(--panel); }
 .member { padding: 4px 0 8px; }
@@ -2104,13 +2149,19 @@ def serve(project, port):
         - Listens on 127.0.0.1 only, and answers only requests whose `Host` (and, for POST, `Origin`) is this
           server, so other websites can not use it. Run only accepts documented example names and scripts.
         - With `serial` (the default) one example runs at a time; a second Run gets `409 busy`.
+        - A Run may take `timeout` s per example block (`Sqe`: each block, `Sqe:2`: one) plus 15 s to start.
     '''
     site = project.out().resolve()
     hosts = {f'127.0.0.1:{port}', f'localhost:{port}'}
     scripts = re.escape(project.config.get('scripts', 'example'))
-    target_rx = re.compile(rf'[A-Za-z_][\w.]{{0,80}}|{scripts}/[\w-]{{1,80}}\.py')
+    target_rx = re.compile(rf'[A-Za-z_][\w.]{{0,80}}(?::[0-9]{{1,3}})?|{scripts}/[\w-]{{1,80}}\.py')
     lock = threading.Lock() if project.config.get('serial', True) else None
     ping = json.dumps({'module': project.config['module'], 'version': project.version, 'python': PYTHON}).encode()
+    examples = set(project.examples())
+
+    def runs(target):
+        '''How many example blocks `run target` runs: every block of a bare documented name, else one.'''
+        return len(project.blocks(target)) if target in examples else 1
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def reply(self, status, kind, data, head=False):
@@ -2164,8 +2215,9 @@ def serve(project, port):
                 return self.json(409, {'error': 'busy: another example is running'})
             try:
                 cmd = [sys.executable, str(SETU_DOCS), '--config', str(project.pyproject), 'run', '--json', target]
+                limit = project.timeout * runs(target) + 15  # every block of a bare name has its own `timeout`
                 p = subprocess.run(cmd, cwd=project.root, env=project.env(), capture_output=True, text=True,
-                                   stdin=subprocess.DEVNULL, timeout=project.timeout + 15, check=False)  # fmt: skip
+                                   stdin=subprocess.DEVNULL, timeout=limit, check=False)  # fmt: skip
             except subprocess.TimeoutExpired:
                 return self.json(500, {'error': 'the example did not finish'})
             finally:
@@ -2196,7 +2248,9 @@ def _print_session(result):
     if 'steps' not in result:
         print(result['output'], end='')
         return
-    for s in result['steps']:
+    for i, s in enumerate(result['steps']):
+        if i and s['block'] != result['steps'][i - 1]['block']:
+            print()  # the next `Example` block
         print('>>> ' + s['source'].replace('\n', '\n... '))
         if s['got']:
             print(s['got'])
@@ -2207,21 +2261,25 @@ def _print_session(result):
 
 
 def check(project):
-    '''Run every docstring example that can run (`Project.needs`); print the mismatches and the names the others
-    read; give how many examples failed.'''
-    examples, missing = project.examples(), collections.Counter()
-    names = [n for n in examples if not project.needs(n)]
-    for name in examples:
-        missing.update(project.needs(name))
+    '''Run every docstring example block that can run (`Project.needs`); print the mismatches and the names the
+    others read; give how many blocks failed.'''
+    todo, missing, skipped = [], collections.Counter(), 0
+    for name in project.examples():
+        blocks = project.blocks(name)
+        for k, block in enumerate(blocks, 1):
+            if needs := project.needs(name, block):
+                missing.update(needs)
+                skipped += 1
+            else:
+                todo.append((name if len(blocks) == 1 else f'{name}:{k}', name, block))
     bad = 0
-    for name in names:
-        failed = [s for s in run_example(project, name) if s.status == 'fail']
+    for target, name, block in todo:
+        failed = [s for s in run_example(project, name, block) if s.status == 'fail']
         bad += bool(failed)
         for s in failed:
-            print(f'{name}: {s.source!r}\n    docs: {s.expected!r}\n    got:  {s.got!r}')
-    print(f'{len(names) - bad}/{len(names)} examples match')
+            print(f'{target}: {s.source!r}\n    docs: {s.expected!r}\n    got:  {s.got!r}')
+    print(f'{len(todo) - bad}/{len(todo)} examples match')
     if missing:
-        skipped = len(examples) - len(names)
         print(f'{skipped} not run, no fixture defines: ' + ', '.join(f'{n} ({c})' for n, c in missing.most_common()))
     return bad
 

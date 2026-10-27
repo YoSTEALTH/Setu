@@ -33,6 +33,13 @@ pub fn vec_norm2(v: *const Vec) i64 {
 ///     >>> vec_scale(v, 3)
 ///     >>> v
 ///     Vec(3, 6)
+///
+/// Example
+///     # a second block: a new namespace, so no `v`
+///     >>> w = Vec(1, -2)
+///     >>> vec_scale(w, -1)
+///     >>> w
+///     Vec(-1, 2)
 pub fn vec_scale(v: *Vec, k: i64) void {
     v.x *= k;
     v.y *= k;

@@ -38,6 +38,15 @@ def check_text():
     '''The docstring helpers, as their own `Example`s say, and `convert` / `raw_docstring` for `llms-full.txt`.'''
     same('sections', setu_docs.sections('Read it.\n\nType\n    return: int\n'), {'': 'Read it.', 'Type': 'return: int'})
     same(
+        'parts',
+        setu_docs.parts('Read it.\n\nExample\n    >>> 1\n    1\nExample\n    >>> 2\n    2\n'),
+        [('', 'Read it.'), ('Example', '>>> 1\n1'), ('Example', '>>> 2\n2')],
+    )
+    same('example_blocks', setu_docs.example_blocks('A.\n\nExample\n    >>> 1\nExample\nExample\n    >>> 2'),
+         ['>>> 1', '>>> 2'])  # fmt: skip
+    same('sections: a repeated header keeps the first', setu_docs.sections('Note\n    a\nNote\n    b'),
+         {'': '', 'Note': 'a'})  # fmt: skip
+    same(
         'steps',
         [(s.source, s.expected) for s in setu_docs.steps('>>> x = 1\n>>> x + 1\n2')],
         [('x = 1', ''), ('x + 1', '2')],
@@ -195,10 +204,19 @@ def check_examples(project):
     ):
         same(f'needs {example!r}', project.needs('buffer_len', example), want)
     same('needs with a fixture', project.needs('seq_sum', '>>> sum(numbers)\n6'), [])
+    blocks = setu_docs.run_target(project, 'vec_scale')
+    same('Example blocks', (blocks['ok'], [s['block'] for s in blocks['steps']]), (True, [1, 1, 1, 2, 2, 2]))
+    second = setu_docs.run_target(project, 'vec_scale:2')
+    same('the 2nd Example block', [s['source'] for s in second['steps']][0], 'w = Vec(1, -2)')
+    project.blocks = lambda name: ['>>> v = 1', '>>> v\n1']  # a block does not see the one before
+    try:
+        same('a new namespace per block', [s.status for s in setu_docs.run_example(project, 'x')], ['ok', 'fail'])
+    finally:
+        del project.blocks
     result = setu_docs.run_target(project, 'example/hi.py')
     if not result['ok'] or 'hi from setu_classes' not in result['output']:
         fail(f'example/hi.py: {result}')
-    for target in ('example/forever.py', '/etc/passwd.py', 'nothing'):
+    for target in ('example/forever.py', '/etc/passwd.py', 'nothing', 'vec_scale:0', 'vec_scale:3', 'vec_scale:x'):
         try:
             setu_docs.run_target(project, target)
         except LookupError:
@@ -267,6 +285,8 @@ def check_site(project, out):
         fail('guide.html: an API meta, or no Edit link')
     if 'title="Liburing, 3.15 --tmpl: 501k"' not in guide or 'background: var(--s3)' not in guide:
         fail('guide.html: no chart')
+    if 'data-target="vec_scale:2"' not in page or 'data-target="vec_scale"' in page:
+        fail('functions.html: `vec_scale` without a Run per `Example` block')
     if 'class="needs"' in page:
         fail('functions.html: an example without Run')
     flags = (
@@ -336,8 +356,8 @@ def check_server(project):
         if b'id="vec_norm2"' not in urllib.request.urlopen(f'{base}/functions.html').read():
             fail('the server does not serve the site')
 
-        def run(origin):
-            request = urllib.request.Request(f'{base}/api/run', b'vec_norm2', {'Origin': origin}, method='POST')
+        def run(origin, target=b'vec_norm2'):
+            request = urllib.request.Request(f'{base}/api/run', target, {'Origin': origin}, method='POST')
             try:
                 return json.loads(urllib.request.urlopen(request).read())
             except urllib.error.HTTPError as e:
@@ -345,6 +365,8 @@ def check_server(project):
 
         if not run(base)['ok']:
             fail('Run vec_norm2 failed')
+        if [len(run(base, t).get('steps', ())) for t in (b'vec_scale:2', b'vec_scale')] != [3, 6]:
+            fail('Run vec_scale:2 (an `Example` block) or vec_scale (both) failed')
         same('cross-origin Run', run('http://example.com'), 403)
     finally:
         server.terminate()

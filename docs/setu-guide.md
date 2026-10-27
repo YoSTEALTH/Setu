@@ -350,6 +350,8 @@ os.PathLike[...]`, buffers -> `Buffer`, `py.Sequence(T)` -> `Sequence[T]`, slice
 `stubtest` and ruff's flake8-pyi rules (`PYI`, apart from `PYI021`: the docstrings stay) in Setu's checks.
 `tools/setu_docs.py` turns the same docstrings into a static HTML site (and `llms.txt` / `llms-full.txt` for AI
 readers), and runs every `Example` to check that its output is what the doc says (`setu_docs.py check`). A
+repeated `Example` header starts another block (one per call form: `Sqe()`, then `Sqe(2)`), shown with its own
+Run and run on its own, in a new namespace. A
 `Flags` section lists one name per line, optionally with a note (`IORING_TIMEOUT_ABS  # ts is a point in time`):
 the site links the name and shows the note as text.
 
