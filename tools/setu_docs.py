@@ -1938,6 +1938,8 @@ JS = r'''
 
   // The repository link: the latest release, stars and forks from GitHub's API, kept for the browser session
   // (the API allows 60 requests an hour per address without a token). Left out when GitHub does not answer.
+  // The latest release is the newest that is not a pre-release (drafts need a token), as `releases/latest`
+  // says, but a repository without releases gets `[]` instead of a 404 in the console.
   const repo = document.querySelector('.repo[data-repo]:not([data-repo=""])');
   if (repo) {
     const key = 'repo:' + repo.dataset.repo, api = 'https://api.github.com/repos/' + repo.dataset.repo;
@@ -1954,8 +1956,9 @@ JS = r'''
     if (cached) show(cached);
     else Promise.all([
       fetch(api).then(r => r.ok ? r.json() : Promise.reject()),
-      fetch(api + '/releases/latest').then(r => r.ok ? r.json() : {}).catch(() => ({})),
-    ]).then(([info, release]) => {
+      fetch(api + '/releases?per_page=10').then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([info, releases]) => {
+      const release = (Array.isArray(releases) && releases.find(r => !r.prerelease)) || {};
       const facts = { tag: release.tag_name || '', stars: short(info.stargazers_count),
         forks: short(info.forks_count) };
       try { sessionStorage.setItem(key, JSON.stringify(facts)); } catch (e) {}

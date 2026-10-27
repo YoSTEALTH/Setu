@@ -335,6 +335,9 @@ def check_site(project, out):
     repo = '<a class="repo" href="https://github.com/YoSTEALTH/Setu"'
     if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
         fail('index.html: no repository link from the `[project]` homepage')
+    app = (out / 'app.js').read_text()
+    if "fetch(api + '/releases?per_page=10')" not in app or "'/releases/latest'" in app:
+        fail('app.js: the latest release from `releases/latest` (a 404 in the console without releases)')
     external, target = r'<a\b[^>]*href="https?://[^>]*>', r'<a\b[^>]* target='
     if any(not re.match(target, a) for a in re.findall(external, home + guide + page)):
         fail('index.html / guide.html / functions.html: an external link that does not open a new tab')
