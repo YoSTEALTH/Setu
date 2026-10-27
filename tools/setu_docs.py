@@ -105,7 +105,9 @@ and is not run by `check`, which lists those names instead.
 
 A repeated `Example` header starts another block (`Sqe()`, then `Sqe(2)`, ...; a first `# comment` line labels
 it): each block is shown with its own Run and runs on its own, in a new namespace with the name's fixture run
-again. `run Sqe` runs every block, `run Sqe:2` the second.
+again. Setu numbers the headers in the docstring (`help()` shows `Example #1`, `Example #2`, ...; one block stays
+`Example`); the page and the Markdown show them as written. `run Sqe` runs every block, `run Sqe:2` the one headed
+`Example #2`.
 
 The site also gets `llms.txt` (an index of the pages, for AI readers) and, with `stub`, `llms-full.txt` (every
 class, function and constant with its signature and docstring, one Markdown page).
@@ -144,7 +146,8 @@ import tomllib
 import urllib.parse
 
 SETU_DOCS = pathlib.Path(__file__).resolve()
-HEADER = re.compile(r'[A-Z][A-Za-z ]*')
+HEADER = re.compile(r'Example #\d+|[A-Z][A-Za-z ]*')  # Setu numbers repeated `Example` headers
+EXAMPLE = re.compile(r'Example(?: #\d+)?')
 
 # --- settings ---------------------------------------------------------------------------------
 
@@ -403,11 +406,11 @@ def members(cls):
 
 def parts(doc):
     '''Split a docstring into its description and `Header` sections (content dedented 4), in order; a header
-    may repeat (one `Example` per block).
+    may repeat (one `Example` per block, numbered `Example #1`, `Example #2`, ... by Setu).
 
     Example
-        >>> parts('Read it.\\n\\nExample\\n    >>> 1\\n    1\\nExample\\n    >>> 2\\n    2\\n')
-        [('', 'Read it.'), ('Example', '>>> 1\\n1'), ('Example', '>>> 2\\n2')]
+        >>> parts('Read it.\\n\\nExample #1\\n    >>> 1\\n    1\\nExample #2\\n    >>> 2\\n    2\\n')
+        [('', 'Read it.'), ('Example #1', '>>> 1\\n1'), ('Example #2', '>>> 2\\n2')]
     '''
     out = [('', [])]
     for line in (doc or '').splitlines():
@@ -432,8 +435,8 @@ def sections(doc):
 
 
 def example_blocks(doc):
-    '''The docstring's `Example` sections that are not empty, in order: each runs on its own.'''
-    return [text for header, text in parts(doc) if header == 'Example' and text.strip()]
+    '''The docstring's `Example` (`Example #<n>`) sections that are not empty, in order: each runs on its own.'''
+    return [text for header, text in parts(doc) if EXAMPLE.fullmatch(header) and text.strip()]
 
 
 @dataclasses.dataclass
@@ -725,6 +728,8 @@ INLINE = re.compile(
     r'|(?P<em>(?<![\w*])\*(?P<etext>[^*\s](?:[^*]*[^*\s])?)\*(?![\w*])'
     r'|(?<!\w)_(?P<etext2>[^_\s](?:[^_]*[^_\s])?)_(?!\w))'
 )
+# A bare URL in a docstring; trailing punctuation (`see https://x.org/a.`) stays text
+BARE_URL = re.compile(r'''https?://[^\s<>`"']*[^\s<>`"'.,;:!?)\]]''')
 
 
 class Site:
@@ -768,13 +773,14 @@ class Site:
         return f'<code>{html.escape(code)}</code>'
 
     def inline(self, text):
-        '''Escape docstring `text`, turning `code` spans into `<code>` (linked when it names an export).'''
+        '''Escape docstring `text`, turning `code` spans into `<code>` (linked when it names an export) and bare
+        `http(s)://` URLs into links.'''
         out = []
         for part in re.split(r'(`[^`]+`)', text):
             if part.startswith('`') and part.endswith('`') and len(part) > 2:
                 out.append(self.code(part[1:-1]))
             else:
-                out.append(html.escape(part))
+                out.append(autolink(part))
         return ''.join(out)
 
     def paragraphs(self, text):
@@ -1215,7 +1221,7 @@ class Site:
             out.append(f'<h4>{html.escape(header)}</h4>')
             if header == 'Type':
                 out.append(self.type_table(text))
-            elif header == 'Example':
+            elif EXAMPLE.fullmatch(header):
                 k += 1
                 out.append(self.session(text))
                 if k == 1 and (setup := self.project.fixtures.get(name)):  # the same for every block: shown once
@@ -1232,7 +1238,7 @@ class Site:
             elif header == 'Flags':
                 out.append(self.flags(text))
             else:
-                out.append(f'<pre class="plain">{html.escape(text)}</pre>')
+                out.append(f'<pre class="plain">{autolink(text)}</pre>')
         return ''.join(out)
 
     # -- entries
@@ -1311,7 +1317,9 @@ class Site:
 
     def page(self, current, title, body, toc=(), api=False):
         project = self.project
-        toc_html = ''.join(f'<a href="#{html.escape(a)}">{html.escape(t)}</a>' for a, t in toc)
+        toc_html = ''.join(  # a long name breaks after `_` / `.` instead of being cut off
+            f'<a href="#{html.escape(a)}">{re.sub(r"([_.])", r"\1<wbr>", html.escape(t))}</a>' for a, t in toc
+        )
         name, version = html.escape(project.name), html.escape(project.version)
         # API pages are mostly names, which Chrome takes for some other language and offers to translate
         meta = '\n<meta name="google" content="notranslate">' if api else ''
@@ -1629,6 +1637,17 @@ def inline_only(text, pos, tag):
     return False
 
 
+def autolink(text):
+    '''Escape `text`, turning bare `http(s)://` URLs into links.'''
+    out, pos = [], 0
+    for m in BARE_URL.finditer(text):
+        url = html.escape(m.group(0))
+        out.append(f'{html.escape(text[pos : m.start()])}<a href="{url}">{url}</a>')
+        pos = m.end()
+    out.append(html.escape(text[pos:]))
+    return ''.join(out)
+
+
 def build_wasm(root, dest):
     '''Build the site's Wasm module (`zig build docs-web` in `root`, from Setu's `tools/setu_docs_web.zig`)
     into `dest`.
@@ -1760,7 +1779,9 @@ code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
 .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nav-h { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 8px 2px; }
 .toc { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
-.toc a { font-family: ui-monospace, monospace; font-size: 14.5px; color: var(--muted); }
+.toc a { font-family: ui-monospace, monospace; font-size: 14.5px; color: var(--muted); overflow-wrap: anywhere;
+  padding-left: calc(8px + 2ch); text-indent: -2ch; }  /* a wrapped name lines up after its `- ` */
+.toc a::before { content: '-'; display: inline-block; width: 2ch; text-indent: 0; }  /* inline-block: no underline */
 .toc-h { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 8px 4px; }
 main { flex: 1; min-width: 0; padding: 24px 40px 64px; }
 h1 { margin: 8px 0 4px; font-size: 30px; }
@@ -2040,7 +2061,7 @@ def convert(text):
             if line in ('Note', 'Warning'):
                 out += [f'**{line}**', '', block, '']
             else:
-                out += [f'**{line}**', '', '```pycon' if line == 'Example' else '```text', block, '```', '']
+                out += [f'**{line}**', '', '```pycon' if EXAMPLE.fullmatch(line) else '```text', block, '```', '']
             i = j
         elif line.startswith('>>>'):  # a bare session, no `Example` header: up to the next blank line
             j = i
@@ -2248,9 +2269,10 @@ def _print_session(result):
     if 'steps' not in result:
         print(result['output'], end='')
         return
+    several = result['steps'] and result['steps'][-1]['block'] > 1
     for i, s in enumerate(result['steps']):
-        if i and s['block'] != result['steps'][i - 1]['block']:
-            print()  # the next `Example` block
+        if several and (not i or s['block'] != result['steps'][i - 1]['block']):
+            print(('\n' if i else '') + f'# Example #{s["block"]}')  # the header Setu gives the block
         print('>>> ' + s['source'].replace('\n', '\n... '))
         if s['got']:
             print(s['got'])

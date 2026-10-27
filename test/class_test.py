@@ -682,6 +682,13 @@ def test_module_declaration():
     assert sc.overridden() == 2  # `Module.methods` replaces `extra.zig`'s `overridden` (1)
 
 
+def test_example_numbers():
+    '''Repeated `Example` headers are numbered in the docstring (`help()`), a single one is not.'''
+    doc = sc.vec_scale.__doc__
+    assert '\nExample #1\n    >>> v = Vec(1, 2)\n' in doc and '\nExample #2\n    # a second block' in doc
+    assert '\nExample\n    >>> vec_norm2(Vec(3, 4))\n' in sc.vec_norm2.__doc__
+
+
 def test_scan_filters():
     '''What the `from` entries leave out: `.exclude`, `.prefixes`, `.only`, `.functions = false`, `_` names.'''
     assert not hasattr(sc, 'excluded')  # `.exclude`

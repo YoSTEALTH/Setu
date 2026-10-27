@@ -39,11 +39,15 @@ def check_text():
     same('sections', setu_docs.sections('Read it.\n\nType\n    return: int\n'), {'': 'Read it.', 'Type': 'return: int'})
     same(
         'parts',
-        setu_docs.parts('Read it.\n\nExample\n    >>> 1\n    1\nExample\n    >>> 2\n    2\n'),
-        [('', 'Read it.'), ('Example', '>>> 1\n1'), ('Example', '>>> 2\n2')],
+        setu_docs.parts('Read it.\n\nExample #1\n    >>> 1\n    1\nExample #2\n    >>> 2\n    2\n'),
+        [('', 'Read it.'), ('Example #1', '>>> 1\n1'), ('Example #2', '>>> 2\n2')],
     )
     same('example_blocks', setu_docs.example_blocks('A.\n\nExample\n    >>> 1\nExample\nExample\n    >>> 2'),
          ['>>> 1', '>>> 2'])  # fmt: skip
+    same('example_blocks: numbered', setu_docs.example_blocks('A.\n\nExample #1\n    >>> 1\nExample #2\n    >>> 2'),
+         ['>>> 1', '>>> 2'])  # fmt: skip
+    same('convert: numbered', setu_docs.convert('Example #1\n    >>> 1\nExample #2\n    >>> 2'),
+         '**Example #1**\n\n```pycon\n>>> 1\n```\n\n**Example #2**\n\n```pycon\n>>> 2\n```')  # fmt: skip
     same('sections: a repeated header keeps the first', setu_docs.sections('Note\n    a\nNote\n    b'),
          {'': '', 'Note': 'a'})  # fmt: skip
     same(
@@ -174,6 +178,8 @@ def check_llms(project):
         '\n### @link.setter def link(self, value: object) -> None\n',
         '\n## def vec_norm2(v: Vec) -> int\n',
         '\n```pycon\n>>> vec_norm2(Vec(3, 4))\n25\n',
+        '\n**Example #1**\n\n```pycon\n',  # `vec_scale`: two blocks, numbered by Setu
+        '\n**Example #2**\n\n```pycon\n',
         '\n## class Mode(IntEnum)\n',
         '\n## ANSWER: int\n',
     ):
@@ -287,6 +293,10 @@ def check_site(project, out):
         fail('guide.html: no chart')
     if 'data-target="vec_scale:2"' not in page or 'data-target="vec_scale"' in page:
         fail('functions.html: `vec_scale` without a Run per `Example` block')
+    if '<a href="#seq_buffer_len">seq_<wbr>buffer_<wbr>len</a>' not in page:
+        fail('functions.html: an "On this page" name does not break after `_`')
+    if '<h4>Example #2</h4>' not in page or '<h4>Example</h4>' not in page:
+        fail('functions.html: `vec_scale` blocks not numbered, or a single block numbered')
     if 'class="needs"' in page:
         fail('functions.html: an example without Run')
     flags = (

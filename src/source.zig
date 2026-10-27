@@ -140,7 +140,50 @@ pub fn docAbove(comptime source: []const u8, comptime at: usize) []const u8 {
         doc = text ++ (if (doc.len == 0) "" else "\n" ++ doc);
         start = prev;
     }
-    return doc;
+    return numberExamples(doc);
+}
+
+/// `doc` with its `Example` headers numbered `Example #1`, `Example #2`, ... when more than one has content
+/// (its next line that is not blank is indented); a single one stays `Example`. The docs site's Run target
+/// `name:2` is the block headed `Example #2`.
+///
+/// Example
+///     >>> numberExamples("Adds.\n\nExample\n    >>> 1\n    1\nExample\n    >>> 2\n    2")
+///     "Adds.\n\nExample #1\n    >>> 1\n    1\nExample #2\n    >>> 2\n    2"
+///
+/// Note
+///     - A header written `Example #<n>` is a compile error: the numbers follow the block order.
+fn numberExamples(comptime doc: []const u8) []const u8 {
+    @setEvalBranchQuota(1_000_000);
+    var lines: []const []const u8 = &.{};
+    var it = std.mem.splitScalar(u8, doc, '\n');
+    while (it.next()) |line| lines = lines ++ .{line};
+    var count = 0;
+    for (lines, 0..) |line, i| {
+        if (std.mem.startsWith(u8, line, "Example #"))
+            @compileError("`" ++ line ++ "`: write `Example`, Setu numbers repeated `Example` headers");
+        count += @intFromBool(isExample(lines, i));
+    }
+    if (count < 2) return doc;
+    var out: []const u8 = "";
+    var k = 0;
+    for (lines, 0..) |line, i| {
+        if (i > 0) out = out ++ "\n";
+        if (isExample(lines, i)) {
+            k += 1;
+            out = out ++ std.fmt.comptimePrint("Example #{d}", .{k});
+        } else out = out ++ line;
+    }
+    return out;
+}
+
+/// Is `lines[i]` an `Example` header with content (the next line that is not blank is indented)?
+fn isExample(comptime lines: []const []const u8, comptime i: usize) bool {
+    if (!std.mem.eql(u8, lines[i], "Example")) return false;
+    for (lines[i + 1 ..]) |line| {
+        if (std.mem.trim(u8, line, " \t").len > 0) return line[0] == ' ' or line[0] == '\t';
+    }
+    return false;
 }
 
 /// The `//!` doc comment at the top of `source` (contiguous lines, `//! ` stripped): a module's
@@ -160,7 +203,7 @@ pub fn moduleDoc(comptime source: []const u8) []const u8 {
         if (text.len > 0 and text[0] == ' ') text = text[1..];
         doc = doc ++ text ++ "\n";
     }
-    return std.mem.trimEnd(u8, doc, "\n");
+    return numberExamples(std.mem.trimEnd(u8, doc, "\n"));
 }
 
 const testing = @import("testing.zig");
@@ -178,6 +221,46 @@ test "moduleDoc: the `//!` block at the top of a file" {
         );
         testing.expectText(moduleDoc("const x = 1;\n//! not at the top"), "");
         testing.expectText(moduleDoc(""), "");
+    }
+}
+
+test "numberExamples: two or more `Example` blocks are numbered, one or an empty one is not" {
+    comptime {
+        testing.expectText(numberExamples("Adds.\n\nExample\n    >>> 1\n    1\nNote\n    - n.\nExample\n    >>> 2"),
+            \\Adds.
+            \\
+            \\Example #1
+            \\    >>> 1
+            \\    1
+            \\Note
+            \\    - n.
+            \\Example #2
+            \\    >>> 2
+        );
+        testing.expectText(numberExamples("Adds.\n\nExample\n    >>> 1"), "Adds.\n\nExample\n    >>> 1");
+        testing.expectText(numberExamples("Example\n\n    >>> 1\nExample\nNote\n    - n."),
+            \\Example
+            \\
+            \\    >>> 1
+            \\Example
+            \\Note
+            \\    - n.
+        );
+        testing.expectText(numberExamples("Example\n    >>> 1\n\nExample\n    >>> 2"),
+            \\Example #1
+            \\    >>> 1
+            \\
+            \\Example #2
+            \\    >>> 2
+        );
+        testing.expectText(moduleDoc("//! M.\n//!\n//! Example\n//!     >>> 1\n//! Example\n//!     >>> 2"),
+            \\M.
+            \\
+            \\Example #1
+            \\    >>> 1
+            \\Example #2
+            \\    >>> 2
+        );
     }
 }
 
