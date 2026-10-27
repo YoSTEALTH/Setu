@@ -393,8 +393,10 @@ pub fn KwNames(comptime names: []const [:0]const u8, comptime skip: usize) type 
         /// Interns name `i` (a racing thread's result wins; a failure only skips the fast path).
         fn intern(comptime i: usize) ?*Object {
             const s = c.PyUnicode_InternFromString(names[i]) orelse {
+                // coverage-off: out of memory only
                 c.PyErr_Clear();
                 return null;
+                // coverage-on
             };
             if (@cmpxchgStrong(?*Object, &interned[i], null, s, .acq_rel, .acquire)) |won| {
                 decref(s);

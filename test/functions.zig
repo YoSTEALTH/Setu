@@ -349,6 +349,19 @@ pub fn raise_long(text: []const u8) Error!void {
     return py.raiseValueError("{s}", .{text});
 }
 
+/// Fails like a Zig allocation: `MemoryError`, from `py.raiseNoMemory()`, or with `zig_error` from returning
+/// `error.OutOfMemory`.
+///
+/// Example
+///     >>> no_memory(False)
+///     MemoryError
+///     >>> no_memory(True)
+///     MemoryError
+pub fn no_memory(zig_error: bool) error{ PythonError, OutOfMemory }!void {
+    if (zig_error) return error.OutOfMemory;
+    return py.raiseNoMemory();
+}
+
 /// `big` and `small` back: an `i64` takes the fast path, a larger `u64` the one past it.
 ///
 /// Example

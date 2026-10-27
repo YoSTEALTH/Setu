@@ -202,8 +202,10 @@ pub fn toPython(value: anytype) ?*Object {
             if (T == *Object) return value; // already a new reference
             if (p.size != .slice) @compileError("unsupported return type " ++ @typeName(T));
             const list = c.PyList_New(@intCast(value.len)) orelse { // cast: a slice length fits `isize`
+                // coverage-off: out of memory only
                 dropItems(value, 0);
                 return null;
+                // coverage-on
             };
             for (value, 0..) |item, i| {
                 const o = toPython(item) orelse {
@@ -218,8 +220,10 @@ pub fn toPython(value: anytype) ?*Object {
         .@"struct" => |info| {
             if (!info.is_tuple) @compileError("unsupported return type " ++ @typeName(T));
             const tuple = c.PyTuple_New(info.field_names.len) orelse {
+                // coverage-off: out of memory only
                 inline for (info.field_names) |n| dropItem(@field(value, n));
                 return null;
+                // coverage-on
             };
             inline for (info.field_names, 0..) |n, i| {
                 const o = toPython(@field(value, n)) orelse {
@@ -394,6 +398,9 @@ fn BufferArg(comptime kind: BufferKind) type {
         data: if (kind.writable) []u8 else []const u8,
         /// The view `PyObject_GetBuffer` filled (it holds a reference to the object).
         view: c.Buffer,
+        /// The object the view is of (borrowed: the view keeps it alive), for `take`. Not `view.obj`: for a
+        /// class with a Python `__buffer__` that is CPython's wrapper, which has no buffer of its own.
+        obj: *Object,
 
         /// The bytes of `obj`; `TypeError` for an object without the buffer protocol (or a read-only
         /// one, `bytes`, for a writable one), `BufferError` for one that is not contiguous.
@@ -411,6 +418,7 @@ fn BufferArg(comptime kind: BufferKind) type {
             if (c.PyObject_GetBuffer(obj, &out.view, flags) < 0)
                 return if (kind.writable) notWritable(obj, error.PythonError) else error.PythonError;
             out.data = viewBytes(&out.view);
+            out.obj = obj;
         }
 
         /// A view of its own on the same object, locked until its `deinit`: a parameter kept past the
@@ -433,7 +441,11 @@ fn BufferArg(comptime kind: BufferKind) type {
         ///     - Not for an owned buffer (`@compileError`): the function has the view already.
         pub fn take(self: Self) Error!Self {
             if (kind.owned) @compileError("`take` of an owned buffer: it is the function's already");
-            return from(try viewObject(&self.view));
+            // coverage-off: only an exporter in C makes such a view
+            if (self.view.obj == null)
+                return raise.raise(c.PyExc_BufferError, "a buffer without an object can not be kept", .{});
+            // coverage-on
+            return from(self.obj);
         }
 
         /// Releases the view (`PyBuffer_Release`).
@@ -581,11 +593,6 @@ pub fn Sequence(comptime T: type) type {
             decref(self.tuple);
         }
     };
-}
-
-/// The object a view locks (`view.obj`), for `take`; `BufferError` without one.
-fn viewObject(view: *const c.Buffer) Error!*Object {
-    return view.obj orelse raise.raise(c.PyExc_BufferError, "a buffer without an object can not be kept", .{});
 }
 
 /// Is `T` a `Sequence(...)`?

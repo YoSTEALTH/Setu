@@ -433,24 +433,29 @@ pub const BagIter = struct {
 };
 pub const BagIterType = setu.Class(BagIter, @embedFile("classes.zig"));
 
-/// Counts down from `start` to 1 (`__next__` returning `?i64`); `get_left()` is a method
+/// Counts down from `start` to 1 (`__next__` returning `?u64`); `get_left()` is a method
 /// (`plain_methods`), not a property.
 pub const Countdown = struct {
     pub const plain_methods = .{"get_left"};
-    left: u32 = 0,
+    left: u64 = 0,
 
     /// How many numbers are left (a method, though it is named like a getter).
-    pub fn get_left(self: *const Countdown) u32 {
+    pub fn get_left(self: *const Countdown) u64 {
         return self.left;
     }
 
     /// Starts at `start`.
-    pub fn __init__(self: *Countdown, start: u32) void {
+    pub fn __init__(self: *Countdown, start: u64) void {
         self.left = start;
     }
 
+    /// How many numbers are left: past `2**63 - 1` too many for `len()`.
+    pub fn __len__(self: *const Countdown) u64 {
+        return self.left;
+    }
+
     /// The next number, or `null` after 1.
-    pub fn __next__(self: *Countdown) ?u32 {
+    pub fn __next__(self: *Countdown) ?u64 {
         if (self.left == 0) return null;
         defer self.left -= 1;
         return self.left;

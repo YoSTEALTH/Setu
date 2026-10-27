@@ -16,6 +16,8 @@ Options
     --out DIR         kcov's report (`index.html`, `codecov.json`, ...); default `zig-out/coverage`, one report per
                       interpreter in `<DIR>/<3.15t, 3.14, ...>/` when there are several; replaced on each run
                       (refused unless it is empty or an earlier report)
+    --max-memory GB   stop the run (kcov and the tests under it) when together they use more memory (resident);
+                      default 8
     --missed          list the lines that never ran (red), with their source
     --partial         list the lines that ran at some of their addresses only (yellow), with `hits/possible`
                       (with several interpreters: the largest `hits` of a run)
@@ -23,8 +25,8 @@ Options
     Arguments that are none of these (and all after a `--`) go to pytest.
 
 Note
-    - Needs kcov (43 tested) and readelf. Exit status: pytest's when tests fail, else 1 when the coverage check
-      fails, else 0.
+    - Needs kcov (43 tested), readelf and pytest (in each interpreter). Exit status: pytest's when tests fail,
+      else 1 when the coverage check fails, else 0.
     - Zig's default Debug backend (self-hosted x86_64) writes `.debug_info` elfutils rejects ("Bogus
       end-of-siblings marker"), so kcov sees none of the extension's Zig lines: build it with `.use_llvm = true`.
       readelf's warnings fail the check before kcov runs.
@@ -35,9 +37,14 @@ Note
     - In the report, yellow lines ran at some of their addresses only (counted as covered): mostly a generic line
       whose instance for some comptime type never ran.
     - Code between a `// coverage-off` and a `// coverage-on` comment is not counted (kcov `--exclude-region`):
-      for code the tests are not meant to run, so every red line is a gap.
+      for code the tests are not meant to run, so every red line is a gap, but for LLVM's line-table slips: a red
+      comment or `fn` line is an instruction LLVM gave that line (a jump nothing takes).
     - The runs are merged here, not by `kcov --merge`, which counts the `coverage-off` lines again; so there is no
       merged HTML report, only one per interpreter.
+    - Child processes of the tests (a test running `python3 example.py`) do not get kcov's `libkcov_sowrapper.so`
+      preload: they import the normal build of the extension, not this one, so they add no coverage, and kcov
+      parsing that build's self-hosted-backend DWARF grew to 25 GB in one of Liburing's runs (OOM-killed, desktop
+      apps with it). `--max-memory` stops a run that grows anyway.
 '''
 
 import glob
@@ -46,6 +53,7 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -56,13 +64,14 @@ def fail(message):
     raise SystemExit(1)
 
 
-VALUED = ('--name', '--include', '--python', '--min', '--out')
+VALUED = ('--name', '--include', '--python', '--min', '--max-memory', '--out')
 FLAGS = ('--missed', '--partial')
 
 
 def options(argv):
     '''The options, the extension's path and the pytest arguments from `argv`.'''
-    opts = {'name': None, 'include': [], 'python': [], 'min': None, 'out': os.path.join('zig-out', 'coverage')}
+    opts = {'name': None, 'include': [], 'python': [], 'min': None, 'max_memory': 8.0}
+    opts['out'] = os.path.join('zig-out', 'coverage')
     opts |= {flag[2:]: False for flag in FLAGS}
     path, pytest_args = None, []
     args = iter(argv)
@@ -79,8 +88,8 @@ def options(argv):
                     fail(f'{key} needs a value')
             if key in ('--include', '--python'):
                 opts[key[2:]].append(value)
-            elif key == '--min':
-                opts['min'] = float(value)
+            elif key in ('--min', '--max-memory'):
+                opts[key[2:].replace('-', '_')] = float(value)
             else:
                 opts[key[2:]] = value
         elif path is None and not arg.startswith('-'):
@@ -89,8 +98,8 @@ def options(argv):
             pytest_args.append(arg)
     if path is None or not opts['name'] or not opts['include']:
         fail(
-            'usage: check_coverage.py --name NAME --include DIR [--python PATH] [--min PERCENT] [--out DIR] '
-            '[--missed] [--partial] <ext.so> [pytest args]'
+            'usage: check_coverage.py --name NAME --include DIR [--python PATH] [--min PERCENT] [--max-memory GB] '
+            '[--out DIR] [--missed] [--partial] <ext.so> [pytest args]'
         )
     return opts, path, pytest_args
 
@@ -103,6 +112,12 @@ def run_tests(name, path, pytest_args):
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     loader.exec_module(module)
+    # kcov's preload, kept from child processes (see the module's Note)
+    preload = [p for p in os.environ.get('LD_PRELOAD', '').replace(':', ' ').split() if 'libkcov_sowrapper' not in p]
+    if preload:
+        os.environ['LD_PRELOAD'] = ' '.join(preload)
+    else:
+        os.environ.pop('LD_PRELOAD', None)
     import pytest  # after the extension: see the module's Note
 
     status = pytest.main(pytest_args)
@@ -183,17 +198,24 @@ def table(files):
 
 
 LABEL = (
-    'import sys, sysconfig; '
-    'print("%d.%d" % sys.version_info[:2] + "t" * bool(sysconfig.get_config_var("Py_GIL_DISABLED")))'
+    'import importlib.util, sys, sysconfig; '
+    'print("%d.%d" % sys.version_info[:2] + "t" * bool(sysconfig.get_config_var("Py_GIL_DISABLED"))); '
+    'print(importlib.util.find_spec("pytest") is not None)'
 )
 
 
 def interpreter_label(python):
-    '''The interpreter's version, `t` when free-threaded: `3.15t`, `3.14`.'''
+    '''The interpreter's version, `t` when free-threaded: `3.15t`, `3.14`; fails without pytest.'''
     out = subprocess.run([python, '-c', LABEL], capture_output=True, text=True)
     if out.returncode != 0:
         fail(f'{python}: cannot run it:\n{out.stderr.strip()}')
-    return out.stdout.strip()
+    label, has_pytest = out.stdout.split()
+    if has_pytest != 'True':
+        fail(
+            f'{python} ({label}) has no pytest: install it, or choose another interpreter (`zig build coverage '
+            '-Dpython=<path>`, `--python <path>`)'
+        )
+    return label
 
 
 def is_report(out):
@@ -217,6 +239,50 @@ def listing(files, title, keep):
             hits, possible = files[path][n]
             text = source[n - 1].strip() if n <= len(source) else ''
             print(f'{path}:{n}: {hits}/{possible}  {text}')
+
+
+PAGE = os.sysconf('SC_PAGE_SIZE')
+
+
+def session_memory(sid):
+    '''The resident memory (bytes) of the processes in session `sid`.'''
+    total = 0
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f'/proc/{pid}/stat') as f:
+                stat = f.read()
+            if int(stat[stat.rindex(')') + 2 :].split()[3]) != sid:  # after `(comm)`: state, ppid, pgrp, session
+                continue
+            with open(f'/proc/{pid}/statm') as f:
+                total += int(f.read().split()[1]) * PAGE
+        except (OSError, ValueError, IndexError):  # gone meanwhile
+            continue
+    return total
+
+
+def run_capped(cmd, max_gb):
+    '''Runs `cmd` in a session of its own; kills it all when its memory passes `max_gb`. Its exit status.'''
+    proc = subprocess.Popen(cmd, start_new_session=True)
+    try:
+        while True:
+            try:
+                return proc.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                used = session_memory(proc.pid)
+            if used > max_gb * 2**30:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+                fail(
+                    f'kcov and the tests used {used / 2**30:.1f} GB, over --max-memory {max_gb:g}: stopped. A test '
+                    'whose child processes kcov traces can grow it; leave it out (`-- --deselect ...`) or raise the cap'
+                )
+    except BaseException:  # Ctrl-C reaches only this process: the session is not in the terminal's group
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+        raise
 
 
 def main():
@@ -258,8 +324,8 @@ def main():
         if len(pythons) > 1:
             print(f'\n{label}: {python}', flush=True)
         os.makedirs(run_out, exist_ok=True)  # kcov makes the last directory only
-        run = [*cmd, run_out, python, os.path.abspath(__file__), '--run', opts['name'], path, '--', *pytest_args]
-        returncode = subprocess.run(run).returncode
+        run = [*cmd, run_out, python, os.path.abspath(__file__), '--run', opts['name'], path, '--']
+        returncode = run_capped([*run, *pytest_args], opts['max_memory'])
         status = status or returncode
         runs.append((label, run_out, report(run_out)))
 

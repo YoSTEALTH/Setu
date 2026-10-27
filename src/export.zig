@@ -488,8 +488,10 @@ fn Generated(comptime m: Module) type {
 fn freeThreaded() bool {
     const flags = c.PySys_GetObject("abiflags") orelse return false; // borrowed
     const text = c.PyUnicode_AsUTF8AndSize(flags, null) orelse {
+        // coverage-off: `sys.abiflags` is a `str`
         c.PyErr_Clear();
         return false;
+        // coverage-on
     };
     return std.mem.findScalar(u8, std.mem.span(text), 't') != null;
 }

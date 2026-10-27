@@ -162,6 +162,9 @@ def test_iterators():
     assert next(c) == 2 and next(c) == 1
     with pytest.raises(StopIteration):
         next(c)
+    assert len(Countdown(2**63 - 1)) == 2**63 - 1
+    with pytest.raises(OverflowError, match=r'^`len\(\)` of a `Countdown` is too large$'):
+        len(Countdown(2**63))
     it = iter(Bag('a', 'b'))
     assert type(it).__name__ == 'BagIter' and iter(it) is it
     assert list(it) == ['a', 'b']
@@ -537,6 +540,28 @@ def test_take():
         sc.hold(b, 'x')  # a later argument fails: `hold` is not called, nothing taken
     b.append(1)
 
+    class Exporter:
+        '''A buffer from Python (`__buffer__`), `limit` views of it.'''
+
+        def __init__(self, limit):
+            self.data, self.limit = bytearray(b'xy'), limit
+
+        def __buffer__(self, flags):
+            if self.limit == 0:
+                raise BufferError('no more views')
+            self.limit -= 1
+            return memoryview(self.data)
+
+    e = Exporter(2)
+    sc.hold(e)  # `take` gets its view from `e`, not from CPython's wrapper in the first view
+    with pytest.raises(BufferError):
+        e.data.append(1)
+    sc.hold()
+    e.data.append(1)
+    with pytest.raises(BufferError, match='^no more views$'):
+        sc.hold(bufs=[b, Exporter(1)])  # the second item's `take` fails: the first one's is released
+    b.append(1)
+
 
 def test_owned_buffers():
     '''`py.OwnedBuffer` / `py.OwnedWritableBuffer` stay locked past the call, until the function releases them.'''
@@ -622,6 +647,17 @@ def test_long_message_is_cut():
     with pytest.raises(ValueError) as e:
         sc.raise_long(text)
     assert str(e.value) == text[:511]
+    with pytest.raises(TypeError, match=r"^raise_long\(\) argument 'text' must be `str`$"):
+        sc.raise_long(b'abc')
+    with pytest.raises(TypeError, match=r"^text_tuple\(\) argument 'text' must be `bytes`$"):
+        sc.text_tuple(1, 'x', 2)
+
+
+def test_out_of_memory():
+    '''`py.raiseNoMemory()` and a returned `error.OutOfMemory` both raise `MemoryError`.'''
+    for zig_error in (False, True):
+        with pytest.raises(MemoryError):
+            sc.no_memory(zig_error)
 
 
 def test_int_parameters():

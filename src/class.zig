@@ -942,7 +942,9 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
                     }
                     return py.newNotImplemented();
                 },
+                // coverage-off: CPython passes `Py_LT` ... `Py_GE` only
                 else => return py.newNotImplemented(),
+                // coverage-on
             }
         }
 
@@ -1189,8 +1191,10 @@ pub fn Class(comptime T: type, comptime source: []const u8) type {
         fn getstateMethod(obj: ?*Object, _: ?*Object) callconv(.c) ?*Object {
             const t = c.PyTuple_New(state_len) orelse return null;
             getState(obj.?, t, 0) catch {
+                // coverage-off: out of memory only (an int, float or `bool` field)
                 py.decref(t);
                 return null;
+                // coverage-on
             };
             return t;
         }

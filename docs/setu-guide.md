@@ -320,7 +320,8 @@ pub fn recv(ring: *Ring, buf: py.OwnedWritableBuffer) void {
 Rules: when a later argument fails to convert, the function is not called and Setu releases everything,
 owned buffers included; once the function runs, an owned buffer is its own, on error paths too. A
 `Sequence` of an owned buffer type is a compile error (use `Sequence(Buffer)` and `take`), `take` of an owned
-buffer too. A buffer whose view has no object (`PyBuffer_FillInfo(NULL)`) raises `BufferError` on `take`.
+buffer too. `take` asks the argument itself for the second view, so an object with a Python `__buffer__` can be
+kept too. A buffer whose view has no object (`PyBuffer_FillInfo(NULL)`) raises `BufferError` on `take`.
 On 3.14t / 3.15t a `bytearray` argument costs 10-15 ns more: CPython's own critical section.
 
 ## 7. Docs and the stub
@@ -385,7 +386,8 @@ all four interpreters):
 - Whether a copy happens depends on LLVM's inlining, so identical source can run 2x apart between builds:
   compare A/B builds with `objdump -d`, interleaved, best of several runs.
 - `inline` changes nothing in `fast` builds (`-Doptimize=fast`): LLVM inlines the call path anyway. A moved
-  trampoline can read ~1 ns slower with identical code (placement).
+  trampoline can read ~1 ns slower with identical code (placement). `tools/bench.py --so a --so b` can read the
+  second build 1-1.5 ns slower on the cheapest call (`bench_nop`): swap the order before believing such a gap.
 - A flag on an argument (marking a `take`n copy) cost 6-8 ns per buffer argument; `take` takes a second view
   instead. `OwnedBuffer` saves that view (24-43 ns in Liburing's buffer preps).
 - Reference points: Shakti's `loop_bench` nop serial ~204 ns, batch ~129 ns, `SQE()` ~48 ns; Liburing's
@@ -458,9 +460,27 @@ and writes kcov's report to `zig-out/coverage/index.html`. A local tool, not for
 - The report's colours: green ran, red never ran, yellow ran at some of its addresses only (counted as covered).
   In Zig, yellow is mostly a generic line (`fromPython(T)`, a trampoline) whose instance for some type never ran:
   `hits` of `possible_hits` addresses, e.g. 48 of 56 int conversions.
-- Code the tests are not meant to run (benchmark helpers) goes between `// coverage-off` and `// coverage-on`
-  comments and is not counted, so every red line is a gap.
+- Code the tests are not meant to run (benchmark helpers, out-of-memory branches) goes between `// coverage-off`
+  and `// coverage-on` comments and is not counted, so every red line is a gap, but for LLVM's line-table slips: a
+  red comment or `fn` line is an instruction LLVM gave that line (a jump nothing takes), nothing to test.
+- `coverage` needs pytest in the interpreter it runs (and in each `--python`), else it stops with that error.
+- The tests' child processes (a test running `python3 example.py`) are not measured: they import the normal build,
+  and kcov parsing its self-hosted-backend DWARF grew to 25 GB in one of Liburing's runs, so the runner keeps kcov's
+  preload out of them. A run is stopped once kcov and the tests use more than `-- --max-memory GB` (default 8).
 - `-- --python /opt/python/3.14/bin/python3` (repeatable) runs the tests under that interpreter too; the table
   merges the runs (a line ran if it ran in any), so code only one interpreter reaches (3.14's `PyInit_` entry)
   counts. Each interpreter's report is then in `zig-out/coverage/<3.15t, 3.14, ...>/index.html`; there is no
   merged HTML report (`kcov --merge` counts the `coverage-off` lines again).
+
+Memory errors and leaks: valgrind memcheck over the project's pytest, by hand (no build step):
+
+    zig build develop -Dcpu=x86_64_v3       # valgrind can not run AVX-512 (SIGILL, exit 132)
+    PYTHONMALLOC=malloc valgrind --leak-check=full --errors-for-leak-kinds=definite --error-exitcode=99 \
+        python3 -m pytest -q
+    zig build develop                       # the native build back
+
+- Clean is "0 errors" and "definitely lost: 0 bytes". "Possibly lost" 56-byte blocks from module init
+  (`PyType_FromMetaclass`, one per class and exception) are the type objects kept for the process: valgrind sees
+  them only through a pointer past CPython's GC header.
+- The default Debug backend's line table is partly unreadable to valgrind ("Badly formed extended line op"): build
+  through LLVM (`.use_llvm = true` on the extension's library) for full source lines in its stacks.
