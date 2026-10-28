@@ -1,5 +1,5 @@
 '''Line coverage of an extension's Zig code: pytest under kcov, with the extension loaded first, then a per-file
-table. `zig build coverage` runs it (`addCoverageSteps` in `build.zig`), with an LLVM Debug build of the extension.
+table. `zig build coverage` runs it (`addCoverageSteps` in `build.zig`), with the Debug build of the extension.
 With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zig build coverage-zig`).
 
     zig build coverage                             # Setu: setu_classes + class_test.py (-Dpython=...)
@@ -9,7 +9,7 @@ With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zi
     python3 tools/check_coverage.py --exe --include tools <test executable> [-- its args]
 
 Options
-    --exe             the path is a Zig test executable (`b.addTest`, built `.use_llvm = true`), run under kcov
+    --exe             the path is a Zig test executable (`b.addTest`, a Debug build), run under kcov
                       with the arguments after `--`; no pytest, `--name` or `--python`
     --name NAME       the name the tests import the extension by: `setu_classes`; `liburing` for a package's
                       `__init__.so` (the path then `.../liburing/__init__.so`: a package, as normally imported);
@@ -37,15 +37,21 @@ package's file outside it, `setu/src/args.zig`; `hits` of `possible` addresses r
     {"total": {"covered": 1025, "lines": 1028},
      "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "covered": 1019, "lines": 1028,
                                "files": {"src/args.zig": [94, 94], ...}}, ...},
-     "files": {"src/args.zig": {"covered": 94, "lines": 94, "hits": {"318": [2, 2], ...}}, ...}}
+     "files": {"src/args.zig": {"covered": 94, "lines": 94, "crc32": 1234567890, "hits": {"318": [2, 2], ...}},
+               ...}}
+    `crc32` is the source's CRC-32 when it was measured: the docs site flags a file changed since.
     With `--exe`, `interpreters` holds the one run, named after the executable: {"test": {"exe": "<path>", ...}}.
 
 Note
-    - Needs kcov (43 tested), readelf and pytest (in each interpreter; not with `--exe`). Exit status: pytest's
-      (the executable's) when tests fail, else 1 when the coverage check fails, else 0.
-    - Zig's default Debug backend (self-hosted x86_64) writes `.debug_info` elfutils rejects ("Bogus
-      end-of-siblings marker"), so kcov sees none of the extension's Zig lines: build it with `.use_llvm = true`.
-      readelf's warnings fail the check before kcov runs.
+    - Needs kcov (43 tested) and pytest (in each interpreter; not with `--exe`). Exit status: pytest's (the
+      executable's) when tests fail, else 1 when the coverage check fails, else 0.
+    - Zig's default Debug backend (self-hosted x86_64) pads its line tables with ops elfutils (kcov) misreads, so
+      kcov would see none of the file's Zig lines: kcov runs a copy with the padding rewritten (`fix_line_padding`;
+      the build itself is not changed). Its line tables give each line its own code, so every red line is code
+      that never ran. An LLVM build (`.use_llvm = true`, aarch64) works as is, but folds a line like `orelse
+      return ...` into the one above (its error path shows as run) and marks some comment and `fn` lines red (a
+      jump nothing takes). readelf still warns about the self-hosted `.debug_info` ("Bogus end-of-siblings
+      marker", zero padding after a unit's last entry); kcov does not mind.
     - kcov records nothing from a shared library loaded once about 24 are mapped, and `import pytest` maps more,
       so the extension is loaded before pytest; importing `--name` gets it (a `sys.meta_path` finder); a test
       importing another copy fails the check.
@@ -53,8 +59,7 @@ Note
     - In the report, yellow lines ran at some of their addresses only (counted as covered): mostly a generic line
       whose instance for some comptime type never ran.
     - Code between a `// coverage-off` and a `// coverage-on` comment is not counted (kcov `--exclude-region`):
-      for code the tests are not meant to run, so every red line is a gap, but for LLVM's line-table slips: a red
-      comment or `fn` line is an instruction LLVM gave that line (a jump nothing takes).
+      for code the tests can not run (out of memory, a lost race), so every red line is a gap.
     - The runs are merged here, not by `kcov --merge`, which counts the `coverage-off` lines again; so there is no
       merged HTML report, only one per interpreter (`--html`).
     - Child processes of the tests (a test running `python3 example.py`) do not get kcov's `libkcov_sowrapper.so`
@@ -74,6 +79,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import zlib
 
 
 def fail(message):
@@ -171,18 +177,122 @@ def run_tests(name, path, pytest_args):
     return int(status)
 
 
-def check_debug_info(path):
-    '''Fails unless readelf reads the `.debug_info` of `path` without warnings.'''
-    if not shutil.which('readelf'):
-        fail('readelf not found (binutils)')
-    out = subprocess.run(['readelf', '--debug-dump=info', path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    warnings = [line for line in out.stderr.decode(errors='replace').splitlines() if line.strip()]
-    if out.returncode != 0 or warnings:
-        fail(
-            f'{path}: readelf cannot read its .debug_info, so kcov would see no Zig line:\n  '
-            + '\n  '.join(warnings[:3])
-            + '\nbuild it in Debug with `.use_llvm = true` (`addCoverageSteps` / `addZigTestCoverage` do)'
-        )
+def uleb128(data, at):
+    '''The ULEB128 at `at` in `data`, and the offset after it.
+
+    Example
+        >>> uleb128(b'\\x80\\x07\\x00', 0)
+        (896, 2)
+    '''
+    value = shift = 0
+    while True:
+        byte = data[at]
+        at += 1
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if byte < 0x80:
+            return value, at
+
+
+def padding_ops(n):
+    '''`n` bytes of line-table padding between two sequences: `DW_LNE` 0 ops (Zig's padding) of at most 129 bytes,
+    each with a one-byte length; `DW_LNS_const_add_pc` (it only moves the address) for fewer than 3 bytes.
+
+    Example
+        >>> padding_ops(5), padding_ops(2)
+        (b'\\x00\\x03\\x00\\x00\\x00', b'\\x08\\x08')
+    '''
+    if n < 3:
+        return bytes([8]) * n
+    out = bytearray()
+    while n > 0:
+        take = min(n, 129)
+        if 0 < n - take < 3:  # leave no 1 or 2 bytes, which no padding op fits
+            take = n - 3
+        out += bytes([0, take - 2, 0]) + bytes(take - 3)
+        n -= take
+    return bytes(out)
+
+
+def elf_section(data, name):
+    '''`(offset, size)` of the section `name` of a 64-bit little-endian ELF file, or `None`.'''
+    if data[:4] != b'\x7fELF' or data[4] != 2 or data[5] != 1:
+        return None
+    shoff = int.from_bytes(data[0x28:0x30], 'little')
+    entsize, count, names = (int.from_bytes(data[at : at + 2], 'little') for at in (0x3A, 0x3C, 0x3E))
+    headers = [data[shoff + i * entsize : shoff + (i + 1) * entsize] for i in range(count)]
+    strtab = int.from_bytes(headers[names][0x18:0x20], 'little')
+    for h in headers:
+        start = strtab + int.from_bytes(h[0:4], 'little')
+        if data[start : data.index(0, start)] == name.encode():
+            return int.from_bytes(h[0x18:0x20], 'little'), int.from_bytes(h[0x20:0x28], 'little')
+    return None
+
+
+def fix_line_padding(data):
+    '''Rewrites the padding of the `.debug_line` of the ELF file in `data` (a `bytearray`) so elfutils (kcov) reads
+    it; gives how many padding ops it rewrote.
+
+    Zig's self-hosted backend (the x86_64 Debug default) leaves room in the line tables to grow in place, filled
+    with one extended op (`DW_LNE` 0) whose length is a multi-byte ULEB128, or with a length-0 one. elfutils reads
+    an extended op's length as one byte, so it misreads the rest of the line program and drops it: kcov then sees
+    no line of the file. LLVM's line tables have no padding; nothing is changed.
+    '''
+    section = elf_section(data, '.debug_line')
+    if section is None:
+        return 0
+    base, size = section
+    fixed, unit = 0, 0
+    while unit < size:
+        at = base + unit
+        length, offset_size = int.from_bytes(data[at : at + 4], 'little'), 4
+        at += 4
+        if length == 0xFFFFFFFF:  # 64-bit DWARF
+            length, offset_size = int.from_bytes(data[at : at + 8], 'little'), 8
+            at += 8
+        end = at + length
+        version = int.from_bytes(data[at : at + 2], 'little')
+        at += 2 + (2 if version >= 5 else 0)  # `address_size`, `segment_selector_size`
+        header_length = int.from_bytes(data[at : at + offset_size], 'little')
+        at += offset_size
+        program = at + header_length
+        at += 1 + (1 if version >= 4 else 0) + 3  # `minimum_instruction_length` ... `line_range`
+        opcode_base = data[at]
+        argument_counts = data[at + 1 : at + opcode_base]
+        i = program
+        while i < end:
+            op = data[i]
+            if op == 0:  # extended: a length, then the sub-opcode and its operands
+                n, j = uleb128(data, i + 1)
+                if n == 0 or (data[j] == 0 and j - i > 2):  # Zig's padding, which elfutils misreads
+                    data[i : j + n] = padding_ops(j + n - i)
+                    fixed += 1
+                i = j + n
+            elif op == 9:  # `DW_LNS_fixed_advance_pc`: a 2-byte operand, not a ULEB128
+                i += 3
+            elif op < opcode_base:
+                i += 1
+                for _ in range(argument_counts[op - 1]):
+                    i = uleb128(data, i)[1]  # a SLEB128 ends the same way
+            else:
+                i += 1  # a special opcode
+        unit = end - base
+    return fixed
+
+
+def readable_copy(path, tmp):
+    '''`path`, or, when its line tables need `fix_line_padding`, a fixed copy in `tmp`: of its whole directory, so a
+    package's `__init__.so` stays in its package and the stub next to the extension stays next to it.'''
+    with open(path, 'rb') as f:
+        data = bytearray(f.read())
+    if not fix_line_padding(data):
+        return path
+    folder = os.path.join(tmp, 'build', os.path.basename(os.path.dirname(path)))
+    shutil.copytree(os.path.dirname(path), folder, symlinks=True)
+    copy = os.path.join(folder, os.path.basename(path))
+    with open(copy, 'wb') as f:
+        f.write(data)
+    return copy
 
 
 def report(out):
@@ -277,9 +387,19 @@ def is_result(path):
     return isinstance(data, dict) and data.keys() == {'total', 'interpreters', 'files'}
 
 
-def result(runs, files):
-    '''The `--json` result of `runs` (`(label, origin, files)`, `origin` `{"python": ...}` or `{"exe": ...}`) and
-    their merge `files`.'''
+def source_crc(path):
+    '''The CRC-32 of the file `path` (None when it can not be read): the docs site's Coverage page flags a source
+    changed since the run (`tools/setu_docs.py`).'''
+    try:
+        with open(path, 'rb') as f:
+            return zlib.crc32(f.read())
+    except OSError:
+        return None
+
+
+def result(runs, files, sources):
+    '''The `--json` result of `runs` (`(label, origin, files)`, `origin` `{"python": ...}` or `{"exe": ...}`), their
+    merge `files` and the files' `sources` (shown path -> real path).'''
 
     def summary(lines):
         covered, total = totals(lines)
@@ -296,7 +416,11 @@ def result(runs, files):
             for label, origin, run in runs
         },
         'files': {
-            path: {**summary({path: lines}), 'hits': {str(n): list(lines[n]) for n in sorted(lines)}}
+            path: {
+                **summary({path: lines}),
+                'crc32': source_crc(sources[path]),
+                'hits': {str(n): list(lines[n]) for n in sorted(lines)},
+            }
             for path, lines in sorted(files.items())
         },
     }
@@ -389,10 +513,11 @@ def main():
     kcov = shutil.which('kcov')
     if not kcov:
         fail('kcov not found (Ubuntu 25.04+ / Arch: the `kcov` package)')
-    check_debug_info(path)
+    temporary = tempfile.TemporaryDirectory(prefix='check_coverage-')  # removed after the runs (or on exit)
+    traced = readable_copy(path, temporary.name)  # what kcov runs: `path`, or its copy with fixed line tables
     # what kcov runs: `(label, origin for --json, command)`
     if opts['exe']:
-        targets = [(os.path.basename(path), {'exe': path}, [path])]
+        targets = [(os.path.basename(path), {'exe': path}, [traced])]
     else:
         pythons = [sys.executable]
         for python in opts['python']:
@@ -403,7 +528,7 @@ def main():
         labels = [interpreter_label(python) for python in pythons]
         if len(set(labels)) < len(labels):
             fail(f'--python: the same interpreter version twice ({", ".join(labels)})')
-        runner = [os.path.abspath(__file__), '--run', opts['name'], path, '--']
+        runner = [os.path.abspath(__file__), '--run', opts['name'], traced, '--']
         targets = [(label, {'python': python}, [python, *runner]) for python, label in zip(pythons, labels)]
 
     out_json, html = opts['json'], opts['html']
@@ -420,7 +545,7 @@ def main():
     cmd = [kcov, '--clean', f'--include-path={include}', f'--strip-path={os.getcwd()}']
     cmd += ['--exclude-region=coverage-off:coverage-on']
     status, runs = 0, []
-    with tempfile.TemporaryDirectory(prefix='check_coverage-') as tmp:
+    with temporary as tmp:
         for label, origin, command in targets:
             run_out = os.path.join(html or tmp, label)
             if len(targets) > 1:
@@ -437,11 +562,11 @@ def main():
     table(files)
     covered, total = totals(files)
     if total == 0:
-        why = 'not built `.use_llvm = true`' if opts['exe'] else 'or the extension was not loaded first'
+        why = 'not a Debug build with debug info' if opts['exe'] else 'or the extension was not loaded first'
         fail(f'kcov recorded no line under {include}: wrong --include, {why}')
     os.makedirs(os.path.dirname(out_json) or '.', exist_ok=True)
     with open(out_json, 'w') as f:
-        json.dump(result(runs, files), f, indent=1)
+        json.dump(result(runs, files, sources), f, indent=1)
         f.write('\n')
     width = len(str(total))
     if len(runs) > 1:

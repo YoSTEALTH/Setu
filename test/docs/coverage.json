@@ -1,0 +1,11 @@
+{"total": {"covered": 13, "lines": 16},
+ "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "covered": 12, "lines": 16,
+                           "files": {"example/vec.zig": [9, 10], "setu/src/args.zig": [3, 6]}},
+                  "3.14": {"python": "/opt/python/3.14/bin/python3", "covered": 13, "lines": 16,
+                           "files": {"example/vec.zig": [9, 10], "setu/src/args.zig": [4, 6]}}},
+ "files": {"example/vec.zig": {"covered": 9, "lines": 10, "crc32": 4095525399,
+                               "hits": {"1": [1, 1], "2": [1, 1], "3": [1, 1], "4": [0, 1], "5": [1, 1], "6": [1, 1],
+                                        "7": [1, 1], "8": [1, 1], "9": [1, 1], "10": [2, 2]}},
+           "setu/src/args.zig": {"covered": 4, "lines": 6, "crc32": 0,
+                                 "hits": {"10": [1, 1], "11": [0, 2], "12": [0, 1], "13": [1, 1], "14": [1, 1],
+                                          "15": [1, 2]}}}}

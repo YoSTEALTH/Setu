@@ -60,8 +60,11 @@ pub fn Exception(comptime options: ExceptionOptions) type {
                 break :blk (text ++ "\x00")[0..text.len :0];
             };
             const base = @field(c, "PyExc_" ++ base_name);
-            const t = c.PyErr_NewExceptionWithDoc(qualified, if (doc) |d| d.ptr else null, base, null) orelse
+            const t = c.PyErr_NewExceptionWithDoc(qualified, if (doc) |d| d.ptr else null, base, null) orelse {
+                // coverage-off: out of memory only
                 return error.PythonError;
+                // coverage-on
+            };
             tp = t; // keeps the new reference for the process lifetime
             if (module) |m| if (c.PyModule_AddObjectRef(m, name, t) < 0) return error.PythonError;
         }

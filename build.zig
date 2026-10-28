@@ -5,10 +5,12 @@
 //! zig build coverage        line coverage of the test extension under class_test.py (kcov; arguments
 //!                           after `--` go to pytest)
 //! zig build coverage-zig    line coverage of tools/setu_docs_web.zig's unit tests (kcov)
+//! zig build profile         instructions per call of tools/bench.py's cases, per line (callgrind; needs
+//!                           -Doptimize=fast -Dcpu=x86_64_v3; arguments after `--` go to check_profile.py)
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
-//!   -Dpython=<path>         the interpreter `coverage` runs pytest with (default python3)
+//!   -Dpython=<path>         the interpreter `coverage` runs pytest with, `profile` the cases (default python3)
 //!
 //! One build serves CPython 3.14, 3.14t, 3.15, 3.15t and later: the extension is `<name>.so`
 //! (`ext_suffix`), which every one of them imports (see `src/capi.zig`).
@@ -19,8 +21,8 @@
 //! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
 //! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide
 //! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
-//! `tools/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests) and
-//! `ext_suffix`.
+//! `tools/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests), `addProfileSteps` (its
+//! `profile` step: callgrind over the project's cases, by `tools/check_profile.py`) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -32,7 +34,7 @@ pub fn build(b: *std.Build) void {
     // `-Doptimize=...` (default Debug), so a dependent build can pass `.optimize` (`test/wheel/`).
     const optimize = b.standardOptimizeOption(.{});
     const strip = b.option(bool, "strip", "Strip debug symbols from the test extension") orelse false;
-    const python = b.option([]const u8, "python", "The interpreter `coverage` runs pytest with") orelse "python3";
+    const python = b.option([]const u8, "python", "The interpreter for `coverage` and `profile`") orelse "python3";
 
     // No target / optimize: the module takes them from whatever compiles it (extension, host program, test).
     const setu = b.addModule("setu", .{ .root_source_file = b.path("src/root.zig") });
@@ -68,6 +70,11 @@ pub fn build(b: *std.Build) void {
         .module_name = "setu_classes",
         .include = &.{ b.path("src"), b.path("test") },
         .stub = setu_pyi, // `test_stub_matches_module` reads it next to the extension
+        .python = python,
+    });
+    profile(b, b.path("tools/check_profile.py"), setu_test, .{
+        .module_name = "setu_classes",
+        .cases = b.path("tools/bench.py"),
         .python = python,
     });
 
@@ -259,12 +266,14 @@ pub const CoverageOptions = struct {
 };
 
 /// The step `coverage`: line coverage of the extension `ext`'s Zig code under the project's pytest, by kcov.
-/// It builds `ext.root_module` again as a second library through LLVM (Zig's default Debug backend writes
-/// `.debug_info` kcov cannot read), then runs Setu's `tools/check_coverage.py` from the pinned Setu in the
-/// project's root: pytest with the extension loaded first, a per-file table, the result in `zig-out/coverage.json`.
+/// It runs Setu's `tools/check_coverage.py` from the pinned Setu in the project's root on `ext` as built: pytest
+/// with the extension loaded first, a per-file table, the result in `zig-out/coverage.json`.
 ///
 /// Note
-///     - Needs kcov (43 tested) and readelf; `ext.root_module` in Debug with debug info (else the step fails).
+///     - Needs kcov (43 tested); `ext.root_module` in Debug with debug info (else the step fails).
+///     - Zig's default Debug backend (self-hosted x86_64) gives each line its own code, so every red line is
+///       code that never ran. An LLVM build (`use_llvm`, or aarch64) folds a line like `orelse return ...` into
+///       the one above, so its error path shows as run, and marks some comment and `fn` lines red.
 ///     - After `--`: the runner's `--missed` (red lines) / `--partial` (yellow lines) / `--python <path>` (the
 ///       tests under that interpreter too, merged; repeatable) / `--html <dir>` (kcov's HTML report too), the rest
 ///       goes to pytest.
@@ -304,13 +313,9 @@ fn coverage(
         step.dependOn(&b.addFail("coverage: the extension's module must be Debug, not stripped").step);
         return;
     }
-    // The same module again, through LLVM: its `.debug_info` is one elfutils (kcov) reads. Zig bug (0.17.0
-    // still): the self-hosted x86_64 backend's DWARF has a "Bogus end-of-siblings marker" (readelf), so elfutils
-    // drops the compile unit and kcov sees no Zig line; valgrind reads its line table only partly. Reported as
-    // github.com/ziglang/zig/issues/22949; related: codeberg.org/ziglang/zig/issues/36561. `ext` stays as built.
-    const lib = b.addLibrary(.{ .name = ext.name, .linkage = .dynamic, .root_module = module });
-    lib.linker_allow_shlib_undefined = ext.linker_allow_shlib_undefined;
-    lib.use_llvm = true;
+    // `ext` as built: with the self-hosted x86_64 backend (the Debug default), whose line tables kcov reads once
+    // `check_coverage.py` has fixed their padding (a copy), and which, unlike LLVM's, give each line its own code
+    // (LLVM folds an `orelse return` into the line above and marks some comment and `fn` lines red).
     // `<name>.so` (or `<name>/__init__.so`), the file name the tests see (`__file__`), not `lib<name>.so`.
     const base = if (std.mem.findScalarLast(u8, options.module_name, '.')) |dot|
         options.module_name[dot + 1 ..]
@@ -318,7 +323,7 @@ fn coverage(
         options.module_name;
     const stem = if (options.package) b.fmt("{s}/__init__", .{base}) else base;
     const files = b.addWriteFiles();
-    const so = files.addCopyFile(lib.getEmittedBin(), b.fmt("{s}{s}", .{ stem, ext_suffix }));
+    const so = files.addCopyFile(ext.getEmittedBin(), b.fmt("{s}{s}", .{ stem, ext_suffix }));
     if (options.stub) |pyi| _ = files.addCopyFile(pyi, b.fmt("{s}.pyi", .{stem}));
 
     const run = b.addSystemCommand(&.{options.python});
@@ -345,13 +350,12 @@ pub const ZigTestCoverageOptions = struct {
     min: ?f64 = null,
 };
 
-/// The step `coverage-zig` (`options.step_name`): line coverage of Zig unit tests, by kcov. It builds `tests`
-/// (a `b.addTest`) again through LLVM (see `addCoverageSteps`), runs it under kcov with Setu's
-/// `tools/check_coverage.py --exe`, prints the per-file table and writes `zig-out/coverage-zig.json`, in the
-/// format of `addCoverageSteps`' `coverage.json`.
+/// The step `coverage-zig` (`options.step_name`): line coverage of Zig unit tests, by kcov. It runs `tests`
+/// (a `b.addTest`) under kcov with Setu's `tools/check_coverage.py --exe`, prints the per-file table and writes
+/// `zig-out/coverage-zig.json`, in the format of `addCoverageSteps`' `coverage.json`.
 ///
 /// Note
-///     - Needs kcov (43 tested) and readelf; `tests.root_module` in Debug with debug info (else the step fails).
+///     - Needs kcov (43 tested); `tests.root_module` in Debug with debug info (else the step fails).
 ///     - After `--`: the runner's `--missed` / `--partial` / `--html <dir>` / `--max-memory GB`, the rest goes to
 ///       the test executable. Code between `// coverage-off` and `// coverage-on` is not counted.
 ///     - For tests that do not call libpython: an extension's code runs under pytest (`addCoverageSteps`).
@@ -384,22 +388,96 @@ fn zigTestCoverage(
         step.dependOn(&b.addFail(message).step);
         return;
     }
-    // Through LLVM, as in `coverage`: kcov can not read the default Debug backend's `.debug_info`.
-    const exe = b.addTest(.{
-        .name = tests.name,
-        .root_module = module,
-        .filters = tests.filters,
-        .use_llvm = true,
-    });
+    // `tests` as built, as in `coverage` (`check_coverage.py` fixes a self-hosted build's line tables, in a copy)
     const run = b.addSystemCommand(&.{options.python});
     run.setCwd(b.path("."));
     run.addFileArg2(runner, .{ .make_absolute = true });
     run.addArgs(&.{ "--exe", b.fmt("--json=zig-out/{s}.json", .{options.step_name}) });
     for (options.include) |dir| run.addDirectoryArg2(dir, .{ .prefix = "--include=", .make_absolute = true });
     if (options.min) |min| run.addArg(b.fmt("--min={d}", .{min}));
-    run.addArtifactArg2(exe, .{ .make_absolute = true });
+    run.addArtifactArg2(tests, .{ .make_absolute = true });
     run.addPassthruArgs(); // the runner's options (`--missed`), the rest is the executable's
     run.has_side_effects = true; // kcov's run is no input the step knows of
+    step.dependOn(&run.step);
+}
+
+/// What `addProfileSteps` takes.
+pub const ProfileOptions = struct {
+    /// The name the cases import the extension by: `"setu_classes"`, or `"liburing"` for a package's `__init__.so`
+    /// (`package`).
+    module_name: []const u8,
+    /// The extension is its package's `__init__.so` (`liburing/__init__.so`): the profiled build is put there too.
+    package: bool = false,
+    /// The cases: a Python file with `CASES`, a list of `(label, statement)`, and `namespace(module)`, the names
+    /// the statements use (Setu's `tools/bench.py` is one).
+    cases: std.Build.LazyPath,
+    /// The interpreter that runs `tools/check_profile.py` (and the cases; more with `-- --python <path>`).
+    python: []const u8 = "python3",
+};
+
+/// The step `profile`: instructions per call of each case (a statement calling into the extension `ext`), in total
+/// and per line of its Zig code, by callgrind. It runs Setu's `tools/check_profile.py` on `ext` as built, prints a
+/// table per interpreter and writes `zig-out/profile.json`; with `--baseline <an earlier one>` it shows each case's
+/// change and fails when one grew.
+///
+/// Note
+///     - Needs valgrind (3.25 tested); `ext.root_module` optimized (not Debug), with debug info, for a CPU without
+///       AVX-512 (valgrind can not run it): `-Doptimize=fast -Dcpu=x86_64_v3` (else the step fails).
+///     - Counts instructions, not time: exact on every run, so a change of 1 per call shows. `tools/bench.py`
+///       times the same cases.
+///     - After `--`: the runner's `-k <text>` / `--lines <k>` (each case's costliest lines) / `--python <path>`
+///       (that interpreter too; repeatable) / `--baseline <json>` / `--tolerance <n>` (default 2) / `--json <file>`.
+///
+/// Example
+///     >>> @import("setu").addProfileSteps(b, setu_dep, ext, .{
+///     >>>     .module_name = "liburing",
+///     >>>     .package = true, // liburing/__init__.so
+///     >>>     .cases = b.path("tools/bench_cases.py"),
+///     >>> });
+///     $ zig build profile -Doptimize=fast -Dcpu=x86_64_v3                  # the table; zig-out/profile.json
+///     $ zig build profile -Doptimize=fast -Dcpu=x86_64_v3 -- -k recv --lines 8
+///     $ cp zig-out/profile.json /tmp/before.json   # ... change the code ...
+///     $ zig build profile -Doptimize=fast -Dcpu=x86_64_v3 -- --baseline /tmp/before.json
+pub fn addProfileSteps(
+    b: *std.Build,
+    setu_dep: *std.Build.Dependency,
+    ext: *std.Build.Step.Compile,
+    options: ProfileOptions,
+) void {
+    profile(b, setu_dep.path("tools/check_profile.py"), ext, options);
+}
+
+/// `addProfileSteps` with Setu's `tools/check_profile.py` given (Setu's own build has no dependency).
+fn profile(
+    b: *std.Build,
+    runner: std.Build.LazyPath,
+    ext: *std.Build.Step.Compile,
+    options: ProfileOptions,
+) void {
+    const step = b.step("profile", "Instructions per call of the extension's cases (callgrind)");
+    const module = ext.root_module;
+    const cpu = module.resolved_target.?.result.cpu;
+    if ((module.optimize orelse .debug) == .debug or module.strip == true or
+        (cpu.arch == .x86_64 and cpu.has(.x86, .avx512f)))
+    {
+        const message = "profile: build the extension optimized, with debug info, for a CPU valgrind runs: " ++
+            "-Doptimize=fast -Dcpu=x86_64_v3";
+        step.dependOn(&b.addFail(message).step);
+        return;
+    }
+    // `<name>.so` (or `<name>/__init__.so`), the file name the cases import, not `lib<name>.so`
+    const stem = if (options.package) b.fmt("{s}/__init__", .{options.module_name}) else options.module_name;
+    const files = b.addWriteFiles();
+    const so = files.addCopyFile(ext.getEmittedBin(), b.fmt("{s}{s}", .{ stem, ext_suffix }));
+
+    const run = b.addSystemCommand(&.{options.python});
+    run.setCwd(b.path("."));
+    run.addFileArg2(runner, .{ .make_absolute = true });
+    run.addArgs(&.{ "--name", options.module_name });
+    run.addFileArg2(options.cases, .{ .prefix = "--cases=", .make_absolute = true });
+    run.addFileArg2(so, .{ .make_absolute = true });
+    run.addPassthruArgs(); // the runner's options (`-k`, `--baseline`, ...)
+    run.has_side_effects = true; // valgrind's runs are no input the step knows of
     step.dependOn(&run.step);
 }
 

@@ -1,0 +1,7 @@
+// The docs fixture's dependencies, as a project's `build.zig.zon` names them: the Coverage page finds the sources
+// of `setu/...` through `.setu` (here this checkout). Not a package of its own: there is no `build.zig` here.
+.{
+    .dependencies = .{
+        .setu = .{ .path = "../.." },
+    },
+}

@@ -40,3 +40,5 @@ error Setu raises. The source is the reference behind it; `test/` is a working e
 - [tools/bench.py](tools/bench.py): per-call cost, A/B against a commit
 - [tools/check_coverage.py](tools/check_coverage.py): line coverage under pytest (kcov), run by `zig build
   coverage` (`addCoverageSteps` in `build.zig`), and of Zig unit tests (`addZigTestCoverage`, `zig build coverage-zig`)
+- [tools/check_profile.py](tools/check_profile.py): instructions per call of `bench.py`'s cases, per Zig line
+  (callgrind), run by `zig build profile` (`addProfileSteps`); `--baseline` fails a case that grew

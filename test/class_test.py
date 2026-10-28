@@ -88,6 +88,9 @@ def test_numbers():
     w = v
     w += Vec(1, 1)  # `__iadd__` returns `void`: `self`
     assert w is v and v == Vec(2, 3)
+    with pytest.raises(TypeError, match=r'unsupported operand type\(s\) for \+='):
+        w += 1  # `__iadd__` gave `NotImplemented`, then `__add__` too
+    assert w is v and v == Vec(2, 3)
     with pytest.raises(OverflowError, match=r'`Vec.__mul__\(other\)` = 18446744073709551616 is out of range'):
         v * 2**64
 
@@ -338,6 +341,13 @@ def test_finalize_keeps_exception(monkeypatch):
         Watch(lambda: 1 / 0)  # finalized at once: its error is unraisable, `KeyError` stays
         assert isinstance(sys.exception(), KeyError)
     assert seen == [ZeroDivisionError]
+
+
+def test_traverse_stops():
+    '''`gc.get_referrers` stops a traversal at the first match (its visitor returns 1).'''
+    marker = object()
+    labeled = Labeled(marker)
+    assert any(o is labeled for o in gc.get_referrers(marker))
 
 
 def test_dict_cycle_is_collected():

@@ -21,6 +21,10 @@ scripts = 'example'
 scripts_skip = ['forever.py']
 featured = 'example/hi.py'
 hooks = 'docs_hooks.py'
+# a snapshot, not `zig build coverage`'s result: `example/` is the project's own folder, `setu/` a dependency
+coverage = 'coverage.json'
+# a snapshot, not `zig build profile`'s result: a source the site reads (`../functions.zig`), one it does not find
+profile = 'profile.json'
 
 [[tool.setu_docs.markdown]]
 file = 'docs/guide.md'

@@ -399,8 +399,10 @@ pub fn KwNames(comptime names: []const [:0]const u8, comptime skip: usize) type 
                 // coverage-on
             };
             if (@cmpxchgStrong(?*Object, &interned[i], null, s, .acq_rel, .acquire)) |won| {
+                // coverage-off: another thread interned name `i` first, a race no test makes happen reliably
                 decref(s);
                 return won;
+                // coverage-on
             }
             return s;
         }

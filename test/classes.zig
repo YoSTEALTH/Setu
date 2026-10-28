@@ -493,8 +493,10 @@ pub const Adder = struct {
             py.incref(x);
             break :blk x;
         } else c.PyDict_New() orelse {
+            // coverage-off: out of memory only
             py.decref(t);
             return error.PythonError;
+            // coverage-on
         };
         return py.new(.{ first + self.base, t, d });
     }

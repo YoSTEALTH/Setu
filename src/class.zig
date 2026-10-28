@@ -506,7 +506,18 @@ fn textSignature(comptime T: type, comptime body: []const u8) ?[]const u8 {
 ///     - Declare it once (`pub const PointType = setu.Class(Point, @embedFile("point.zig"))`)
 ///       and use that name everywhere: it holds the type object (`tp`).
 pub fn Class(comptime T: type, comptime source: []const u8) type {
+    // A generic's arguments are part of its type's name, and so of every generated function's symbol and debug
+    // name: passed as is, the whole file would be in each (Liburing's debug `.so`: 270 MB).
+    const Source = struct {
+        const text = source;
+    };
+    return ClassOf(T, Source);
+}
+
+/// `Class`, with the source as `Source.text`.
+fn ClassOf(comptime T: type, comptime Source: type) type {
     @setEvalBranchQuota(1_000_000);
+    const source = Source.text;
     const info = @typeInfo(T).@"struct";
     // `T`'s own part of `source`, so methods of other structs in the file don't match.
     const head = "const " ++ shortName(@typeName(T)) ++ " = struct {";

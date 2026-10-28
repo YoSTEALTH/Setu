@@ -38,6 +38,8 @@ tools/setu_docs.py    the docs site builder projects copy into their tools/
 tools/setu_docs_web.zig  the site's search and Run logic (WebAssembly, zig build docs-web)
 tools/check_coverage.py  line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
                          and of Zig unit tests (addZigTestCoverage: zig build coverage-zig)
+tools/check_profile.py   instructions per call, per Zig line (callgrind), run by zig build profile
+                         (addProfileSteps)
 ```
 
 Commands:
@@ -49,6 +51,8 @@ python3 tools/check_docs.py           # the docs site of test/docs/ (after devel
 tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
 python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
 zig build coverage -Dpython=python3   # line coverage of the test extension (kcov), zig-out/coverage.json
+zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call (callgrind), zig-out/profile.json
+python3 tools/setu_docs.py serve       # Setu's docs site (zig-out/site): guide, API, coverage, profile
 ```
 
 ## For AI sessions (and other readers in a hurry)
