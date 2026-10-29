@@ -398,6 +398,11 @@ def check_site(project, out):
     footer = 'of <a href="https://github.com/YoSTEALTH/Setu" target="_blank" rel="noopener">setu_classes</a> 0.0'
     if f'{footer} (CPython 3.14+).</footer>' not in home:
         fail('index.html: footer without the `[project]` homepage or `requires-python`, or not in a new tab')
+    project.homepage, homepage = '', project.homepage
+    project.repo, repo = 'https://example.org/me/pkg', project.repo
+    footer = re.search(r'docstrings of <a href="([^"]*)"', site.page('index', 'Home', ''))
+    project.homepage, project.repo = homepage, repo
+    same('footer: the name links the repository without a homepage', footer and footer[1], 'https://example.org/me/pkg')
     repo = '<a class="repo" href="https://github.com/YoSTEALTH/Setu"'
     if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
         fail('index.html: no repository link from the `[project]` homepage')

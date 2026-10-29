@@ -81,3 +81,32 @@ jobs:
 
       - name: coverage badge and history up to date
         run: git diff --exit-code docs/coverage-badge.json docs/coverage-history.json
+
+      # The docs site (`tools/setu_docs.py`), built here so its Coverage page is this run's `zig-out/coverage.json`;
+      # published to GitHub Pages (Settings > Pages > Source: GitHub Actions; Settings > Environments > github-pages
+      # allows `dev` and `main`) only from a push whose checks all passed.
+      - name: Build the docs site
+        if: github.event_name == 'push'
+        run: '"${{ steps.py_ft.outputs.python-path }}" tools/setu_docs.py'
+
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          path: zig-out/site
+
+  pages:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

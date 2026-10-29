@@ -77,10 +77,11 @@ The settings, in `pyproject.toml` (paths relative to it):
     groups = ['IORING_OP_', 'O_']   # optional: prefixes, first match wins (default: up to the first `_`;
                                     # a group of one goes under `Other`)
 
-The footer also reads `[project]`: `urls.Homepage` (the name links to it) and `requires-python` (`>=3.14` shows as
-`CPython 3.14+`); each is left out when missing. The header's top right links the repository: `repo = 'https://
-github.com/me/pkg'` in `[tool.setu_docs]`, else the first GitHub URL of `urls.Repository`, `.Source`, `.Homepage`;
-a GitHub one shows `me/pkg` with its latest release, stars and forks (the page asks GitHub's API, once a session).
+The footer also reads `[project]`: `urls.Homepage` (the name links to it; else to the repository below) and
+`requires-python` (`>=3.14` shows as `CPython 3.14+`); each is left out when missing. The header's top right links
+the repository: `repo = 'https://github.com/me/pkg'` in `[tool.setu_docs]`, else the first GitHub URL of
+`urls.Repository`, `.Source`, `.Homepage`; a GitHub one shows `me/pkg` with its latest release, stars and forks
+(the page asks GitHub's API, once a session).
 
 The header's ◐ button opens the theme menu: Nord Day, Nord Night (Snow Storm, Polar Night), Tokyo Day, Tokyo Night; the
 browser remembers the choice (`<html data-palette="nord" data-theme="dark">`). Until one is made the theme is Tokyo
@@ -1528,7 +1529,7 @@ class Site:
         name, version = html.escape(project.name), html.escape(project.version)
         # API pages are mostly names, which Chrome takes for some other language and offers to translate
         meta = '\n<meta name="google" content="notranslate">' if api else ''
-        url = project.homepage
+        url = project.homepage or project.repo
         footer_name = f'<a href="{html.escape(url)}">{name}</a>' if url else name
         python = f' (CPython {html.escape(project.requires)})' if project.requires else ''
         repo = ''
