@@ -11,7 +11,7 @@ item1 aria-checked="true"
 item2 aria-checked="false"
 item3 aria-checked="false"
 copy -hidden
-zig html "<span class=\"kw\">const</span> x = <span class=\"num\">1</span>;"
+zig html "<span class=\"ln\"><span class=\"kw\">const</span> x = <span class=\"num\">1…"
 fetch https://api.github.com/repos/YoSTEALTH/Setu
 fetch https://api.github.com/repos/YoSTEALTH/Setu/releases?per_page=10
 body class can-run true

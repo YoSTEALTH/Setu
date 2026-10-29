@@ -1,6 +1,7 @@
 # Setu
 
 [![ci](https://github.com/YoSTEALTH/Setu/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YoSTEALTH/Setu/actions/workflows/ci.yml?query=branch%3Amain)
+[![docs](https://img.shields.io/badge/docs-yostealth.github.io%2FSetu-2e7de9)](https://yostealth.github.io/Setu/)
 [![tag](https://img.shields.io/github/v/tag/YoSTEALTH/Setu?sort=date&label=tag)](https://github.com/YoSTEALTH/Setu/tags)
 [![coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FYoSTEALTH%2FSetu%2Fmain%2Fdocs%2Fcoverage-badge.json)](docs/setu-guide.md#11-checks)
 [![zig](https://img.shields.io/badge/zig-0.17.0-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/download/)
@@ -21,6 +22,11 @@ Setu is mainly for the [Shakti](https://github.com/YoSTEALTH/Shakti) and
 [Liburing](https://github.com/YoSTEALTH/Liburing) projects, which use it as a dependency (it never imports
 either). For your own extensions, use [PyOZ](https://pyoz.dev) instead: it fills the same role and is
 documented and maintained for public use.
+
+> **Note:** Setu is not on PyPI and has no Python package: it is a Zig dependency (`build.zig.zon`), used at build
+> time.
+
+Documentation: https://yostealth.github.io/Setu/ (the guide to writing an extension, the test extension's API).
 
 ```sh
 src/root.zig             # the module root (@import("setu"))

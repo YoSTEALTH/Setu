@@ -111,6 +111,25 @@ pub fn buffer_fill(buf: py.WritableBuffer, value: u8) usize {
     return buf.data.len;
 }
 
+/// Reads up to `n` bytes (default: all of `buf`) from `fd` into `buf` at `offset`; returns how many.
+///
+/// Example
+///     >>> import os
+///     >>> fd = os.open('a.txt', os.O_RDWR | os.O_CREAT)
+///     >>> os.write(fd, b'hello world')
+///     11
+///     >>> b = bytearray(8)
+///     >>> read(fd, b, 4, offset=6)
+///     4
+///     >>> b
+///     bytearray(b'worl\x00\x00\x00\x00')
+///     >>> os.close(fd)
+pub fn read(fd: i32, buf: py.WritableBuffer, n: ?usize, _: py.KwOnly, offset: i64) Error!usize {
+    const want = @min(n orelse buf.data.len, buf.data.len);
+    const res: isize = @bitCast(std.os.linux.pread(fd, buf.data.ptr, want, offset)); // cast: a signed word
+    return @intCast(try py.checkErrno(res)); // cast: `checkErrno` gave >= 0
+}
+
 /// The sum of `values` (a list, tuple, range, ... of `u32`s).
 ///
 /// Example

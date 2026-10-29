@@ -32,6 +32,12 @@ file = 'docs/guide.md'
 title = 'Guide'
 section = 'Guide'
 
+[[tool.setu_docs.markdown]]
+file = 'docs/tour.md'
+title = 'Tour'
+section = 'Guide'
+split = true
+
 [[tool.setu_docs.pages]]
 slug = 'functions'
 title = 'Functions'

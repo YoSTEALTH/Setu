@@ -248,6 +248,44 @@ def check_examples(project):
         fail(f'run_target({target!r}) ran')
 
 
+def check_split(site, out, files):
+    '''`split = true` (`docs/tour.md`): a page per `##` chapter, listed in the nav under the page, with the text before
+    the first chapter and a list of them on the page; Previous / Next links; a link to a heading goes to its chapter.'''
+    same(
+        'chapters: a code block `##` line is no chapter, headings one level up',
+        setu_docs.chapters('# T\nHi.\n## 1. A\n```\n## x\n```\n### B\n## 2. C\n'),
+        ('# T\nHi.', [('1. A', '# 1. A\n```\n## x\n```\n## B'), ('2. C', '# 2. C')]),
+    )
+    for name in ('tour.html', 'tour-first-steps.html', 'tour-more.html'):
+        if name not in files:
+            fail(f'split: no {name}')
+    tour, first, more = ((out / f'{n}.html').read_text() for n in ('tour', 'tour-first-steps', 'tour-more'))
+    nav = '<a href="tour-first-steps.html" class="sub">1. First steps</a>'
+    if nav not in tour or '<a href="tour-more.html" class="sub on">2. More</a>' not in more:
+        fail('split: a chapter not in the nav under its page, or not `on` on its own')
+    if 'this text stays here' not in tour or '<ul class="chapters">' not in tour or 'First steps</a></li>' not in tour:
+        fail('tour.html: not the text before the first chapter and the chapter list')
+    if '<h1 id="1-first-steps">1. First steps' not in first or 'not a chapter' not in first:
+        fail('tour-first-steps.html: the chapter heading not its `<h1>`, or the code block not on it')
+    if not re.search(r'<section class="part" id="a-subsection">\s*<h2>', more):
+        fail('tour-more.html: `### A subsection` not a level 2 heading')
+    pager = (
+        '<nav class="pager"><a class="prev" href="tour.html">← Tour</a>'
+        '<a class="next" href="tour-more.html">2. <code>More</code> →</a></nav>'
+    )
+    if pager not in first or '<a class="prev" href="tour-first-steps.html">' not in more or 'class="next"' in more:
+        fail('split: wrong Previous / Next links')
+    if (
+        'href="tour-more.html#a-subsection"' not in first
+        or 'href="tour-first-steps.html#1-first-steps"' not in more
+        or 'href="tour.html"' not in more
+    ):
+        fail('split: a link to a heading of the file not to its chapter')
+    index = setu_docs.llms_index(site.project.config, site.chapters)
+    if '- [Tour](tour.html)\n  - [1. First steps](tour-first-steps.html)\n' not in index:
+        fail('llms.txt: the chapters not under their page')
+
+
 def check_site(project, out):
     site = setu_docs.Site(project)
     files = site.write(out)
@@ -258,6 +296,7 @@ def check_site(project, out):
             fail(f'site: no {name}')
     if (out / 'docs.wasm').read_bytes()[:4] != b'\0asm':
         fail('docs.wasm is not WebAssembly')
+    check_split(site, out, files)
     for name in files:
         if name.endswith('.html') and setu_docs.pretty_html(text := (out / name).read_text()) != text:
             fail(f'{name}: `pretty_html` changes its own output')
@@ -388,15 +427,24 @@ def check_site(project, out):
     icons = [urllib.parse.unquote(setu_docs.letter_icon(n)) for n in ('_x', '9', '_')]
     letters = [re.search(r'>([^<]*)</text>', i)[1] for i in icons]
     same('letter_icon: the first letter or digit, upper case', letters, ['X', '9', '?'])
-    # each palette's light set, the system's dark and the ◐ menu's dark: each sets every color
+    # each palette's light and dark set, and the system's dark before a pick (Nord Night): each sets every color
     blocks = re.findall(r':root[^{]*\{([^}]*--bg:[^}]*)\}', setu_docs.CSS)
     themes = [set(re.findall(r'(--[\w-]+):', b)) for b in blocks]
-    if len(themes) != 3 * len(setu_docs.THEMES) or any(t != themes[0] for t in themes):
+    if len(themes) != 2 * len(setu_docs.THEMES) + 1 or any(t != themes[0] for t in themes):
         fail(f'CSS: the theme blocks set different variables: {[sorted(t) for t in themes]}')
     for key in setu_docs.THEME_NAMES:
         sets = re.findall(rf':root\[data-palette="{key}"\][^{{]*\{{[^}}]*--bg:', setu_docs.CSS)
-        if len(sets) != 3:
-            fail(f'CSS: theme {key!r} has not a light and two dark sets')
+        if len(sets) != 2:
+            fail(f'CSS: theme {key!r} has not a light and a dark set')
+
+    def colors(selector):
+        found = re.search(rf'{re.escape(selector)} \{{([^}}]*)\}}', setu_docs.CSS)
+        return found and found[1].split()
+
+    if not colors(':root:not([data-theme])') or colors(':root:not([data-theme])') != colors(
+        ':root[data-palette="nord"][data-theme="dark"]'
+    ):
+        fail("CSS: the system's dark before a pick is not Nord Night (setu_docs_web.zig's `default_theme`)")
     index = (out / 'index.html').read_text()
     for text, why in (
         ('<button id="theme" class="theme" type="button" aria-label="Theme"', 'no ◐ button'),

@@ -435,36 +435,49 @@ pub fn highlight(list: *std.ArrayList(u8), a: std.mem.Allocator, line: []const u
     try escape(list, a, line[plain..]);
 }
 
-/// Append a Zig code block of a page (lines split at `\n`, a `\r` before it dropped) highlighted, its newlines
-/// kept.
+/// Append a Zig code block of a page (lines split at `\n`, a `\r` before it dropped) highlighted, each line a
+/// `<span class="ln">` as `setu_docs.py` writes them (the CSS shows a `<pre>` of those line by line), a `\n`
+/// between them; line breaks at the end dropped.
 ///
 /// Example
 ///     >>> try codeHtml(&list, gpa, "const a = 1;\n// b");
 ///     >>> list.items
-///     "<span class=\"kw\">const</span> a = <span class=\"num\">1</span>;\n<span class=\"com\">// b</span>"
+///     "<span class=\"ln\"><span class=\"kw\">const</span> a = <span class=\"num\">1</span>;</span>\n<span class=\"ln\"><span class=\"com\">// b</span></span>"
 pub fn codeHtml(list: *std.ArrayList(u8), a: std.mem.Allocator, code: []const u8) !void {
-    var lines = std.mem.splitScalar(u8, code, '\n');
+    const text = std.mem.trimEnd(u8, code, "\r\n");
+    if (text.len == 0) return;
+    var lines = std.mem.splitScalar(u8, text, '\n');
     var first = true;
     while (lines.next()) |line| : (first = false) {
         if (!first) try list.append(a, '\n');
+        try list.appendSlice(a, "<span class=\"ln\">");
         try highlight(list, a, std.mem.trimEnd(u8, line, "\r"));
+        try list.appendSlice(a, "</span>");
     }
 }
 
 /// One item of the ◐ menu: its `data-palette` (`""`: Tokyo) and `data-mode` (`light` / `dark`).
 pub const Theme = struct { palette: []const u8, mode: []const u8 };
 
-/// The ◐ menu's item showing `palette` in `mode` (`""` when none was picked: the system's, dark when
+/// The theme shown before one is picked: Tokyo Day, or Nord Night when the system is dark (the CSS agrees).
+pub const default_theme: struct { light: Theme, dark: Theme } = .{
+    .light = .{ .palette = "", .mode = "light" },
+    .dark = .{ .palette = "nord", .mode = "dark" },
+};
+
+/// The ◐ menu's item showing `palette` in `mode` (`mode` `""` when none was picked: `default_theme`'s, dark when
 /// `system_dark`), among `items`; -1 when none.
 ///
 /// Example
-///     >>> themeItem(&.{ .{ .palette = "nord", .mode = "light" }, .{ .palette = "", .mode = "dark" } }, "", "", true)
-///     1
+///     >>> themeItem(&.{ .{ .palette = "nord", .mode = "dark" }, .{ .palette = "", .mode = "dark" } }, "", "", true)
+///     0
 pub fn themeItem(items: []const Theme, palette: []const u8, mode: []const u8, system_dark: bool) i32 {
-    const shown = if (mode.len > 0) mode else if (system_dark) "dark" else "light";
+    const shown: Theme = if (mode.len > 0)
+        .{ .palette = palette, .mode = mode }
+    else if (system_dark) default_theme.dark else default_theme.light;
     for (items, 0..) |item, i| {
         // cast: a menu's few items
-        if (std.mem.eql(u8, item.palette, palette) and std.mem.eql(u8, item.mode, shown)) return @intCast(i);
+        if (std.mem.eql(u8, item.palette, shown.palette) and std.mem.eql(u8, item.mode, shown.mode)) return @intCast(i);
     }
     return -1;
 }
@@ -1689,8 +1702,8 @@ test codeHtml {
     defer list.deinit(t.allocator);
     try codeHtml(&list, t.allocator, "const a = 1;\r\n\n// <b>\n");
     try t.expectEqualStrings(
-        "<span class=\"kw\">const</span> a = <span class=\"num\">1</span>;\n\n" ++
-            "<span class=\"com\">// &lt;b&gt;</span>\n",
+        "<span class=\"ln\"><span class=\"kw\">const</span> a = <span class=\"num\">1</span>;</span>\n" ++
+            "<span class=\"ln\"></span>\n<span class=\"ln\"><span class=\"com\">// &lt;b&gt;</span></span>",
         list.items,
     );
     list.clearRetainingCapacity();
@@ -1704,8 +1717,10 @@ test themeItem {
         .{ .palette = "", .mode = "light" },     .{ .palette = "", .mode = "dark" },
     };
     try t.expectEqual(0, themeItem(&items, "nord", "light", true));
-    try t.expectEqual(1, themeItem(&items, "nord", "", true)); // no choice: the system's
-    try t.expectEqual(2, themeItem(&items, "", "", false));
+    try t.expectEqual(1, themeItem(&items, "", "", true)); // no choice, dark system: Nord Night
+    try t.expectEqual(1, themeItem(&items, "nord", "", true));
+    try t.expectEqual(2, themeItem(&items, "", "", false)); // no choice, light system: Tokyo Day
+    try t.expectEqual(2, themeItem(&items, "nord", "", false));
     try t.expectEqual(3, themeItem(&items, "", "dark", false));
     try t.expectEqual(-1, themeItem(&items, "gone", "dark", false));
 }
@@ -1947,17 +1962,17 @@ test "theme menu" {
         \\listen items.0 "click" 2
         \\listen items.1 "click" 2
     );
-    send(259, 0, "nord");
+    send(259, 0, "");
     try expectCommands("");
-    send(260, 0, ""); // no mode kept: the system's (light)
+    send(260, 0, ""); // nothing kept: the default for a light system, Tokyo Day
     try expectCommands(
-        \\attr items.0 "aria-checked" "true"
+        \\attr items.0 "aria-checked" "false"
         \\attr items.1 "aria-checked" "false"
-        \\attr items.2 "aria-checked" "false"
+        \\attr items.2 "aria-checked" "true"
         \\attr items.3 "aria-checked" "false"
         \\
     );
-    send(@backingInt(On.dark_change), el.dark, "true");
+    send(@backingInt(On.dark_change), el.dark, "true"); // dark: Nord Night
     try t.expect(std.mem.find(u8, commands.items, "items.1 \"aria-checked\" \"true\"") == null); // decoded below
     try expectCommands(
         \\attr items.0 "aria-checked" "false"
@@ -2130,7 +2145,7 @@ test "Copy buttons and Zig blocks" {
     try expectCommands("read zig_blocks.0 280\nread zig_blocks.1 281\n");
     send(281, handle(.zig_blocks, 1), "const a = 1;");
     try expectCommands(
-        \\html zig_blocks.1 "<span class="kw">const</span> a = <span class="num">1</span>;"
+        \\html zig_blocks.1 "<span class="ln"><span class="kw">const</span> a = <span class="num">1</span>;</span>"
         \\
     );
 }

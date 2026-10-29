@@ -33,6 +33,7 @@ profile = 'zig-out/profile.json'  # `zig build profile -Doptimize=fast -Dcpu=x86
 file = 'docs/setu-guide.md'
 title = 'Writing an extension'
 section = 'Guide'
+split = true  # a page per chapter
 
 [[tool.setu_docs.pages]]
 slug = 'functions'

@@ -6,7 +6,8 @@
 > the Liburing and Shakti projects and is not published on PyPI.
 
 Start with the guide: it has the rules, every parameter type, every class hook signature, and every compile
-error Setu raises. The source is the reference behind it; `test/` is a working example of everything.
+error Setu raises. The source is the reference behind it; `test/` is a working example of everything. The docs site:
+https://yostealth.github.io/Setu/.
 
 ## Guide
 

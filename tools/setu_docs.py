@@ -51,6 +51,8 @@ The settings, in `pyproject.toml` (paths relative to it):
     title = 'Install'
     section = 'Guide'               # optional: a nav heading (consecutive pages with one share it)
     slug = 'install'                # optional: the page name (default: the file's stem)
+    split = true                    # optional: a page per `##` chapter (`<slug>-<title>`), listed under this one;
+                                    # this page keeps the text before the first `##` and a list of the chapters
 
     [[tool.setu_docs.pages]]        # API pages, in this order; a name goes on the first that claims it
     slug = 'ring'
@@ -81,8 +83,8 @@ github.com/me/pkg'` in `[tool.setu_docs]`, else the first GitHub URL of `urls.Re
 a GitHub one shows `me/pkg` with its latest release, stars and forks (the page asks GitHub's API, once a session).
 
 The header's ◐ button opens the theme menu: Nord Day, Nord Night (Snow Storm, Polar Night), Tokyo Day, Tokyo Night; the
-browser remembers the choice (`<html data-palette="nord" data-theme="dark">`). Until one is made the theme is Tokyo, Day
-or Night as the system is light or dark. A `css` file can override any color: page `--bg`, `--panel`, `--line`,
+browser remembers the choice (`<html data-palette="nord" data-theme="dark">`). Until one is made the theme is Tokyo
+Day, or Nord Night when the system is dark. A `css` file can override any color: page `--bg`, `--panel`, `--line`,
 `--text`, `--muted`, `--accent`, ...; code `--kw` (keywords), `--bi` (builtins), `--str`, `--num`, `--com` (comments),
 `--ref` (API names, linked), `--code-fg` (code text; else `--text`), `--con` (`None` / `True` / ...; else `--num`),
 `--ty` (a `class` name; else `--bi`), `--dec` (decorators; else `--kw`), `--fn` (a `def` name, a call, an API name in
@@ -193,7 +195,7 @@ KEYS = {'module', 'path', 'stub', 'name', 'version', 'summary', 'out', 'home', '
         'coverage_history', 'profile', 'markdown', 'pages'}  # fmt: skip
 FAVICON_TYPES = ('.svg', '.png', '.ico')
 PAGE_KEYS = {'slug', 'title', 'text', 'classes', 'functions', 'patterns', 'sources', 'default', 'constants', 'groups'}
-MARKDOWN_KEYS = {'file', 'title', 'section', 'slug'}
+MARKDOWN_KEYS = {'file', 'title', 'section', 'slug', 'split'}
 
 
 def fail(msg):
@@ -282,6 +284,40 @@ def include_files(text, root):
 
 def md_slug(page):
     return page.get('slug') or pathlib.Path(page['file']).stem
+
+
+def heading_id(title):
+    '''A heading's id before it is made unique on its page: lower case, punctuation dropped, spaces as `-`.
+
+    Example
+        >>> heading_id('11. Checks')
+        '11-checks'
+    '''
+    return re.sub(r'[\s]+', '-', re.sub(r'[^\w\s-]', '', title.lower()).strip()) or 'section'
+
+
+def chapters(text):
+    '''A `split` Markdown page's `text` as `(intro, [(title, text), ...])`: a chapter per level 2 heading outside
+    code blocks, its headings one level up (its `##` is its page's `#`).
+
+    Example
+        >>> chapters('# G\nHi.\n## 1. One\nA.\n### Sub\n```\n## no\n```\n')
+        ('# G\nHi.', [('1. One', '# 1. One\nA.\n## Sub\n```\n## no\n```')])
+    '''
+    intro, parts, fence = [], [], None
+    for line in text.splitlines():
+        if fence:
+            if line.strip().startswith(fence):
+                fence = None
+        elif m := FENCE.match(line):
+            fence = m.group(2)
+        elif (m := HEADING.match(line)) and len(m.group(1)) >= 2:
+            if len(m.group(1)) == 2:
+                parts.append((m.group(2), []))
+            if parts:
+                line = line[1:]
+        (parts[-1][1] if parts else intro).append(line)
+    return '\n'.join(intro).strip('\n'), [(title, '\n'.join(lines).strip('\n')) for title, lines in parts]
 
 
 def letter_icon(name):
@@ -854,6 +890,26 @@ class Site:
         self.md_files = {(project.root / p['file']).resolve(): md_slug(p) for p in self.markdown_pages}
         if 'home' in project.config:
             self.md_files[(project.root / project.config['home']).resolve()] = 'index'
+        self.chapters = {}  # a `split` Markdown page's slug -> (its intro, [(slug, title, text), ...])
+        self.md_anchors = {}  # a `split` Markdown file -> {heading id: the slug of the page it is on}
+        slugs = {p['slug'] for p in project.config['pages']} | {md_slug(p) for p in self.markdown_pages}
+        for page in (p for p in self.markdown_pages if p.get('split')):
+            path = (project.root / page['file']).resolve()
+            intro, parts = chapters(include_files(path.read_text(), project.root))
+            if not parts:
+                fail(f'`split` Markdown page {page["file"]}: no `##` chapter')
+            listed, anchors = [], {}
+            for title, text in parts:
+                plain = re.sub(r'[`*]', '', title)
+                slug = f'{md_slug(page)}-{re.sub(r"^[0-9]+-", "", heading_id(plain))}'
+                if slug in slugs:
+                    fail(f'`split` Markdown page {page["file"]}: the page slug {slug} twice')
+                slugs.add(slug)
+                listed.append((slug, title, text))
+                for m in filter(None, map(HEADING.match, text.splitlines())):  # a code block's `#` lines too:
+                    anchors.setdefault(heading_id(re.sub(r'[`*]', '', m.group(2))), slug)  # harmless, never linked
+            self.chapters[md_slug(page)] = intro, listed
+            self.md_anchors[path] = anchors
         self.where = {}  # name -> 'page.html#anchor'
         for page, names in self.pages:
             for name in names:
@@ -1065,7 +1121,7 @@ class Site:
 
     def anchor(self, title):
         '''A unique id for a heading of the page being written.'''
-        base = re.sub(r'[\s]+', '-', re.sub(r'[^\w\s-]', '', title.lower()).strip()) or 'section'
+        base = heading_id(title)
         anchor, n = base, 1
         while anchor in self.ids:
             n += 1
@@ -1079,7 +1135,8 @@ class Site:
         if parts.scheme or parts.netloc or not parts.path.endswith('.md'):
             return url
         fragment = f'#{parts.fragment}' if parts.fragment else ''
-        if base is not None and (slug := self.md_files.get((base / parts.path).resolve())):
+        if base is not None and (slug := self.md_files.get(path := (base / parts.path).resolve())):
+            slug = self.md_anchors.get(path, {}).get(parts.fragment, slug)  # the chapter of a `split` page
             return f'{slug}.html{fragment}'
         stem = pathlib.PurePosixPath(parts.path).stem
         if stem in {p['slug'] for p in self.project.config['pages']} | set(self.md_files.values()):
@@ -1449,6 +1506,8 @@ class Site:
                 if section:
                     items.append(f'<div class="nav-h">{html.escape(section)}</div>')
             items.append(item(md_slug(page), page['title']))
+            for slug, title, _text in self.chapters.get(md_slug(page), ('', ()))[1]:
+                items.append(item(slug, re.sub(r'[`*]', '', title), 'sub'))
         items.append('<div class="nav-h">API reference</div>')
         items += [item(page['slug'], page['title']) for page, _names in self.pages]
         if self.constants_page:
@@ -1796,15 +1855,34 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             out.append({'path': path, 'src': src, 'total': f'{f["total"]:.1f}', 'lines': lines})
         return out
 
-    def markdown_page(self, page):
+    def markdown_pages_of(self, page):
+        '''The Markdown page `page` as `{slug: html}`: the page, or a `split` page and its chapters (with a list of
+        them, and Previous / Next links).'''
+        slug, title = md_slug(page), page['title']
+        if slug not in self.chapters:
+            path = self.project.root / page['file']
+            return {slug: self.markdown_page(page, slug, title, include_files(path.read_text(), self.project.root))}
+        intro, listed = self.chapters[slug]
+        links = ''.join(f'<li><a href="{s}.html">{self.inline_md(t)}</a></li>' for s, t, _text in listed)
+        out = {slug: self.markdown_page(page, slug, title, intro, f'<ul class="chapters">{links}</ul>')}
+        order = [(slug, title)] + [(s, t) for s, t, _text in listed]
+        for i, (s, t, text) in enumerate(listed, 1):
+            pager = f'<a class="prev" href="{order[i - 1][0]}.html">← {self.inline_md(order[i - 1][1])}</a>'
+            if i + 1 < len(order):
+                pager += f'<a class="next" href="{order[i + 1][0]}.html">{self.inline_md(order[i + 1][1])} →</a>'
+            out[s] = self.markdown_page(page, s, re.sub(r'[`*]', '', t), text, f'<nav class="pager">{pager}</nav>')
+        return out
+
+    def markdown_page(self, page, slug, title, text, end=''):
+        '''One page of the Markdown file of `page`: `text` (its Markdown), then the HTML `end`.'''
         self.ids = set()
         path = self.project.root / page['file']
-        body, toc = self.markdown(include_files(path.read_text(), self.project.root), path.parent)
+        body, toc = self.markdown(text, path.parent)
         if not body.startswith('<h1'):
-            body = f'<h1>{html.escape(page["title"])}</h1>' + body
+            body = f'<h1>{html.escape(title)}</h1>' + body
         if edit := self.project.config.get('edit'):
             body = f'<a class="edit" href="{html.escape(edit + page["file"])}">Edit</a>' + body
-        return self.page(md_slug(page), page['title'], body, toc)
+        return self.page(slug, title, body + end, toc)
 
     def index_page(self):
         self.ids = set()
@@ -1850,9 +1928,9 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         if 'css' in self.project.config:
             css += '\n' + (self.project.root / self.project.config['css']).read_text()
         files = {'index.html': self.index_page(), 'search.json': self.search_index(), 'style.css': css, 'app.js': JS,
-                 'llms.txt': llms_index(self.project.config)}  # fmt: skip
+                 'llms.txt': llms_index(self.project.config, self.chapters)}  # fmt: skip
         for page in self.markdown_pages:
-            files[f'{md_slug(page)}.html'] = self.markdown_page(page)
+            files.update((f'{slug}.html', text) for slug, text in self.markdown_pages_of(page).items())
         for page, names in self.pages:
             files[f'{page["slug"]}.html'] = self.api_page(page, names)
         if self.constants_page:
@@ -2300,8 +2378,8 @@ def chart_number(cell):
 CSS = '''
 /* Tokyo Night colors (tokyonight.nvim): light = Tokyo Night Day, with Tokyo Night Light's darker text (Day's
    `#3760bf` is hard to read in long text; code keeps it, `--code-fg`); dark = Tokyo Night. A plain `:root`, so the
-   dark blocks below (more specific) win in dark mode; the dark block twice: for the system's dark mode (no
-   choice made) and for a Night picked in the ◐ menu. */
+   dark blocks below (more specific) win in dark mode. Until a theme is picked in the ◐ menu (no `data-theme`) it is
+   Tokyo Day, or Nord Night (`setu_docs_web.zig`'s `default_theme`) when the system is dark. */
 :root {
   --bg: #e1e2e7; --panel: #d0d5e3; --line: #c4c8da; --text: #343b58; --muted: #68709a;
   --accent: #2e7de9; --accent-soft: #b7c1e3; --code-bg: #e9e9ed; --ok: #587539; --bad: #f52a65; --warn: #8c6c3e;
@@ -2313,17 +2391,17 @@ CSS = '''
   --s8: #f52a65; --s-other: #a8aecb;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #1a1b26; --panel: #16161e; --line: #292e42; --text: #c0caf5; --muted: #737aa2;
-    --accent: #7aa2f7; --accent-soft: #283457; --code-bg: #16161e; --ok: #9ece6a; --bad: #f7768e; --warn: #e0af68;
-    --kw: #bb9af7; --str: #9ece6a; --num: #ff9e64; --com: #565f89; --bi: #2ac3de; --ref: #7dcfff;
-    --code-fg: #a9b1d6; --fn: #7aa2f7;
-    --con: #ff9e64; --slf: #f7768e; --ty: #2ac3de; --attr: #73daca; --dec: #7dcfff; --op: #89ddff;
-    --arg: #e0af68;
-    --s1: #7aa2f7; --s2: #ff9e64; --s3: #9ece6a; --s4: #e0af68; --s5: #bb9af7; --s6: #73daca; --s7: #7dcfff;
-    --s8: #f7768e; --s-other: #565f89;
+  :root:not([data-theme]) {
+    --bg: #2e3440; --panel: #3b4252; --line: #434c5e; --text: #e5e9f0; --muted: #a0a8b7;
+    --accent: #88c0d0; --accent-soft: #434c5e; --code-bg: #3b4252; --ok: #a3be8c; --bad: #bf616a; --warn: #ebcb8b;
+    --kw: #81a1c1; --str: #a3be8c; --num: #b48ead; --com: #616e88; --bi: #88c0d0; --ref: #88c0d0;
+    --code-fg: #d8dee9; --fn: #88c0d0;
+    --con: #81a1c1; --slf: #d08770; --ty: #8fbcbb; --attr: #d8dee9; --dec: #d08770; --op: #81a1c1;
+    --arg: #ebcb8b;
+    --s1: #88c0d0; --s2: #d08770; --s3: #a3be8c; --s4: #ebcb8b; --s5: #b48ead; --s6: #8fbcbb; --s7: #5e81ac;
+    --s8: #bf616a; --s-other: #4c566a;
   }
-  :root:not([data-theme="light"]) .run button { color: #1a1b26; }
+  :root:not([data-theme]) .run button { color: #2e3440; }
 }
 :root[data-theme="dark"] {
   --bg: #1a1b26; --panel: #16161e; --line: #292e42; --text: #c0caf5; --muted: #737aa2;
@@ -2337,8 +2415,8 @@ CSS = '''
 }
 :root[data-theme="dark"] .run button { color: #1a1b26; }
 /* The other themes, picked in the header's ◐ menu (`<html data-palette="...">`, kept in localStorage); no
-   `data-palette` is Tokyo. Each has a light and a dark set, switched by `data-theme` as above; the dark sets
-   add `[data-palette]` to the dark selectors, so they win over the light set in dark mode. */
+   `data-palette` is Tokyo. Each has a light and a dark set, switched by `data-theme` as above (a picked palette
+   always comes with its `data-theme`). */
 /* Nord (nordtheme.com): light = Snow Storm with Polar Night text (Aurora darkened to read on it), dark = Polar
    Night with Snow Storm text. */
 :root[data-palette="nord"] {
@@ -2350,19 +2428,6 @@ CSS = '''
   --arg: #8a6d1f;
   --s1: #5e81ac; --s2: #b0573a; --s3: #5a7a3a; --s4: #8a6d1f; --s5: #8f5f88; --s6: #3f7f7e; --s7: #3e6a99;
   --s8: #b0444e; --s-other: #c0c8d6;
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-palette="nord"]:not([data-theme="light"]) {
-    --bg: #2e3440; --panel: #3b4252; --line: #434c5e; --text: #e5e9f0; --muted: #a0a8b7;
-    --accent: #88c0d0; --accent-soft: #434c5e; --code-bg: #3b4252; --ok: #a3be8c; --bad: #bf616a; --warn: #ebcb8b;
-    --kw: #81a1c1; --str: #a3be8c; --num: #b48ead; --com: #616e88; --bi: #88c0d0; --ref: #88c0d0;
-    --code-fg: #d8dee9; --fn: #88c0d0;
-    --con: #81a1c1; --slf: #d08770; --ty: #8fbcbb; --attr: #d8dee9; --dec: #d08770; --op: #81a1c1;
-    --arg: #ebcb8b;
-    --s1: #88c0d0; --s2: #d08770; --s3: #a3be8c; --s4: #ebcb8b; --s5: #b48ead; --s6: #8fbcbb; --s7: #5e81ac;
-    --s8: #bf616a; --s-other: #4c566a;
-  }
-  :root[data-palette="nord"]:not([data-theme="light"]) .run button { color: #2e3440; }
 }
 :root[data-palette="nord"][data-theme="dark"] {
   --bg: #2e3440; --panel: #3b4252; --line: #434c5e; --text: #e5e9f0; --muted: #a0a8b7;
@@ -2434,6 +2499,7 @@ code, pre { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
 .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .side a.live-only { display: none; } body.can-run .side a.live-only { display: block; }
 .nav-h { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 8px 2px; }
+.side a.sub { padding-left: 20px; font-size: 15px; }
 .toc { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .toc a { font-family: ui-monospace, monospace; font-size: 14.5px; color: var(--muted); overflow-wrap: anywhere;
   padding-left: calc(8px + 2ch); text-indent: -2ch; }  /* a wrapped name lines up after its `- ` */
@@ -2446,6 +2512,8 @@ h3 { font-size: 22px; }
 h1:hover .anchor, h2:hover .anchor, h3:hover .anchor { color: var(--muted); }
 .lead { color: var(--muted); font-size: 16px; margin-top: 4px; }
 .edit { float: right; font-size: 13px; margin-top: 14px; }
+.pager { display: flex; gap: 16px; margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pager .next { margin-left: auto; text-align: right; }
 .index { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0; list-style: none; margin: 16px 0 8px; }
 .entry { border-top: 1px solid var(--line); padding: 20px 0 8px; }
 .entry h3 { margin: 0 0 8px; font: 600 15px/1.5 ui-monospace, monospace; word-break: break-word; }
@@ -2502,7 +2570,8 @@ table.md th { text-transform: none; font-size: 14px; color: var(--text); }
 ul, ol { padding-left: 20px; } li { margin: 2px 0; }
 ul.flags { list-style: none; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
 ul.flags.described { display: block; }
-blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--accent); background: var(--panel); }
+blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--accent); border-radius: 6px;
+  background: var(--panel); }
 hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 img { max-width: 100%; }
 details.fixture summary { cursor: pointer; color: var(--muted); font-size: 13px; }
@@ -2818,14 +2887,17 @@ def llms_full(stub, module):
     return '\n'.join(lines).rstrip('\n') + '\n'
 
 
-def llms_index(config):
-    '''`llms.txt` (the llms.txt convention): the module, its summary, the pages and `llms-full.txt`.'''
+def llms_index(config, chapters=None):
+    '''`llms.txt` (the llms.txt convention): the module, its summary, the pages (`chapters`: `Site.chapters`, a
+    `split` page's) and `llms-full.txt`.'''
     module = config['module']
     summary = config.get('summary', f'The Python API of `{module}`.')
     lines = [f'# {module}', '', f'> {summary}', '']
     if config.get('markdown'):
         lines += ['## Guide', '']
-        lines += [f'- [{p["title"]}]({md_slug(p)}.html)' for p in config['markdown']]
+        for p in config['markdown']:
+            lines.append(f'- [{p["title"]}]({md_slug(p)}.html)')
+            lines += [f'  - [{t}]({s}.html)' for s, t, _text in (chapters or {}).get(md_slug(p), ('', ()))[1]]
         lines.append('')
     lines += ['## API reference', '']
     lines += [f'- [{p["title"]}]({p["slug"]}.html): {p["text"]}' for p in config['pages']]
