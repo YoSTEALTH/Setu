@@ -86,11 +86,12 @@ camelCase functions, plain structs, lowercase values, `pub var`s. Filters take P
 `.exclude` (not together; each name must exist), `.prefixes`, `.functions = false`. Classes are created
 bases first; a Python name found twice is a compile error naming both places.
 
-Pin a tag in the project's `build.zig.zon`: `zig fetch --save=setu
-"git+https://github.com/YoSTEALTH/Setu?ref=v<version>"`, then check the commit after the `#` of the `.url` it wrote
-against the tag's (`git ls-remote https://github.com/YoSTEALTH/Setu v<version>`): Zig 0.17.0 has resolved a tag to
-the branch head, and written the URL into an existing `.path` entry instead of `.url` / `.hash` (remove that entry
-first). A wrong commit: put the tag's into the URL (`?ref=v<version>#<commit>`) and fetch again.
+Pin a tag in the project's `build.zig.zon`: `zig fetch --save=setu "git+https://github.com/YoSTEALTH/Setu#v<version>"`,
+the ref after a `#`; it prints `resolved ref "v<version>" to commit ...` and saves
+`.url = "...?ref=v<version>#<commit>"` with its `.hash`. Zig 0.17.0 ignores a `?ref=` in what it is given: it
+fetches the default branch and saves that commit under the tag's name. Remove an old `.path` entry first (`--save`
+writes the URL into it, with no `.hash`). The saved commit should be the tag's: `git ls-remote
+https://github.com/YoSTEALTH/Setu v<version>`.
 
 `build.zig` of the project (`setu` in its `build.zig.zon`):
 
