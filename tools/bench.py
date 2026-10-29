@@ -1,6 +1,7 @@
 '''Times Setu's per-call cost on `setu_classes` (the test extension): the argument shapes Liburing's hot
 path uses (`bench_*` in `test/functions.zig`: `prep_recv` / `prep_send` with and without a buffer, a
-buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method and `__init__`. With
+buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method, `__init__` and a
+large instance's defaults (`Slab()`). With
 `--ref`, an A/B against another commit, so a hot-path change gets a before / after without Liburing.
 
     python3.15 tools/bench.py                     # this tree, built `-Doptimize=fast` into a temp dir
@@ -40,12 +41,17 @@ CASES = [
     ('bench_recv_take(v, -1, bytearray)', 'bench_recv_take(v, -1, ba)'),
     ('bench_recv_owned(v, -1, bytearray)', 'bench_recv_owned(v, -1, ba)'),
     ('bench_send(v, -1, bytes)', 'bench_send(v, -1, by)'),
+    # the same calls written by hand against the C API (`test/hand.zig`): Setu's cost over them
+    ('hand: bench_nop(v)', '_hand_nop(v)'),
+    ('hand: bench_recv(v, -1, None)', '_hand_recv(v, -1, None)'),
+    ('hand: bench_recv(v, -1, bytearray, 0)', '_hand_recv(v, -1, ba, 0)'),
     ('o.rank = 1', 'o.rank = 1'),
     ('o.rank', 'o.rank'),
     ('v.norm2()', 'v.norm2()'),
     ('v == v', 'v == v'),
     ('v == None', 'v == None'),
     ('Vec(1, 2)', 'Vec(1, 2)'),
+    ('Slab()', 'Slab()'),
 ]
 
 
@@ -76,7 +82,7 @@ def load(path, tag):
 
 def namespace(m):
     '''The names the statements use, from the module `m`.'''
-    ns = {name: getattr(m, name) for name in dir(m) if not name.startswith('_')}
+    ns = {name: getattr(m, name) for name in dir(m) if not name.startswith('_') or name.startswith('_hand_')}
     ba = bytearray(64)
     ns.update(v=m.Vec(3, 4), o=m.Ordered(1), ba=ba, mv=memoryview(ba), by=b'x' * 64)
     return ns

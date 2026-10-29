@@ -186,6 +186,18 @@ pub const Labeled = struct {
 };
 pub const LabeledType = setu.Class(Labeled, @embedFile("classes.zig"));
 
+/// A `Vec` with no fields of its own: no instance data of its own (no `Py_tp_extra_basicsize`).
+pub const Origin = struct {
+    pub const base = VecType;
+
+    /// Is it `(0, 0)`?
+    pub fn is_zero(self: *const Origin) bool {
+        const v = VecType.data(OriginType.object(self));
+        return v.x == 0 and v.y == 0;
+    }
+};
+pub const OriginType = setu.Class(Origin, @embedFile("classes.zig"));
+
 /// Only `__lt__`: still hashable (by identity), as a Python class would be.
 pub const Ordered = struct {
     rank: i64 = 0,
@@ -654,13 +666,18 @@ pub const Later = struct {
 };
 pub const LaterType = setu.Class(Later, @embedFile("classes.zig"));
 
-/// Two ints set in `__new__` only (no `__init__`): the stub declares `__new__`.
+/// Two ints set in `__new__` only (no `__init__`): the stub declares `__new__`. The property `swapped` comes
+/// from `getset` (`py.getter`), its stub line from `stub`; `repr` from `slots` (a C `Py_tp_repr`).
 ///
 /// Type
 ///     b: int | None - `a` when not given
 pub const Pair = struct {
     a: i64 = 0,
     b: i64 = 0,
+
+    pub const getset = [_]c.GetSetDef{py.getter("swapped", pairSwapped, "`(b, a)`.")};
+    pub const slots = [_]c.Slot{c.Slot.func(c.Py_tp_repr, @ptrCast(&pairRepr))};
+    pub const stub = "\n    @property\n    def swapped(self) -> tuple[int, int]: ...\n";
 
     /// Sets `a` and `b` (`b` defaults to `a`).
     pub fn __new__(self: *Pair, a: i64, b: ?i64) void {
@@ -674,6 +691,57 @@ pub const Pair = struct {
     }
 };
 pub const PairType = setu.Class(Pair, @embedFile("classes.zig"));
+
+/// `(b, a)` of the `Pair` `self`: the getter `Pair.getset` makes with `py.getter`.
+fn pairSwapped(self: *Object) struct { i64, i64 } {
+    const p = PairType.data(self);
+    return .{ p.b, p.a };
+}
+
+/// `Pair(a, b)`: the C `tp_repr` of `Pair.slots`, a slot given as it is.
+fn pairRepr(self: *Object) callconv(.c) ?*Object {
+    const p = PairType.data(self);
+    var buf: [64]u8 = undefined;
+    // `Pair(` + two `i64`s (20 bytes each, at most) + `, ` + `)`: 47 bytes
+    const text = std.mem.print(&buf, "Pair({d}, {d})", .{ p.a, p.b }) catch unreachable;
+    return py.toPython(text);
+}
+
+/// A large instance whose buffer's default is `undefined`: `tp_new` writes only the defined defaults (the
+/// shape of Shakti's `SQE`; `tools/bench.py` times `Slab()`).
+pub const Slab = struct {
+    used: u32 = 0,
+    limit: u32 = 256,
+    buf: [256]u8 = undefined,
+
+    /// Appends `byte`; `False` when the slab is full.
+    ///
+    /// Example
+    ///     >>> s = Slab()
+    ///     >>> s.push(7)
+    ///     True
+    ///     >>> s.used
+    ///     1
+    pub fn push(self: *Slab, byte: u8) bool {
+        if (self.used == self.limit) return false;
+        self.buf[self.used] = byte;
+        self.used += 1;
+        return true;
+    }
+
+    /// The bytes pushed so far.
+    pub fn get_used(self: *const Slab) u32 {
+        return self.used;
+    }
+
+    /// The sum of the bytes pushed.
+    pub fn get_total(self: *const Slab) u32 {
+        var n: u32 = 0;
+        for (self.buf[0..self.used]) |b| n += b;
+        return n;
+    }
+};
+pub const SlabType = setu.Class(Slab, @embedFile("classes.zig"));
 
 /// A class only Zig hands out (`hidden = true`): created, but not a module attribute and not in the
 /// stub (`make_secret` returns one, `secret_value` takes one: `Any` there).

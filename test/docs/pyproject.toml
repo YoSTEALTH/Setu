@@ -23,6 +23,7 @@ featured = 'example/hi.py'
 hooks = 'docs_hooks.py'
 # a snapshot, not `zig build coverage`'s result: `example/` is the project's own folder, `setu/` a dependency
 coverage = 'coverage.json'
+coverage_history = 'coverage-history.json'  # three versions, by hand
 # a snapshot, not `zig build profile`'s result: a source the site reads (`../functions.zig`), one it does not find
 profile = 'profile.json'
 

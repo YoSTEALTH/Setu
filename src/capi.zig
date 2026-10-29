@@ -72,22 +72,27 @@ pub const Slot = extern struct {
     pub const end: Slot = .{ .id = slot_end };
 
     /// `PySlot_DATA`: a pointer the interpreter may keep (names, docs, abi info).
+    // comptime: slot tables are comptime data
     pub fn data(id: u16, ptr: *const anyopaque) Slot {
         return .{ .id = id, .flags = SLOT_INTPTR, .value = .{ .ptr = ptr } };
     }
     /// `PySlot_STATIC_DATA`: a static table (methods, getset, members).
+    // comptime: slot tables are comptime data
     pub fn static(id: u16, ptr: *const anyopaque) Slot {
         return .{ .id = id, .flags = SLOT_STATIC, .value = .{ .ptr = ptr } };
     }
     /// `PySlot_FUNC`.
+    // comptime: slot tables are comptime data
     pub fn func(id: u16, f: *const anyopaque) Slot {
         return .{ .id = id, .value = .{ .ptr = f } };
     }
     /// A slot whose value is a size (`Py_tp_extra_basicsize`, ...).
+    // comptime: slot tables are comptime data
     pub fn size(id: u16, n: ssize) Slot {
         return .{ .id = id, .value = .{ .size = n } };
     }
     /// A slot whose value is an unsigned integer (`Py_tp_flags`, `Py_mod_gil`, ...).
+    // comptime: slot tables are comptime data
     pub fn uint(id: u16, n: u64) Slot {
         return .{ .id = id, .value = .{ .uint64 = n } };
     }
@@ -469,6 +474,7 @@ pub extern fn PyType_IsSubtype(*TypeObject, *TypeObject) c_int;
 pub extern fn PyType_GenericAlloc(*TypeObject, ssize) ?*Object;
 pub extern fn PyType_GetSlot(*TypeObject, c_int) ?*anyopaque;
 pub extern fn PyObject_GetTypeData(*Object, *TypeObject) ?*anyopaque;
+pub extern fn PyType_GetTypeDataSize(*TypeObject) ssize;
 pub extern fn PyObject_GC_UnTrack(*anyopaque) void;
 pub extern fn PyObject_GC_Track(*anyopaque) void;
 pub extern fn PyObject_GC_IsTracked(*Object) c_int;

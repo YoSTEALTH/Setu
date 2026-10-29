@@ -26,6 +26,7 @@ home = 'README.md'
 edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/'
 repo = 'https://github.com/YoSTEALTH/Setu'
 coverage = 'zig-out/coverage.json'  # `zig build coverage`
+coverage_history = 'docs/coverage-history.json'  # its `.history`, committed
 profile = 'zig-out/profile.json'  # `zig build profile -Doptimize=fast -Dcpu=x86_64_v3`
 
 [[tool.setu_docs.markdown]]

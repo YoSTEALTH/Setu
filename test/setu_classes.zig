@@ -5,6 +5,7 @@
 const setu = @import("setu");
 const classes = @import("classes.zig");
 const extra = @import("extra.zig");
+const hand = @import("hand.zig");
 
 const c = setu.c;
 const py = setu.py;
@@ -24,7 +25,8 @@ pub const module: setu.Module = .{
         .{ .ns = extra.picked, .only = &.{"PICKED"} },
     },
     // trampolines the stub generator must drop, not link (as `Secret.read`'s default; see `setu.addStubs`)
-    .methods = &py.exportFns(by_hand, @embedFile("setu_classes.zig")),
+    // and `bench_nop` / `bench_recv` written by hand (`hand.zig`), which `zig build profile` compares them with
+    .methods = &(py.exportFns(by_hand, @embedFile("setu_classes.zig")) ++ hand.methods),
     .init = init,
     .stub_extra =
     \\initialized: bool

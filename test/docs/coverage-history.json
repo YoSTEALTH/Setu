@@ -1,0 +1,5 @@
+{"runs": [
+ {"version": "1.0", "covered": 8, "lines": 10, "interpreters": {"3.15": [8, 10]}},
+ {"version": "1.1", "covered": 12, "lines": 16, "interpreters": {"3.15": [11, 16], "3.14": [12, 16]}},
+ {"version": "1.2", "covered": 13, "lines": 16, "interpreters": {"3.15": [12, 16], "3.14": [13, 16]}}
+]}

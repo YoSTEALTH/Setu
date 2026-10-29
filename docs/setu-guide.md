@@ -371,10 +371,12 @@ a hand-written `Example #<n>` is a compile error. A `Flags` section lists one na
 note (`IORING_TIMEOUT_ABS  # ts is a point in time`): the site links the name and shows the note as text. A bare
 `https://` URL anywhere in a docstring (outside backticks) becomes a link that opens in a new tab; a trailing `.`,
 `,` or `)` stays text unless the `)` closes a `(` in the URL.
-In the site's Markdown pages an `@@path@@` line includes a project file as a code block (an example script, as
-tested); the header's dropdown picks the theme (Tokyo Night, Nord); `coverage = 'zig-out/coverage.json'` and
-`profile = 'zig-out/profile.json'` in `[tool.setu_docs]` add the Coverage and Profile pages (section 11). The site
-builds from `setu_docs.py` alone: no wrapper script, no copied CSS (a `css` file only for the project's own colors).
+In the site's Markdown pages an `@@path@@` line includes a project file as a code block (an example script, as tested);
+the header's ◐ button opens the theme menu (Nord Day, Nord Night, Tokyo Day, Tokyo Night); `coverage =
+'zig-out/coverage.json'` and `profile = 'zig-out/profile.json'` in `[tool.setu_docs]` add the Coverage and Profile pages
+(section 11); the Profile page is local only: `setu_docs.py serve` makes it from the file as it is, `build` (CI, the
+published site) leaves it out, so nothing outside your machine needs `zig build profile`. The site builds from
+`setu_docs.py` alone: no wrapper script, no copied CSS (a `css` file only for the project's own colors).
 
 Ship the extension as its package's `__init__.so`, with the stub as `__init__.pyi` and a `py.typed` (PEP 561 marks
 packages only, so a bare top-level `liburing.so` gets no typing): `import liburing` loads the extension itself, a
@@ -484,7 +486,8 @@ What the message says: the cause.
     /opt/python/3.15t/bin/python3 -m pytest # then 3.15, 3.14t, 3.14: the same .so
     tools/check.sh                          # everything, offline, on all four interpreters
     python3 tools/bench.py --ref HEAD       # per-call cost A/B against a commit
-    zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call, per line (callgrind)
+    zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call, per line (callgrind);
+                                                        # -Drelease with a preferred optimize mode
 
 A project using Setu runs its own `tools/check.sh`, which includes `zig build setu-build-check`,
 `setu-docs-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
@@ -498,7 +501,15 @@ numbers to `zig-out/coverage.json` (totals, per interpreter, per file and line, 
 goes to a temporary directory, removed after the run; `-- --html DIR` keeps its HTML report. On the docs site (`coverage
 = 'zig-out/coverage.json'`) the Coverage page has a section per owner (the project, then each dependency), and a click
 on a file shows its source, Zig highlighted, the missed lines red; a source changed since the run (its CRC-32) is
-flagged `changed`. A local tool, not for CI:
+flagged `changed`. `.badge = "docs/coverage-badge.json"` also writes the total as a shields.io endpoint file; committed,
+it is a README badge: the image `https://img.shields.io/endpoint?url=<URL>`, `<URL>` the file's
+`raw.githubusercontent.com` address, percent-encoded (run with every `--python` first: the badge shows the merged
+total). `.history = "docs/coverage-history.json"` also keeps the totals per project version (`build.zig.zon`'s
+`.version`; a run sets its version's entry, one line each); committed, with `coverage_history =
+'docs/coverage-history.json'` in `[tool.setu_docs]` the Coverage page charts them next to the project's donut. In CI it
+needs kcov, packaged for Ubuntu 25.04+: on GitHub's `ubuntu-26.04` runner the apt package `kcov`, then the step with
+every `--python`; Setu's `.github/workflows/ci.yml` also fails when the committed badge or history differs from the
+run's (`git diff --exit-code docs/coverage-badge.json docs/coverage-history.json`). Notes:
 
 - It measures the extension as built, in Debug. The default Debug backend (self-hosted x86_64) pads its line
   tables with ops kcov (elfutils) misreads, so kcov runs a copy with the padding rewritten (the build is not
@@ -539,7 +550,9 @@ Instructions per call: `zig build profile -Doptimize=fast -Dcpu=x86_64_v3 [-- -k
 (the difference over N is one call, Python's startup and the loop taken out), and prints a table per interpreter:
 `total` (everything one call costs) and `ext` (the part in the extension's `.so`: its code, Setu's and std's,
 inlined there); `--lines K` lists each case's K costliest lines with their source. The numbers go to
-`zig-out/profile.json` (per case, file and line; the format is in `tools/check_profile.py`).
+`zig-out/profile.json` (per case, file and line; the format is in `tools/check_profile.py`). Setu's own cases
+include `bench_nop` / `bench_recv` written by hand against the C API (`test/hand.zig`, `hand: ...`): generated
+code costs 4-26 fewer instructions per call than those on every interpreter (2026-10-28).
 
     zig build profile -Doptimize=fast -Dcpu=x86_64_v3 -- --lines 8 -k recv
     cp zig-out/profile.json /tmp/before.json      # then change the code

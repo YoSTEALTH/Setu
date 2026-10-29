@@ -21,6 +21,11 @@ Options
     --min PERCENT     fail when the total is lower
     --json FILE       the result, merged over the interpreters (format below); default `zig-out/coverage.json`,
                       replaced on each run (refused unless it is an earlier result)
+    --badge FILE      also write the merged total as a shields.io endpoint file (format below), for a README
+                      badge; replaced on each run (refused unless it is an earlier badge)
+    --history FILE    also keep the totals per project version (`.version` of `./build.zig.zon`) in this file
+                      (format below), for the docs site's history chart: the run sets its version's entry, the
+                      others stay (refused unless it is an earlier history)
     --html DIR        also keep kcov's HTML report, one per interpreter in `<DIR>/<3.15t, 3.14, ...>/index.html`;
                       replaced on each run (refused unless it is empty or an earlier report). Without it kcov writes
                       into a temporary directory, removed after the run
@@ -40,18 +45,28 @@ package's file outside it, `setu/src/args.zig`; `hits` of `possible` addresses r
      "files": {"src/args.zig": {"covered": 94, "lines": 94, "crc32": 1234567890, "hits": {"318": [2, 2], ...}},
                ...}}
     `crc32` is the source's CRC-32 when it was measured: the docs site flags a file changed since.
+    `commit` (only when the measured files in the git work tree are as committed, so their lines are the commit's):
+    the docs site links missed lines to the repository at it.
     With `--exe`, `interpreters` holds the one run, named after the executable: {"test": {"exe": "<path>", ...}}.
+
+The `--badge` file (https://shields.io/badges/endpoint-badge; the percent rounded down, so 100% means every line)
+    {"schemaVersion": 1, "label": "coverage", "message": "99.7%", "color": "brightgreen"}
+    `color`: brightgreen from 95%, green 90, yellowgreen 80, yellow 70, orange 60, else red.
+
+The `--history` file (oldest first; a run on a version already there replaces its entry in place)
+    {"runs": [{"version": "2026.10.27-3", "covered": 1289, "lines": 1289,
+               "interpreters": {"3.15t": [1281, 1289], ...}}, ...]}
 
 Note
     - Needs kcov (43 tested) and pytest (in each interpreter; not with `--exe`). Exit status: pytest's (the
       executable's) when tests fail, else 1 when the coverage check fails, else 0.
     - Zig's default Debug backend (self-hosted x86_64) pads its line tables with ops elfutils (kcov) misreads, so
-      kcov would see none of the file's Zig lines: kcov runs a copy with the padding rewritten (`fix_line_padding`;
-      the build itself is not changed). Its line tables give each line its own code, so every red line is code
-      that never ran. An LLVM build (`.use_llvm = true`, aarch64) works as is, but folds a line like `orelse
-      return ...` into the one above (its error path shows as run) and marks some comment and `fn` lines red (a
-      jump nothing takes). readelf still warns about the self-hosted `.debug_info` ("Bogus end-of-siblings
-      marker", zero padding after a unit's last entry); kcov does not mind.
+      kcov would see none of the file's Zig lines: kcov runs a copy with the padding rewritten (`fix_line_tables`,
+      which also ends each sequence at its last row; the build itself is not changed). Its line tables give each
+      line its own code, so every red line is code that never ran. An LLVM build (`.use_llvm = true`, aarch64)
+      works as is, but folds a line like `orelse return ...` into the one above (its error path shows as run) and
+      marks some comment and `fn` lines red (a jump nothing takes). readelf still warns about the self-hosted
+      `.debug_info` ("Bogus end-of-siblings marker", zero padding after a unit's last entry); kcov does not mind.
     - kcov records nothing from a shared library loaded once about 24 are mapped, and `import pytest` maps more,
       so the extension is loaded before pytest; importing `--name` gets it (a `sys.meta_path` finder); a test
       importing another copy fails the check.
@@ -88,13 +103,14 @@ def fail(message):
     raise SystemExit(1)
 
 
-VALUED = ('--name', '--include', '--python', '--min', '--max-memory', '--json', '--html')
+VALUED = ('--name', '--include', '--python', '--min', '--max-memory', '--json', '--badge', '--history', '--html')
 FLAGS = ('--exe', '--missed', '--partial')
 
 
 def options(argv):
     '''The options, the extension's path and the pytest arguments from `argv`.'''
     opts = {'name': None, 'include': [], 'python': [], 'min': None, 'max_memory': 8.0, 'html': None}
+    opts |= {'badge': None, 'history': None}
     opts['json'] = os.path.join('zig-out', 'coverage.json')
     opts |= {flag[2:]: False for flag in FLAGS}
     path, pytest_args = None, []
@@ -125,7 +141,8 @@ def options(argv):
     if path is None or not (opts['name'] or opts['exe']) or not opts['include']:
         fail(
             'usage: check_coverage.py --name NAME --include DIR [--python PATH] [--min PERCENT] [--max-memory GB] '
-            '[--json FILE] [--html DIR] [--missed] [--partial] <ext.so> [pytest args]\n'
+            '[--json FILE] [--badge FILE] [--history FILE] [--html DIR] [--missed] [--partial] <ext.so> '
+            '[pytest args]\n'
             '       check_coverage.py --exe --include DIR [...] <test executable> [its args]'
         )
     return opts, path, pytest_args
@@ -229,14 +246,17 @@ def elf_section(data, name):
     return None
 
 
-def fix_line_padding(data):
-    '''Rewrites the padding of the `.debug_line` of the ELF file in `data` (a `bytearray`) so elfutils (kcov) reads
-    it; gives how many padding ops it rewrote.
+def fix_line_tables(data):
+    '''Rewrites the `.debug_line` of the ELF file in `data` (a `bytearray`) for kcov; gives how many ops it rewrote.
 
-    Zig's self-hosted backend (the x86_64 Debug default) leaves room in the line tables to grow in place, filled
-    with one extended op (`DW_LNE` 0) whose length is a multi-byte ULEB128, or with a length-0 one. elfutils reads
-    an extended op's length as one byte, so it misreads the rest of the line program and drops it: kcov then sees
-    no line of the file. LLVM's line tables have no padding; nothing is changed.
+    - Padding: Zig's self-hosted backend (the x86_64 Debug default) leaves room in the line tables to grow in place,
+      filled with one extended op (`DW_LNE` 0) whose length is a multi-byte ULEB128, or with a length-0 one.
+      elfutils reads an extended op's length as one byte, so it misreads the rest of the line program and drops it:
+      kcov then sees no line of the file. LLVM's line tables have no padding.
+    - Sequence ends: kcov also puts a breakpoint at a sequence's end address, one past the function's code. The
+      self-hosted backend can put a `switch`'s jump table there: the breakpoint's `0xcc` overwrites an entry's low
+      byte, and that case jumps into the middle of an instruction (`SIGILL`). The address ops after a sequence's
+      last row become `DW_LNS_set_basic_block`s (one byte, no operand, no address change), so it ends at that row.
     '''
     section = elf_section(data, '.debug_line')
     if section is None:
@@ -259,7 +279,7 @@ def fix_line_padding(data):
         at += 1 + (1 if version >= 4 else 0) + 3  # `minimum_instruction_length` ... `line_range`
         opcode_base = data[at]
         argument_counts = data[at + 1 : at + opcode_base]
-        i = program
+        i, advances = program, []  # the address ops since the last row: `(start, end)`
         while i < end:
             op = data[i]
             if op == 0:  # extended: a length, then the sub-opcode and its operands
@@ -267,25 +287,38 @@ def fix_line_padding(data):
                 if n == 0 or (data[j] == 0 and j - i > 2):  # Zig's padding, which elfutils misreads
                     data[i : j + n] = padding_ops(j + n - i)
                     fixed += 1
+                elif data[j] == 1 and advances:  # `DW_LNE_end_sequence`, past the last row
+                    for start, stop in advances:
+                        data[start:stop] = bytes([7]) * (stop - start)
+                    fixed += 1
+                if n == 0 or data[j] == 1:
+                    advances = []
                 i = j + n
             elif op == 9:  # `DW_LNS_fixed_advance_pc`: a 2-byte operand, not a ULEB128
+                advances.append((i, i + 3))
                 i += 3
             elif op < opcode_base:
+                start = i
                 i += 1
                 for _ in range(argument_counts[op - 1]):
                     i = uleb128(data, i)[1]  # a SLEB128 ends the same way
+                if op in (2, 8):  # `DW_LNS_advance_pc`, `DW_LNS_const_add_pc`
+                    advances.append((start, i))
+                elif op == 1:  # `DW_LNS_copy`: a row
+                    advances = []
             else:
-                i += 1  # a special opcode
+                i += 1  # a special opcode: a row
+                advances = []
         unit = end - base
     return fixed
 
 
 def readable_copy(path, tmp):
-    '''`path`, or, when its line tables need `fix_line_padding`, a fixed copy in `tmp`: of its whole directory, so a
+    '''`path`, or, when its line tables need `fix_line_tables`, a fixed copy in `tmp`: of its whole directory, so a
     package's `__init__.so` stays in its package and the stub next to the extension stays next to it.'''
     with open(path, 'rb') as f:
         data = bytearray(f.read())
-    if not fix_line_padding(data):
+    if not fix_line_tables(data):
         return path
     folder = os.path.join(tmp, 'build', os.path.basename(os.path.dirname(path)))
     shutil.copytree(os.path.dirname(path), folder, symlinks=True)
@@ -384,7 +417,84 @@ def is_result(path):
             data = json.load(f)
     except (OSError, ValueError):
         return False
-    return isinstance(data, dict) and data.keys() == {'total', 'interpreters', 'files'}
+    keys = {'total', 'interpreters', 'files'}
+    return isinstance(data, dict) and keys <= data.keys() <= keys | {'commit'}
+
+
+def is_badge(path):
+    '''Whether the file `path` holds an earlier `--badge` file.'''
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get('schemaVersion') == 1 and data.get('label') == 'coverage'
+
+
+BADGE_COLORS = ((95, 'brightgreen'), (90, 'green'), (80, 'yellowgreen'), (70, 'yellow'), (60, 'orange'))
+
+
+def badge(covered, total):
+    '''The `--badge` file's content for `covered` of `total` lines.'''
+    tenths = covered * 1000 // total  # rounded down: 100% only when every line ran
+    percent = tenths / 10
+    color = next((c for least, c in BADGE_COLORS if percent >= least), 'red')
+    message = f'{tenths // 10}%' if tenths % 10 == 0 else f'{percent:.1f}%'
+    return {'schemaVersion': 1, 'label': 'coverage', 'message': message, 'color': color}
+
+
+def is_history(path):
+    '''Whether the file `path` holds an earlier `--history` file.'''
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.keys() == {'runs'} and isinstance(data['runs'], list)
+
+
+def project_version():
+    '''The `.version` of `build.zig.zon` in the current directory, else None.'''
+    try:
+        with open('build.zig.zon') as f:
+            found = re.search(r'\.version\s*=\s*"([^"]+)"', f.read())
+    except OSError:
+        return None
+    return found[1] if found else None
+
+
+def history(old, version, covered, total, runs):
+    '''The `--history` file `old` (None: a new one) with `version`'s entry set to `covered` of `total` lines and the
+    totals of `runs` (`(label, covered, lines)`): in place when there is one, else last.
+
+    Example
+        >>> h = history(None, '1.0', 9, 10, [('3.15', 9, 10)])
+        >>> h = history(h, '1.1', 10, 10, [('3.15', 10, 10)])
+        >>> history(h, '1.0', 8, 10, [])['runs'][0], [r['version'] for r in h['runs']]
+        ({'version': '1.0', 'covered': 8, 'lines': 10, 'interpreters': {}}, ['1.0', '1.1'])
+    '''
+    entry = {'version': version, 'covered': covered, 'lines': total}
+    entry['interpreters'] = {label: [c, n] for label, c, n in runs}
+    entries = [dict(e) for e in (old or {'runs': []})['runs']]
+    at = next((i for i, e in enumerate(entries) if e.get('version') == version), None)
+    if at is None:
+        entries.append(entry)
+    else:
+        entries[at] = entry
+    return {'runs': entries}
+
+
+def history_text(data):
+    '''The `--history` file's text: an entry per line, so a run's change is a one-line diff.
+
+    Example
+        >>> print(history_text({'runs': [{'version': '1.0', 'covered': 9, 'lines': 10, 'interpreters': {}}]}), end='')
+        {"runs": [
+         {"version": "1.0", "covered": 9, "lines": 10, "interpreters": {}}
+        ]}
+    '''
+    lines = ',\n'.join(' ' + json.dumps(e) for e in data['runs'])
+    return '{"runs": [\n' + lines + ('\n' if lines else '') + ']}\n'
 
 
 def source_crc(path):
@@ -397,15 +507,28 @@ def source_crc(path):
         return None
 
 
+def clean_commit(paths=()):
+    '''The current directory's git commit when the files `paths` (the measured sources; those outside the current
+    directory, a dependency's, are left out) are as committed, else None (changes, or not a git work tree): their
+    line numbers match that commit's. Other changes (`build.zig.zon`, docs) move no measured line.'''
+    inside = [p for p in (os.path.relpath(p) for p in paths) if not p.startswith('..')]
+    try:
+        git = ['git', 'status', '--porcelain', '--untracked-files=no', '--', *inside], ['git', 'rev-parse', 'HEAD']
+        changes, head = (subprocess.run(c, capture_output=True, text=True, check=True).stdout.strip() for c in git)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return None if changes else head
+
+
 def result(runs, files, sources):
     '''The `--json` result of `runs` (`(label, origin, files)`, `origin` `{"python": ...}` or `{"exe": ...}`), their
-    merge `files` and the files' `sources` (shown path -> real path).'''
+    merge `files` and the files' `sources` (shown path -> real path); `commit` when `clean_commit` gives one.'''
 
     def summary(lines):
         covered, total = totals(lines)
         return {'covered': covered, 'lines': total}
 
-    return {
+    out = {
         'total': summary(files),
         'interpreters': {
             label: {
@@ -424,6 +547,9 @@ def result(runs, files, sources):
             for path, lines in sorted(files.items())
         },
     }
+    if commit := clean_commit(sources[path] for path in files):
+        out['commit'] = commit
+    return out
 
 
 def shown(path):
@@ -531,9 +657,16 @@ def main():
         runner = [os.path.abspath(__file__), '--run', opts['name'], traced, '--']
         targets = [(label, {'python': python}, [python, *runner]) for python, label in zip(pythons, labels)]
 
-    out_json, html = opts['json'], opts['html']
+    out_json, html, out_badge, out_history = opts['json'], opts['html'], opts['badge'], opts['history']
     if os.path.exists(out_json) and not is_result(out_json):
         fail(f'{out_json} is not an earlier --json result: not overwriting it')
+    if out_badge and os.path.exists(out_badge) and not is_badge(out_badge):
+        fail(f'{out_badge} is not an earlier --badge file: not overwriting it')
+    if out_history and os.path.exists(out_history) and not is_history(out_history):
+        fail(f'{out_history} is not an earlier --history file: not overwriting it')
+    version = project_version()
+    if out_history and version is None:
+        fail('--history: no `.version` in ./build.zig.zon')
     # kcov keeps every earlier run (one directory per command line) and lists them all in `index.html`.
     if html and os.path.isdir(html) and os.listdir(html):
         if not is_report(html):
@@ -568,6 +701,20 @@ def main():
     with open(out_json, 'w') as f:
         json.dump(result(runs, files, sources), f, indent=1)
         f.write('\n')
+    if out_badge:
+        os.makedirs(os.path.dirname(out_badge) or '.', exist_ok=True)
+        with open(out_badge, 'w') as f:
+            json.dump(badge(covered, total), f)
+            f.write('\n')
+    if out_history:
+        old = None
+        if os.path.exists(out_history):
+            with open(out_history) as f:
+                old = json.load(f)
+        new = history(old, version, covered, total, [(label, *totals(run)) for label, _, run in runs])
+        os.makedirs(os.path.dirname(out_history) or '.', exist_ok=True)
+        with open(out_history, 'w') as f:
+            f.write(history_text(new))
     width = len(str(total))
     if len(runs) > 1:
         for label, _, run_files in runs:

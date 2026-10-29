@@ -564,6 +564,7 @@ pub const MethodKind = enum {
     static,
 
     /// Does the Zig function take the instance / class as its first parameter?
+    // comptime: method tables are built at comptime
     pub fn bound(kind: MethodKind) bool {
         return kind == .instance or kind == .class;
     }

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04  # the newest; its kcov package (25.04+) runs `zig build coverage`
     steps:
       - uses: actions/checkout@v7
 
@@ -54,6 +54,10 @@ jobs:
           "${{ steps.py314_ft.outputs.python-path }}" -m pip install -U pip pytest
           "${{ steps.py314_gil.outputs.python-path }}" -m pip install -U pip pytest
 
+      # `check_docs.py` runs the docs site's app.js with its docs.wasm in deno (test/docs/app_test.js)
+      - name: deno
+        uses: denoland/setup-deno@v2
+
       - name: tools/check.sh
         env:
           PY_FT: ${{ steps.py_ft.outputs.python-path }}
@@ -61,3 +65,19 @@ jobs:
           PY314_FT: ${{ steps.py314_ft.outputs.python-path }}
           PY314_GIL: ${{ steps.py314_gil.outputs.python-path }}
         run: tools/check.sh
+
+      # Line coverage on all four interpreters, merged; the committed README badge must match what this run writes
+      # (`zig build coverage` with every `--python` locally, then commit `docs/coverage-badge.json` and
+      # `docs/coverage-history.json`).
+      - name: kcov
+        run: sudo apt-get update && sudo apt-get install -y kcov
+
+      - name: zig build coverage
+        run: >-
+          zig build coverage -Dpython="${{ steps.py_ft.outputs.python-path }}" --
+          --python "${{ steps.py_gil.outputs.python-path }}"
+          --python "${{ steps.py314_ft.outputs.python-path }}"
+          --python "${{ steps.py314_gil.outputs.python-path }}"
+
+      - name: coverage badge and history up to date
+        run: git diff --exit-code docs/coverage-badge.json docs/coverage-history.json

@@ -339,6 +339,108 @@ pub fn check_errno(res: i64) Error!i64 {
     return py.checkErrno(res);
 }
 
+/// Raises `OSError(errno, msg)` with a message of Setu's (`py.raiseOSError`): CPython picks the subclass.
+///
+/// Example
+///     >>> raise_os_error(17)
+///     FileExistsError: [Errno 17] errno 17 from Setu
+pub fn raise_os_error(errno: i32) Error!void {
+    return py.raiseOSError(errno, "errno {d} from Setu", .{errno});
+}
+
+/// Raises `NotImplementedError` naming `what` (`py.raiseNotImplementedError`).
+///
+/// Example
+///     >>> not_implemented('spin')
+///     NotImplementedError: `spin` is not implemented
+pub fn not_implemented(what: []const u8) Error!void {
+    return py.raiseNotImplementedError("`{s}` is not implemented", .{what});
+}
+
+/// Is `obj` an `int` (`bool` too, a subclass): `True` / `False` from `py.trueObj()` / `py.falseObj()`.
+///
+/// Type
+///     obj: object
+///     return: bool
+///
+/// Example
+///     >>> is_int(3)
+///     True
+///     >>> is_int(True)
+///     True
+///     >>> is_int(3.0)
+///     False
+pub fn is_int(obj: *Object) *Object {
+    const answer = if (c.PyLong_Check(obj) != 0) py.trueObj() else py.falseObj();
+    py.incref(answer);
+    return answer;
+}
+
+/// `path` encoded like `os.fsencode` (`py.Path`).
+///
+/// Type
+///     return: bytes
+///
+/// Example
+///     >>> path_bytes('/tmp/x')
+///     b'/tmp/x'
+///     >>> path_bytes(b'/tmp')
+///     b'/tmp'
+///     >>> path_bytes(3)
+///     TypeError: expected str, bytes or os.PathLike object, not int
+pub fn path_bytes(path: py.Path) Error!*Object {
+    return py.new(py.Bytes{ .data = path.path });
+}
+
+/// The total length of `paths`, each encoded like `os.fsencode` (`py.Sequence(py.Path)`).
+///
+/// Example
+///     >>> paths_len(['/a', b'/bc'])
+///     5
+pub fn paths_len(paths: py.Sequence(py.Path)) usize {
+    var n: usize = 0;
+    for (paths.items) |p| n += p.path.len;
+    return n;
+}
+
+/// What `keep_path` keeps (`take`) until the next `keep_path`.
+var kept_path: ?py.Path = null;
+
+/// Releases the path the last call kept, then keeps `path` (`Path.take`). `keep_path()` only releases.
+///
+/// Example
+///     >>> keep_path('/tmp/x')
+///     >>> keep_path()
+pub fn keep_path(path: ?py.Path) Error!void {
+    if (kept_path) |p| p.deinit();
+    kept_path = null;
+    if (path) |p| kept_path = try p.take();
+}
+
+/// `obj` converted by hand: a `u8` (`py.fromPython`), or the sum of a sequence of them
+/// (`py.Sequence(u8).from`), as an `i8` (`py.narrow`).
+///
+/// Type
+///     obj: int | Sequence[int]
+///
+/// Example
+///     >>> small_sum(5)
+///     5
+///     >>> small_sum([100, 27])
+///     127
+///     >>> small_sum([100, 28])
+///     OverflowError: `small_sum(obj)` = 128 is out of range -128..127
+///     >>> small_sum(300)
+///     OverflowError: 300 is out of range 0..255
+pub fn small_sum(obj: *Object) Error!i8 {
+    if (c.PySequence_Check(obj) == 0) return py.narrow(i8, try py.fromPython(u8, obj), "`small_sum(obj)`");
+    const items = try py.Sequence(u8).from(obj);
+    defer items.deinit();
+    var sum: u32 = 0;
+    for (items.items) |v| sum += v;
+    return py.narrow(i8, sum, "`small_sum(obj)`");
+}
+
 /// Raises `ValueError(text)` through `py.raise` (a formatted message): a text longer than 511 bytes is cut to
 /// the first 511.
 ///

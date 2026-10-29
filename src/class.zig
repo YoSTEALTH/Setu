@@ -133,6 +133,7 @@
 //!     try PointType.create(module);
 
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("capi.zig");
 const py = @import("py.zig");
 const args_zig = @import("args.zig");
@@ -239,6 +240,21 @@ fn Stored(comptime T: type) type {
     };
 }
 
+/// Sets each field of `p.*` to its default, one store per field: a field whose default is `undefined`
+/// costs nothing, where `p.* = .{}` copies the whole struct from a constant (a `memcpy` for a large one).
+inline fn writeDefaults(comptime S: type, p: *S) void {
+    const i = @typeInfo(S).@"struct";
+    inline for (i.field_names, i.field_types, i.field_attrs) |n, F, a| {
+        if (!a.@"comptime") @field(p, n) = defaultOf(F, a);
+    }
+}
+
+/// The default value of a field (every field of a `Class` struct has one).
+inline fn defaultOf(comptime F: type, comptime a: std.lang.Type.Struct.FieldAttributes) F {
+    const d: *const F = @ptrCast(@alignCast(a.default_value_ptr.?));
+    return d.*;
+}
+
 /// Does `T` turn `dict` on (a base has not already)?
 fn ownDict(comptime T: type) bool {
     return @hasDecl(T, "dict") and T.dict and !(@hasDecl(T, "base") and T.base.dict);
@@ -294,25 +310,31 @@ pub fn Instance(comptime T: type) type {
         /// The type object, set by `Class(T, ...).create`.
         pub var tp: ?*c.TypeObject = null;
 
-        /// Where `Stored(T)` sits in an instance: `PyObject_GetTypeData`'s offset, which is the
-        /// same for every instance (the base's size, aligned; Python subclasses add after it), so
-        /// it is looked up once. Threads may race to set it, all with the same value (atomic, so
-        /// no torn reads).
+        /// Where `Stored(T)` sits in an instance: `PyObject_GetTypeData`'s offset, the same for
+        /// every instance (the base's size, aligned; Python subclasses add after it). Set by
+        /// `setOffset` when the type is created, before any instance exists (another
+        /// interpreter's `create` writes the same value: atomic, so no torn reads).
         var offset: usize = 0;
 
         /// `Stored(T)` of `obj` (an instance of the type or a subclass).
         pub inline fn stored(obj: *Object) *Stored(T) {
-            var off = @atomicLoad(usize, &offset, .monotonic);
-            if (off == 0) off = lookupOffset(obj);
-            return @ptrFromInt(@intFromPtr(obj) + off);
+            const off = @atomicLoad(usize, &offset, .monotonic);
+            std.debug.assert(off != 0); // set by `create`, which made `tp`
+            const s: *Stored(T) = @ptrFromInt(@intFromPtr(obj) + off);
+            // debug builds (the tests) check the offset against CPython's own answer; safe builds ship
+            if (builtin.optimize == .debug) std.debug.assert(s == py.typeData(Stored(T), obj, tp.?));
+            return s;
         }
 
-        /// The first `stored` call: looks the offset up (out of line, so callers keep only the load).
-        fn lookupOffset(obj: *Object) usize {
-            @branchHint(.cold);
-            const off = @intFromPtr(py.typeData(Stored(T), obj, tp.?)) - @intFromPtr(obj);
-            @atomicStore(usize, &offset, off, .monotonic);
-            return off;
+        /// Sets `offset` from the type object `t`: the instance data ends the instance, so it starts
+        /// `PyType_GetTypeDataSize` bytes before `__basicsize__`.
+        fn setOffset(t: *c.TypeObject) Error!void {
+            const v = c.PyObject_GetAttrString(@ptrCast(t), "__basicsize__") orelse return error.PythonError;
+            defer py.decref(v);
+            const basic = try py.fromPython(usize, v);
+            // cast: `PyType_GetTypeDataSize` is a size, never negative (CPython clamps it at 0)
+            const size: usize = @intCast(c.PyType_GetTypeDataSize(t));
+            @atomicStore(usize, &offset, basic - size, .monotonic);
         }
 
         /// The instance data of `obj` (an instance of the type or a subclass).
@@ -323,7 +345,7 @@ pub fn Instance(comptime T: type) type {
         /// The instance whose data is `d` (what `data` gave): `data`'s inverse.
         pub inline fn object(d: *const T) *Object {
             const off = @atomicLoad(usize, &offset, .monotonic);
-            std.debug.assert(off != 0); // set by the `data` call that gave `d`
+            std.debug.assert(off != 0); // set by `create`, which made `tp`
             return @ptrFromInt(@intFromPtr(d) - @offsetOf(Stored(T), "user") - off);
         }
 
@@ -610,7 +632,11 @@ fn ClassOf(comptime T: type, comptime Source: type) type {
         /// Sets every field of this type and its bases to its default.
         pub fn initDefaults(obj: *Object) void {
             if (Base != void) Base.initDefaults(obj);
-            stored(obj).* = .{};
+            const s = stored(obj);
+            writeDefaults(T, &s.user);
+            const si = @typeInfo(Stored(T)).@"struct";
+            inline for (si.field_names[1..], si.field_types[1..], si.field_attrs[1..]) |n, F, a|
+                @field(s, n) = defaultOf(F, a);
         }
 
         /// Creates the type object (after the base's), sets the class attributes and, with a
@@ -628,6 +654,7 @@ fn ClassOf(comptime T: type, comptime Source: type) type {
             const t: *c.TypeObject = @ptrCast(made);
             tp = t; // keeps the new reference for the process lifetime
             Instance(T).tp = t;
+            try Instance(T).setOffset(t);
             own_free = @ptrCast(@alignCast(c.PyType_GetSlot(t, c.Py_tp_free).?));
             inline for (info.decl_names) |n| if (comptime isClassAttr(T, n)) {
                 const V = @TypeOf(@field(T, n));

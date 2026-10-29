@@ -26,6 +26,10 @@ python3 -m pytest
 int main(void) { return 0; }
 ```
 
+```zig
+pub const Vec = struct { x: i64, y: i64 }; // highlighted by docs.wasm
+```
+
 An `@@path@@` line includes a file of the project as a code block (the tested script as it is):
 
 @@example/hi.py@@

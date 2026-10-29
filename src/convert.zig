@@ -304,8 +304,10 @@ pub const Path = struct {
         var ptr: ?[*]u8 = null;
         var n: c.ssize = 0;
         if (c.PyBytes_AsStringAndSize(out.?, &ptr, &n) < 0) {
+            // coverage-off: `PyUnicode_FSConverter` gives a `bytes`, which this never fails on
             decref(out);
             return error.PythonError;
+            // coverage-on
         }
         return .{ .obj = out.?, .path = ptr.?[0..@intCast(n) :0] }; // cast: a size, never < 0
     }

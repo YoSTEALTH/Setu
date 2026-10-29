@@ -1,0 +1,113 @@
+q -disabled
+q placeholder="Search the API…"
+theme -disabled
+theme title="Theme"
+fetch search.json
+fetch /api/ping
+hint -hidden
+no-server-hint hidden=""
+item0 aria-checked="false"
+item1 aria-checked="true"
+item2 aria-checked="false"
+item3 aria-checked="false"
+copy -hidden
+zig html "<span class=\"kw\">const</span> x = <span class=\"num\">1</span>;"
+fetch https://api.github.com/repos/YoSTEALTH/Setu
+fetch https://api.github.com/repos/YoSTEALTH/Setu/releases?per_page=10
+body class can-run true
+live text "live · 3.15"
+live class on true
+sessionStorage repo-facts:YoSTEALTH/Setu="v2026.10.28\n1.3k\n3"
+tag text "v2026.10.28"
+stars text "1.3k"
+forks text "3"
+facts -hidden
+-- click theme {}
+menu -hidden
+theme aria-expanded="true"
+item0 aria-checked="false"
+item1 aria-checked="true"
+item2 aria-checked="false"
+item3 aria-checked="false"
+item1 focus
+-- focus item1 {}
+-- keydown item1 {"key":"ArrowDown"}
+prevented
+item2 focus
+-- focus item2 {}
+-- click item2 {}
+html -data-palette
+html data-theme="light"
+localStorage palette=""
+localStorage theme="light"
+item0 aria-checked="false"
+item1 aria-checked="false"
+item2 aria-checked="true"
+item3 aria-checked="false"
+menu hidden=""
+theme aria-expanded="false"
+theme focus
+-- focus theme {}
+-- click theme {}
+menu -hidden
+theme aria-expanded="true"
+item0 aria-checked="false"
+item1 aria-checked="false"
+item2 aria-checked="true"
+item3 aria-checked="false"
+item2 focus
+-- focus item2 {}
+-- keydown document {"key":"Escape"}
+menu hidden=""
+theme aria-expanded="false"
+theme focus
+-- focus theme {}
+-- keydown document {"key":"/"}
+prevented
+q focus
+-- focus q {}
+-- input q {}
+hits html "<a href=\"classes.html#Vec\">Vec<small>Classes — A 2D vector with intege…"
+hits -hidden
+-- keydown q {"key":"ArrowDown"}
+prevented
+hits html "<a class=\"sel\" href=\"classes.html#Vec\">Vec<small>Classes — A 2D vector…"
+hits -hidden
+-- keydown q {"key":"Enter"}
+go classes.html#Vec
+hits hidden=""
+-- click document {}
+-- click copy {}
+clipboard "1 + 1"
+copy text "Copied"
+timer 1200
+copy text "Copy"
+-- click cov-row {}
+cov-view -hidden
+fetch source/example/vec.zig
+cov-pre html "<span class=\"hit\" data-n=\"1\"><span class=\"com\">//! The Coverage page&#…"
+cov-pre scrollTop -20
+-- click cov-row {}
+cov-view hidden=""
+-- click prof-row {}
+prof-view -hidden
+fetch source/test/functions.zig
+prof-pre0 html "<span data-n=\"1\"><b class=\"pc\"></b><span class=\"kw\">const</span> a = <…"
+prof-pre0 scrollTop 400
+prof-pre1 html "<span data-n=\"90\" class=\"hot\" style=\"background:color-mix(in srgb, var…"
+prof-pre1 scrollTop 1700
+-- click run-button {}
+run-button disabled=""
+run-status class="status"
+run-status text "running…"
+fetch /api/run POST "vec_norm2"
+run-result html "<span class=\"st-ok\">&gt;&gt;&gt; vec_norm2(Vec(3, 4))\n</span><span cla…"
+run-result -hidden
+run-status text "ok · 0.05 s"
+run-status class="status ok"
+run-button -disabled
+-- change dark {"matches":true}
+item0 aria-checked="false"
+item1 aria-checked="false"
+item2 aria-checked="true"
+item3 aria-checked="false"

@@ -48,7 +48,9 @@ Note
     - Each run sets `PYTHONHASHSEED=0` and disables the GC. `ext` comes out the same on every run; `total` within
       about 0.3 per call (the interpreter's memory layout). A rare one-time event in a run (millions of
       instructions, about once in 100 runs, more under load) only adds, so each size keeps its cheapest run
-      (`--repeat`).
+      (`--repeat`); a loop at or below 0 (the event in every small run) fails the run. The child runs with `-s -P`:
+      no user site, no current directory on `sys.path` (a changed directory there is listed again by the import
+      system, a one-time cost).
     - An inlined function's instructions count at its own source line (LLVM's line tables), so a line of
       `convert.zig` shows the cost of every call that inlined it in this case.
 '''
@@ -182,7 +184,7 @@ def run_one(python, so, name, cases_path, label, n, out):
     cmd = [
         'valgrind', '--tool=callgrind', '-q', f'--callgrind-out-file={out}',
         '--compress-strings=no', '--compress-pos=no',
-        python, '-s', '-c', CHILD, import_dir(so), name, cases_path, label, str(n),
+        python, '-s', '-P', '-c', CHILD, import_dir(so), name, cases_path, label, str(n),
     ]  # fmt: skip
     env = {**os.environ, 'PYTHONHASHSEED': '0'}
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -208,7 +210,10 @@ EXT = None  # the extension's object path, as callgrind names it (set in `main`)
 
 
 def display(path):
-    '''A source path as the report shows it (`shown`, std's files as `std/...`).'''
+    '''A source path as the report shows it (`shown`, std's files as `std/...`). Normalized first: callgrind names a
+    dependency's file through the project (`<project>/../setu/src/args.zig`), which is `setu/src/args.zig`, not a path
+    with `..` (the docs site fetches `source/<path>`, which a browser would resolve elsewhere).'''
+    path = os.path.normpath(path)
     cwd = os.getcwd() + os.sep
     if path.startswith(cwd):
         return path[len(cwd) :]
@@ -343,11 +348,14 @@ def main():
                 continue
             total, ext, lines = per_call(parsed[i, 0], parsed[i, 1], n)
             if not label:
+                if total <= 0:  # a one-time cost in every small run: it would be added to each case
+                    why = 'run again (more --repeat, fewer --jobs)'
+                    fail(f'{version}: the loop came out at {total:.1f} per call: {why}')
                 entry['loop'] = round(total, 2)
                 continue
             for path, _ in lines:
                 if path:
-                    SOURCES.setdefault(display(path), path)
+                    SOURCES.setdefault(display(path), os.path.normpath(path))
             entry['cases'][label] = case_result(total - entry['loop'], ext, lines)
         result['interpreters'][version] = entry
     result['sources'] = dict(sorted(SOURCES.items()))

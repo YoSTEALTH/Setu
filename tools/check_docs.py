@@ -8,10 +8,12 @@ python3 tools/check_docs.py
 
 import ast
 import html
+import html.parser
 import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -24,6 +26,7 @@ from pathlib import Path
 
 SETU = Path(__file__).resolve().parent.parent
 FIXTURE = SETU / 'test' / 'docs'
+BOX, COPY = '<div class="codebox">', '<button class="copy" type="button" hidden>Copy</button></div>'  # `code_box`
 sys.path.insert(0, str(SETU / 'tools'))
 import setu_docs  # noqa: E402
 
@@ -102,27 +105,28 @@ def check_markdown(site):
         ('[![abi](https://x.io/abi-abi3t%20(PEP%20803)-blue)](https://p.org/a)',
          '<p><a href="https://p.org/a"><img src="https://x.io/abi-abi3t%20(PEP%20803)-blue" alt="abi"></a></p>'),
         ('```sh\nls  # list\n```\n\n```\nplain <x>\n```',
-         '<pre class="code" data-lang="sh"><span class="fn">ls</span>  <span class="com"># list</span></pre>'
-         '<pre class="code">plain &lt;x&gt;</pre>'),
+         BOX + '<pre class="code" data-lang="sh"><span class="fn">ls</span>  <span class="com"># list</span></pre>'
+         + COPY + BOX + '<pre class="code">plain &lt;x&gt;</pre>' + COPY),
         ('> q\n\n---\n\n<div>raw</div>', '<blockquote><p>q</p></blockquote><hr><div>raw</div>'),
         ('## X\n\n### Y\n\n#### Z\n\n## X', '<section class="part" id="x"><h2>X<a class="anchor" href="#x">#</a></h2>'
          '<section class="part" id="y"><h3>Y<a class="anchor" href="#y">#</a></h3><h4 id="z">Z<a class="anchor" '
          'href="#z">#</a></h4></section></section><section class="part" id="x-2"><h2>X<a class="anchor" '
          'href="#x-2">#</a></h2></section>'),
         ('```bash\nX=1 cc -o "$OUT" <file> 2>&1 | grep -v x && echo ${A}; if true; then ls; fi\n```',
-         '<pre class="code" data-lang="bash">X=1 <span class="fn">cc</span> <span class="arg">-o</span> '
+         BOX + '<pre class="code" data-lang="bash">X=1 <span class="fn">cc</span> <span class="arg">-o</span> '
          '<span class="str">&quot;$OUT&quot;</span> <span class="arg">&lt;file&gt;</span> '
          '<span class="op">2&gt;&amp;1</span> <span class="op">|</span> <span class="fn">grep</span> '
          '<span class="arg">-v</span> x <span class="op">&amp;&amp;</span> <span class="fn">echo</span> '
          '<span class="bi">${A}</span><span class="op">;</span> <span class="kw">if</span> <span class="fn">true</span>'
          '<span class="op">;</span> <span class="kw">then</span> <span class="fn">ls</span><span class="op">;</span> '
-         '<span class="kw">fi</span></pre>'),
-        ('```console\n$ echo hi\nhi\n```', '<pre class="code" data-lang="console"><span class="pr">$ </span><span '
-         'class="fn">echo</span> hi\n<span class="out">hi</span></pre>'),
+         '<span class="kw">fi</span></pre>' + COPY),
+        ('```console\n$ echo hi\nhi\n```', BOX + '<pre class="code" data-lang="console"><span class="pr">$ </span>'
+         '<span class="fn">echo</span> hi\n<span class="out">hi</span></pre>' + COPY),
         ('```c\n#include <a.h>\nint f(void) { return NULL; } // c\n```',
-         '<pre class="code" data-lang="c"><span class="dec">#include</span><span class="str"> &lt;a.h&gt;</span>\n'
-         '<span class="ty">int</span> <span class="fn">f</span>(<span class="ty">void</span>) { <span class="kw">'
-         'return</span> <span class="con">NULL</span><span class="op">;</span> } <span class="com">// c</span></pre>'),
+         BOX + '<pre class="code" data-lang="c"><span class="dec">#include</span><span class="str"> &lt;a.h&gt;'
+         '</span>\n<span class="ty">int</span> <span class="fn">f</span>(<span class="ty">void</span>) { <span '
+         'class="kw">return</span> <span class="con">NULL</span><span class="op">;</span> } <span class="com">// c'
+         '</span></pre>' + COPY),
     ):  # fmt: skip
         same(f'markdown {text!r}', render(text), want)
     same('chart_number', [setu_docs.chart_number(c) for c in ('627,427', '**1.5k**', '48 ns', '-')],
@@ -247,7 +251,7 @@ def check_examples(project):
 def check_site(project, out):
     site = setu_docs.Site(project)
     files = site.write(out)
-    pages = ('index', 'guide', 'functions', 'classes', 'types', 'constants', 'examples', 'coverage', 'profile')
+    pages = ('index', 'guide', 'functions', 'classes', 'types', 'constants', 'examples', 'coverage')
     for name in (*(f'{p}.html' for p in pages), 'search.json', 'style.css', 'app.js', 'docs.wasm', 'llms.txt',
                  'llms-full.txt'):  # fmt: skip
         if name not in files:
@@ -263,14 +267,14 @@ def check_site(project, out):
         '<li>a\n  b\n  <ul>\n    <li>c</li>\n  </ul>\n</li>\n<p>d\xa0\n  <b>e</b></p>\n',
     )
     same(
-        'pretty_html: a `<pre>` in `.ln` lines (the first line break and a last one dropped), unless empty;'
+        'pretty_html: a `<pre>` in `.ln` lines, only a line break between them (the first line break and a last one'
+        ' dropped), unless empty;'
         ' `<textarea>` content on its own line',
         setu_docs.pretty_html(
             '<div><pre class="code">a\n\n b</pre><pre hidden></pre><pre>\nc\n</pre><textarea>t</textarea></div>'
         ),
-        '<div>\n  <pre class="code">\n    <span class="ln">a</span>\n    <span class="ln"></span>\n'
-        '    <span class="ln"> b</span>\n  </pre>\n  <pre hidden></pre>\n  <pre>\n    <span class="ln">c</span>\n'
-        '  </pre>\n  <textarea>\nt</textarea>\n</div>\n',
+        '<div>\n  <pre class="code">\n<span class="ln">a</span>\n<span class="ln"></span>\n<span class="ln"> b</span>'
+        '</pre>\n  <pre hidden></pre>\n  <pre>\n<span class="ln">c</span></pre>\n  <textarea>\nt</textarea>\n</div>\n',
     )
     same(
         'pre_lines: a tag open at a line break is closed and opened again; `.ln` lines come back as they are',
@@ -283,8 +287,20 @@ def check_site(project, out):
             ['a', ' <b>b</b>'],
         ),
     )
-    if '<span class="ln">' not in (out / 'guide.html').read_text():
+    guide = (out / 'guide.html').read_text()
+    if '<span class="ln">' not in guide:
         fail('guide.html: no `<pre>` in `.ln` lines')
+    # written for no `docs.wasm` (opened from disk): app.js turns these on, it builds no elements
+    for text, why in (
+        ('<input id="q" type="search" placeholder="Search needs a server" autocomplete="off" disabled>', 'search'),
+        ('title="Themes need a server" aria-haspopup="menu" aria-expanded="false" disabled>', 'the ◐ button'),
+    ):
+        if text not in guide:
+            fail(f'guide.html: {why} not off as written ({text!r})')
+    if not re.search(rf'<div class="codebox">\s*<pre class="code"[^>]*>.*?</pre>\s*{COPY[:-6]}\s*</div>', guide, re.S):
+        fail('guide.html: no `<pre>` in a `.codebox` with a hidden Copy button')
+    if 'createElement' in setu_docs.JS:
+        fail('app.js: builds elements (setu_docs.py writes them, hidden)')
     index = {e['n']: e for e in json.loads((out / 'search.json').read_text())}
     same(
         'search vec_norm2',
@@ -346,9 +362,9 @@ def check_site(project, out):
     repo = '<a class="repo" href="https://github.com/YoSTEALTH/Setu"'
     if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
         fail('index.html: no repository link from the `[project]` homepage')
-    app = (out / 'app.js').read_text()
-    if "fetch(api + '/releases?per_page=10')" not in app or "'/releases/latest'" in app:
-        fail('app.js: the latest release from `releases/latest` (a 404 in the console without releases)')
+    web = (SETU / 'tools/setu_docs_web.zig').read_text()
+    if '"{s}/releases?per_page=10"' not in web or '/releases/latest' in web:
+        fail('docs.wasm: the latest release from `releases/latest` (a 404 in the console without releases)')
     external, target = r'<a\b[^>]*href="https?://[^>]*>', r'<a\b[^>]* target='
     if any(not re.match(target, a) for a in re.findall(external, home + guide + page)):
         fail('index.html / guide.html / functions.html: an external link that does not open a new tab')
@@ -372,7 +388,7 @@ def check_site(project, out):
     icons = [urllib.parse.unquote(setu_docs.letter_icon(n)) for n in ('_x', '9', '_')]
     letters = [re.search(r'>([^<]*)</text>', i)[1] for i in icons]
     same('letter_icon: the first letter or digit, upper case', letters, ['X', '9', '?'])
-    # each theme's light set, the system's dark and the ◐ button's dark: each sets every color
+    # each palette's light set, the system's dark and the ◐ menu's dark: each sets every color
     blocks = re.findall(r':root[^{]*\{([^}]*--bg:[^}]*)\}', setu_docs.CSS)
     themes = [set(re.findall(r'(--[\w-]+):', b)) for b in blocks]
     if len(themes) != 3 * len(setu_docs.THEMES) or any(t != themes[0] for t in themes):
@@ -383,19 +399,170 @@ def check_site(project, out):
             fail(f'CSS: theme {key!r} has not a light and two dark sets')
     index = (out / 'index.html').read_text()
     for text, why in (
-        ('<select id="palette" class="palette"', 'no theme dropdown'),
-        ('<option value="nord">Nord</option>', 'no Nord in the dropdown'),
+        ('<button id="theme" class="theme" type="button" aria-label="Theme"', 'no ◐ button'),
+        ('<div id="themes" class="theme-menu" role="menu" hidden>', 'no theme menu'),
+        ('data-palette="nord" data-mode="light">Nord Day</button>', 'no Nord Day in the menu'),
+        ('data-palette="" data-mode="dark">Tokyo Night</button>', 'no Tokyo Night in the menu'),
         ("if (p && ['nord'].includes(p)) r.dataset.palette = p;", 'the saved theme not set in <head>'),
     ):
         if text not in index:
             fail(f'index.html: {why} ({text!r})')
+    names = re.findall(r'role="menuitemradio"[^>]*>([^<]*)</button>', index)
+    same('the ◐ menu', names, ['Nord Day', 'Nord Night', 'Tokyo Day', 'Tokyo Night'])
     examples = (out / 'examples.html').read_text()
     if 'data-target="example/forever.py"' in examples or 'data-target="example/hi.py"' not in examples:
         fail('examples.html: `scripts_skip` not applied')
     check_coverage_page(project, out)
     check_profile_page(project, out)
     check_old_files(out)
+    check_js_binding()
+    check_selectors(out)
+    check_app(out)
     check_version()
+
+
+# What `app.js` must not use: each is logic (formatting, picking, parsing text, arithmetic), which belongs in
+# `docs.wasm` (tools/setu_docs_web.zig); `app.js` only binds it to the page.
+JS_LOGIC = (
+    '% .toFixed( .filter( .find( .sort( .reduce( RegExp .match( .replace( .test( .slice( .substring( '
+    'parseInt parseFloat toLocaleString'
+).split()
+
+
+# Every string `app.js` may have: it is a fixed loop over `docs.wasm`'s commands, so a selector, an element id or a
+# feature's text in it is feature code, which belongs in `docs.wasm`.
+JS_STRINGS = {
+    'docs.wasm',
+    '(prefers-color-scheme: dark)',
+    'string',
+    'docs.wasm: out of memory',
+    'POST',
+    'Content-Type',
+    'text/plain',
+    ' ',
+    '\\x1f',
+    '',
+    '[data-n="',
+    '"]',
+}
+
+
+def check_js_binding():
+    '''`app.js` is only the loop that runs `docs.wasm`'s commands: none of `JS_LOGIC` in its code (comments aside),
+    no string but `JS_STRINGS`, and an entry in `ops` per `Op` of `tools/setu_docs_web.zig`, in its order.'''
+    code = re.sub(r'^\s*//.*$|\s//.*$', '', setu_docs.JS, flags=re.M)
+    found = [x for x in JS_LOGIC if x in code]
+    if found:
+        fail(f'app.js: logic belongs in docs.wasm (tools/setu_docs_web.zig), not app.js: {found}')
+    strings = set(re.findall(r"'((?:[^'\\]|\\.)*)'", code)) - JS_STRINGS
+    if strings:
+        fail(f'app.js: names an element or a feature (docs.wasm does): {sorted(strings)}')
+    web = (SETU / 'tools/setu_docs_web.zig').read_text()
+    enum = re.search(r'pub const Op = enum\(u8\) \{(.*?)\n\};', web, re.S).group(1)
+    ops = re.findall(r'^    (\w+),$', enum, re.M)
+    entries = re.findall(r'^      \(\) => .*?// (\w+)', setu_docs.JS, re.M)
+    same('app.js: an `ops` entry per `Op`, in order (each with its name in a comment)', entries, ops)
+
+
+class Element:
+    '''An element of a page, for `select`: its tag, attributes and parent.'''
+
+    def __init__(self, tag, attrs, parent):
+        self.tag, self.attrs, self.parent = tag, dict(attrs), parent
+
+
+def elements(text):
+    '''Every element of the HTML `text`, in document order.'''
+    found, stack = [], []
+
+    class Parser(html.parser.HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            found.append(Element(tag, ((k, v or '') for k, v in attrs), stack[-1] if stack else None))
+            if tag not in setu_docs.VOID_TAGS:
+                stack.append(found[-1])
+
+        def handle_endtag(self, tag):
+            while stack and stack.pop().tag != tag:
+                pass
+
+    Parser().feed(text)
+    return found
+
+
+# A compound selector's parts: a tag, `#id`, `.class`, `[a]` / `[a="v"]`, `:not(` one of those `)`
+SIMPLE = re.compile(r'(:not\()?(?:([\w-]+)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\])\)?')
+
+
+def matches(e, compound):
+    '''Whether element `e` matches `compound` (`SIMPLE`'s parts, no space).'''
+    for m in SIMPLE.finditer(compound):
+        neg, tag, id_, cls, attr, value = m.groups()
+        if tag:
+            ok = e.tag == tag
+        elif id_:
+            ok = e.attrs.get('id') == id_
+        elif cls:
+            ok = cls in e.attrs.get('class', '').split()
+        else:
+            ok = attr in e.attrs and (value is None or e.attrs[attr] == value)
+        if ok == bool(neg):
+            return False
+    return True
+
+
+def select(found, selector):
+    '''The elements of `found` that match `selector` (compounds joined by spaces: descendants), in order.'''
+    *outer, last = selector.split()
+    out = []
+    for e in found:
+        if not matches(e, last):
+            continue
+        need, at = list(outer), e.parent
+        while need and at:
+            if matches(at, need[-1]):
+                need.pop()
+            at = at.parent
+        if not need:
+            out.append(e)
+    return out
+
+
+def check_selectors(out):
+    '''Every selector `docs.wasm` binds matches on the fixture's pages, and the groups that go together (a row, its
+    view, its `<pre>`; a Run box's parts; a code block and its Copy button) are as many on each page.'''
+    web = (SETU / 'tools/setu_docs_web.zig').read_text()
+    unquote = lambda text: text.replace('\\"', '"')  # noqa: E731
+    top = re.findall(r'\.\{ el\.\w+, "([#.][^"]*)" \}', web)  # `bind`'s list in `begin`
+    top += re.findall(r'bindAll\(el\.document, \.(\w+), "((?:[^"\\]|\\.)*)"', web)
+    inner = {'#themes button': 1, '.repo .facts': 1, 'table.prof tr.src-view pre': 1}  # the ones bound in an element
+    names = ('index.html', 'guide.html', 'coverage.html', 'functions.html', 'examples.html')
+    pages = {name: elements((out / name).read_text()) for name in names}
+    pages['profile.html'] = elements(setu_docs.Site(setu_docs.Project(FIXTURE / 'pyproject.toml')).profile_page())
+    counts = {}
+    for entry in [*top, *inner]:
+        group, selector = entry if isinstance(entry, tuple) else ('', entry)
+        selector = unquote(selector)
+        hits = {name: len(select(found, selector)) for name, found in pages.items()}
+        if not any(hits.values()):
+            fail(f'docs.wasm binds {selector!r}: nothing matches on the fixture\'s pages')
+        counts[group] = hits
+    for groups in (('cov_rows', 'cov_views', 'cov_pres'), ('prof_rows', 'prof_views'), ('code_pres', 'copies'),
+                   ('run_boxes', 'run_buttons', 'run_statuses', 'run_results')):  # fmt: skip
+        if len({tuple(counts[g].values()) for g in groups}) != 1:
+            fail(f'docs.wasm: {", ".join(groups)} not as many on each page: {[counts[g] for g in groups]}')
+
+
+def check_app(out):
+    '''The site's `app.js` and `docs.wasm` in deno, against a recording stand-in for the browser
+    (`test/docs/app_test.js`): what the page saw is `test/docs/app_test.txt`.'''
+    deno = shutil.which('deno')
+    if not deno:
+        fail('deno not found: it runs test/docs/app_test.js (https://deno.com)')
+    run = subprocess.run([deno, 'run', '--allow-read', str(FIXTURE / 'app_test.js'), str(out)],
+                         capture_output=True, text=True, timeout=60)  # fmt: skip
+    if run.returncode:
+        fail(f'test/docs/app_test.js failed:\n{run.stderr}')
+    same('test/docs/app_test.js: what the page saw', run.stdout, (FIXTURE / 'app_test.txt').read_text())
 
 
 def check_version():
@@ -435,8 +602,15 @@ def check_coverage_page(project, out):
         ('aria-label="setu_classes + Setu: 81.2% covered"', 'no donut of both'),
         ('CPython 3.15 and CPython 3.14', 'not the interpreters'),
         ('CPython 3.14: <b>81.2%</b>, 13 / 16 lines', 'not a run on its own'),
-        ('<td class="missed">11-12</td>', 'not the missed lines as a range'),
-        ('<p class="src-hint">', 'no hint for the viewer'),
+        ('<td class="missed"><span class="miss-fn">11-12</span></td>', 'not the missed lines as a range'),
+        ('<td class="missed"><span class="miss-fn"><code>norm2</code> 4</span></td>', 'missed lines not by function'),
+        (
+            '<small class="runs" title="The interpreters ran different lines of this file">CPython 3.15: 3 / 6, '
+            'CPython 3.14: 4 / 6</small>',
+            'no note where the interpreters differ',
+        ),
+        ('<p class="src-hint" hidden>Click a file', 'no hint for the viewer, hidden'),
+        ('<p class="src-hint">The sources need a server', 'not the hint without `docs.wasm` as the default'),
         (
             '<tr class="src-row" data-src="source/example/vec.zig" data-hit="1-3, 5-10" data-miss="4" title=',
             'the own file: not a viewer row (its source found, not changed)',
@@ -448,9 +622,15 @@ def check_coverage_page(project, out):
         ),
         ('<small class="stale"', 'no `changed` by a changed file'),
         ('<a href="coverage.html" class="on">Coverage</a>', 'no nav item'),
+        ('aria-label="Coverage history: 3 versions, 1.0 to 1.2"', 'no history chart'),
+        ('<title>1.1: 75.0% (12 / 16 lines)</title>', 'no point of a version'),
+        ('<text x="20" y="136">75%</text>', 'not the lowest percent, rounded down, at the bottom'),
     ):
         if text not in page:
             fail(f'coverage.html: {why} ({text!r})')
+    views = re.findall(r'</tr>\s*<tr class="src-view" hidden>\s*<td colspan="5">\s*<pre class="cov-src"></pre>', page)
+    if len(views) != 2:
+        fail(f'coverage.html: {len(views)} hidden, empty view rows (all 5 columns), not 2 (one per viewer row)')
     if page.index('example/vec.zig') > page.index('id="dep-setu"'):
         fail('coverage.html: the own file not before the dependency')
     for path, real in (('example/vec.zig', 'example/vec.zig'), ('setu/src/args.zig', '../../src/args.zig')):
@@ -458,6 +638,20 @@ def check_coverage_page(project, out):
         if not copy.is_file() or copy.read_bytes() != (project.root / real).read_bytes():
             fail(f'site: source/{path} is not a copy of its source')
     same('line_ranges', setu_docs.line_ranges([3, 4, 5, 9, 11, 12]), '3-5, 9, 11-12')
+    zig = 'const a = 1;\npub fn f() void {\n    x();\n}\ninline fn g(y: u8) void {\n    _ = y;\n    z();\n}\n'
+    same('missed_functions: before any function, one never run, one partly',
+         setu_docs.missed_functions(zig, {1: 0, 3: 0, 6: 1, 7: 0}),
+         [('', [1], False), ('f', [3], True), ('g', [7], False)])  # fmt: skip
+    site = setu_docs.Site(project)
+    same('missed_html: a function Python has linked, `never run`',
+         site.missed_html([('vec_norm2', [3, 4], True), ('', [9], False)]),
+         '<span class="miss-fn"><code><a href="functions.html#vec_norm2">vec_norm2</a></code> 3-4 '
+         '<small class="never">never run</small></span> <span class="miss-fn">9</span>')  # fmt: skip
+    same('missed_html: ranges linked to the file at the commit',
+         site.missed_html([('', [3, 4, 9], False)], 'https://g/f.zig'),
+         '<span class="miss-fn"><a href="https://g/f.zig#L3-L4">3-4</a>, '
+         '<a href="https://g/f.zig#L9">9</a></span>')  # fmt: skip
+    check_coverage_commit(project)
     same('slug', setu_docs.slug('Liburing + Setu'), 'liburing-setu')
     same('dependency_root', setu_docs.dependency_root(project.root, 'setu'), (project.root / '../..').resolve())
     same('dependency_root', setu_docs.dependency_root(project.root, 'nope'), None)
@@ -469,18 +663,122 @@ def check_coverage_page(project, out):
             fail('a missing `coverage` file: still a Coverage page')
     finally:
         project.config['coverage'] = snapshot
+    check_coverage_history(project)
+
+
+def check_coverage_history(project):
+    '''`coverage_history`: a version's entry set in place or added (`check_coverage.py --history`), the file one entry
+    per line; the chart of one run; a missing file no chart, a file of another kind refused.'''
+    sys.path.insert(0, str(SETU / 'tools'))
+    import check_coverage
+
+    one = check_coverage.history(None, '1.0', 9, 10, [('3.15', 9, 10)])
+    two = check_coverage.history(one, '1.1', 10, 10, [])
+    same('history: a new version last', [r['version'] for r in two['runs']], ['1.0', '1.1'])
+    same('history: a version set in place', check_coverage.history(two, '1.0', 8, 10, [])['runs'][0],
+         {'version': '1.0', 'covered': 8, 'lines': 10, 'interpreters': {}})  # fmt: skip
+    same(
+        'history_text',
+        check_coverage.history_text(one),
+        '{"runs": [\n {"version": "1.0", "covered": 9, "lines": 10, "interpreters": {"3.15": [9, 10]}}\n]}\n',
+    )
+    same('history_text: no runs', check_coverage.history_text({'runs': []}), '{"runs": [\n]}\n')
+    chart = setu_docs.coverage_history_chart(one['runs'])
+    for text in ('aria-label="Coverage history: 1 version, 1.0"', '<circle cx="150.0" cy="120.0"', '>90%</text>'):
+        if text not in chart:
+            fail(f'coverage_history_chart: one run: {text!r} missing')
+    same('coverage_history_chart: no runs', setu_docs.coverage_history_chart([]), '')
+    snapshot = project.config['coverage_history']
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            project.config['coverage_history'] = 'missing.json'
+            same('coverage_history: a missing file', setu_docs.Site(project).coverage_history, [])
+            bad = Path(tmp) / 'h.json'
+            bad.write_text('{"schemaVersion": 1, "label": "coverage"}')  # a badge
+            same('is_history: a badge', check_coverage.is_history(str(bad)), False)
+            project.config['coverage_history'] = str(bad)
+            try:
+                setu_docs.Site(project)
+                fail('coverage_history: a badge taken for a history')
+            except SystemExit as e:
+                if 'is not a `--history` file' not in str(e.code):
+                    raise
+            bad.write_text(check_coverage.history_text(one))
+            same('is_history: a history', check_coverage.is_history(str(bad)), True)
+        finally:
+            project.config['coverage_history'] = snapshot
+
+
+def check_coverage_commit(project):
+    '''`coverage`'s `commit`: read, and the project's files linked at it on GitHub (the fixture is `test/docs/` in
+    Setu's repository); `check_coverage.py` records it only for a tree as committed.'''
+    snapshot = project.config['coverage']
+    with tempfile.TemporaryDirectory() as tmp:
+        data = json.loads((project.root / snapshot).read_text())
+        (Path(tmp) / 'c.json').write_text(json.dumps({**data, 'commit': 'abc123'}))
+        project.config['coverage'] = str(Path(tmp) / 'c.json')
+        try:
+            site = setu_docs.Site(project)
+            same('blob_url', site.blob_url('example/vec.zig'),
+                 'https://github.com/YoSTEALTH/Setu/blob/abc123/test/docs/example/vec.zig')  # fmt: skip
+            site.sources = {}
+            table = site.coverage_table([('example/vec.zig', 9, 10, [4], [1])], project.root)
+            if 'href="https://github.com/YoSTEALTH/Setu/blob/abc123/test/docs/example/vec.zig#L4">4</a>' not in table:
+                fail('coverage.html: a missed line of the project\'s file not linked at the commit')
+        finally:
+            project.config['coverage'] = snapshot
+    if setu_docs.Site(project).blob_url('example/vec.zig') is not None:
+        fail('blob_url: a link without a `commit`')
+    sys.path.insert(0, str(SETU / 'tools'))
+    import check_coverage
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            same('clean_commit: not a git work tree', check_coverage.clean_commit(), None)
+            git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+            subprocess.run(['git', 'init', '-q'], check=True)
+            Path('a.zig').write_text('a\n')
+            subprocess.run(['git', 'add', 'a.zig'], check=True)
+            subprocess.run([*git, 'commit', '-q', '-m', 'a'], check=True)
+            head = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+            same('clean_commit: as committed', check_coverage.clean_commit(), head)
+            Path('b.zig').write_text('untracked\n')
+            same('clean_commit: an untracked file', check_coverage.clean_commit(), head)
+            Path('c.zig').write_text('c\n')
+            subprocess.run(['git', 'add', 'c.zig'], check=True)
+            subprocess.run([*git, 'commit', '-q', '-m', 'c'], check=True)
+            head = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+            Path('c.zig').write_text('changed, not measured\n')
+            same('clean_commit: a change in a file not measured', check_coverage.clean_commit(['a.zig']), head)
+            same('clean_commit: a changed file', check_coverage.clean_commit(), None)
+            Path('a.zig').write_text('changed\n')
+            same('clean_commit: a measured file changed', check_coverage.clean_commit([str(Path('a.zig').resolve())]),
+                 None)  # fmt: skip
+        finally:
+            os.chdir(cwd)
 
 
 def check_profile_page(project, out):
-    '''`profile`: the page from the fixture's snapshot, a row per case with its files for the view; without the
-    file, no page.'''
-    page = (out / 'profile.html').read_text()
+    '''`profile`: only `serve` writes the page (live), not `build`: the nav item is there, shown when live; the page
+    from the fixture's snapshot has a row per case with its files for the view; without the file, a page that says
+    how to make it.'''
+    if (out / 'profile.html').exists():
+        fail('site: profile.html written by `build` (only `serve` has it)')
+    item = '<a href="profile.html" class="live-only">Profile</a>'
+    if item not in (out / 'index.html').read_text():
+        fail(f'index.html: no Profile nav item shown only live ({item!r})')
+    if 'body.can-run .side a.live-only { display: block; }' not in setu_docs.CSS:
+        fail('CSS: the live-only nav item not shown when live')
+    site = setu_docs.Site(project)
+    page = setu_docs.pretty_html(site.profile_page())
     for text, why in (
         ('<th>CPython 3.15</th>', 'no column per interpreter'),
         ('title="200.0 per call: 50.0 in the extension (25%), 150.0 in the interpreter"', 'not the bar\'s numbers'),
         ('<span class="pbar" style="width:50.0%"><i style="width:25.0%"></i>', 'not the bar scaled to the top case'),
         ('<td>-</td>', 'a case one interpreter does not have: not `-`'),
-        ('<a href="profile.html" class="on">Profile</a>', 'no nav item'),
+        ('<a href="profile.html" class="live-only on">Profile</a>', 'no nav item'),
     ):
         if text not in page:
             fail(f'profile.html: {why} ({text!r})')
@@ -488,29 +786,61 @@ def check_profile_page(project, out):
         fail('profile.html: the table not in its scrolling holder (it would overflow into the menu)')
     if 'tr.src-view pre.cov-src { width: 0; min-width: 100%;' not in setu_docs.CSS:
         fail('CSS: a source view widens its table (the columns go out of view)')
-    rows = re.findall(r'<tr class="prof-row" data-files="([^"]*)"', page)
+    rows = re.findall(r'<tr class="prof-row" [^>]*>.*?</tr>\s*<tr class="src-view" hidden>(.*?)</tr>', page, re.S)
     if len(rows) != 2:
-        fail(f'profile.html: {len(rows)} case rows with files, not 2')
-    files = json.loads(html.unescape(rows[0]))
+        fail(f'profile.html: {len(rows)} case rows with a hidden view under them, not 2')
+    files = re.findall(
+        r'<div class="prof-file"><code>([^<]*)</code> ([^<]*)</div>\s*'
+        r'<pre class="cov-src prof-src" data-src="([^"]*)" data-lines="([^"]*)"></pre>',
+        rows[0],
+    )
     same(
-        'profile.html: the first case\'s files',
+        'profile.html: the first case\'s files (a heading and an empty `<pre>` each)',
         files,
         [
-            {'path': 'test/functions.zig', 'src': 'source/test/functions.zig', 'total': '30.0',
-             'lines': '0:2.0,25:8.0,26:20.0'},
-            {'path': 'setu/src/args.zig', 'src': '', 'total': '20.0', 'lines': '90:20.0'},
+            ('test/functions.zig', '30.0 per call', 'source/test/functions.zig', '0:2.0,25:8.0,26:20.0'),
+            ('setu/src/args.zig', '20.0 per call', '', '90:20.0'),
         ],
     )  # fmt: skip
-    copy = out / 'source/test/functions.zig'
-    if not copy.is_file() or copy.read_bytes() != (project.root / '../functions.zig').read_bytes():
-        fail('site: source/test/functions.zig is not a copy of its source')
+    if '<td colspan="3">' not in rows[0]:
+        fail('profile.html: the view\'s cell does not span the case and the 2 interpreters')
+    if site.sources.get('test/functions.zig', Path()).resolve() != (project.root / '../functions.zig').resolve():
+        fail(f'profile.html: source/test/functions.zig not served from its source ({site.sources})')
+    if (out / 'source/test/functions.zig').exists():
+        fail('site: source/test/functions.zig copied by `build` (only the Profile page shows it)')
+    check_profile_paths()
     project.config['profile'], snapshot = 'missing.json', project.config['profile']
     try:
         site = setu_docs.Site(project)
-        if site.profile or 'profile.html' in site.nav('index'):
-            fail('a missing `profile` file: still a Profile page')
+        if site.profile or 'No profile yet: run <code>zig build profile</code>' not in site.profile_page():
+            fail('a missing `profile` file: not a page that says how to make it')
     finally:
         project.config['profile'] = snapshot
+    del project.config['profile']
+    try:
+        if 'profile.html' in setu_docs.Site(project).nav('index'):
+            fail('no `profile` setting: still a Profile nav item')
+    finally:
+        project.config['profile'] = snapshot
+
+
+def check_profile_paths():
+    '''`check_profile.py` names a dependency's file `<its .name>/<path in it>` (as the Coverage page does), not
+    through the project with `..`, which the Profile page's `source/<path>` could not fetch.'''
+    sys.path.insert(0, str(SETU / 'tools'))
+    import check_profile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / 'proj').mkdir()
+        (Path(tmp) / 'dep/src').mkdir(parents=True)
+        (Path(tmp) / 'dep/build.zig.zon').write_text('.{ .name = .dep, .version = "1" }\n')
+        cwd = os.getcwd()
+        os.chdir(Path(tmp) / 'proj')
+        try:
+            shown = [check_profile.display(os.path.join(os.getcwd(), p)) for p in ('src/a.zig', '../dep/src/b.zig')]
+        finally:
+            os.chdir(cwd)
+    same('check_profile.display: the project\'s file, a dependency\'s', shown, ['src/a.zig', 'dep/src/b.zig'])
 
 
 def check_server(project):
@@ -536,6 +866,11 @@ def check_server(project):
         same('ping', ping['module'], 'setu_classes')
         if b'id="vec_norm2"' not in urllib.request.urlopen(f'{base}/functions.html').read():
             fail('the server does not serve the site')
+        if b'<tr class="prof-row"' not in urllib.request.urlopen(f'{base}/profile.html').read():
+            fail('the server does not make the Profile page')
+        served = urllib.request.urlopen(f'{base}/source/test/functions.zig').read()
+        if served != (project.root / '../functions.zig').read_bytes():
+            fail('the server does not serve the Profile page\'s source/test/functions.zig')
 
         def run(origin, target=b'vec_norm2'):
             request = urllib.request.Request(f'{base}/api/run', target, {'Origin': origin}, method='POST')

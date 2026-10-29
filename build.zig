@@ -3,7 +3,8 @@
 //!                           tools/setu_docs_web.zig
 //! zig build docs-web        the docs site's Wasm module (tools/setu_docs_web.zig) into zig-out/web/docs.wasm
 //! zig build coverage        line coverage of the test extension under class_test.py (kcov; arguments
-//!                           after `--` go to pytest)
+//!                           after `--` go to pytest), then tools/check_api.py (every public runtime
+//!                           function of src/ compiled into it)
 //! zig build coverage-zig    line coverage of tools/setu_docs_web.zig's unit tests (kcov)
 //! zig build profile         instructions per call of tools/bench.py's cases, per line (callgrind; needs
 //!                           -Doptimize=fast -Dcpu=x86_64_v3; arguments after `--` go to check_profile.py)
@@ -66,12 +67,22 @@ pub fn build(b: *std.Build) void {
         b.fmt("setu_classes{s}", .{ext_suffix}),
     ).step);
     develop.dependOn(&b.addInstallFileWithDir(setu_pyi, test_dir, "setu_classes.pyi").step);
-    coverage(b, b.path("tools/check_coverage.py"), setu_test, .{
+    const covered = coverage(b, b.path("tools/check_coverage.py"), setu_test, .{
         .module_name = "setu_classes",
         .include = &.{ b.path("src"), b.path("test") },
         .stub = setu_pyi, // `test_stub_matches_module` reads it next to the extension
         .python = python,
+        .badge = "docs/coverage-badge.json", // the README's badge (from all four interpreters: `--python`)
+        .history = "docs/coverage-history.json", // the docs site's history chart
     });
+    if (covered) |run| {
+        // then: every public runtime function of `src/` compiled into `setu_classes` (kcov counts only those)
+        const api = b.addSystemCommand(&.{ python, "tools/check_api.py" });
+        api.setCwd(b.path("."));
+        api.has_side_effects = true; // reads the run's zig-out/coverage.json
+        api.step.dependOn(&run.step);
+        b.top_level_steps.get("coverage").?.step.dependOn(&api.step);
+    }
     profile(b, b.path("tools/check_profile.py"), setu_test, .{
         .module_name = "setu_classes",
         .cases = b.path("tools/bench.py"),
@@ -263,6 +274,14 @@ pub const CoverageOptions = struct {
     python: []const u8 = "python3",
     /// Fail when the total line coverage is lower (percent).
     min: ?f64 = null,
+    /// Also write the total (merged over the interpreters run) as a shields.io endpoint file at this path from
+    /// the project root, for a README badge: `"docs/coverage-badge.json"`, committed, read by
+    /// `https://img.shields.io/endpoint?url=<its raw URL>`.
+    badge: ?[]const u8 = null,
+    /// Also keep the totals per project version (`build.zig.zon`'s `.version`) in this file from the project root,
+    /// for the docs site's history chart (`coverage_history`): `"docs/coverage-history.json"`, committed; a run sets
+    /// its version's entry.
+    history: ?[]const u8 = null,
 };
 
 /// The step `coverage`: line coverage of the extension `ext`'s Zig code under the project's pytest, by kcov.
@@ -278,7 +297,7 @@ pub const CoverageOptions = struct {
 ///       tests under that interpreter too, merged; repeatable) / `--html <dir>` (kcov's HTML report too), the rest
 ///       goes to pytest.
 ///       Code between `// coverage-off` and `// coverage-on` is not counted.
-///     - Not for CI as is: kcov is packaged for Ubuntu 25.04+ only.
+///     - In CI: kcov is packaged for Ubuntu 25.04+ (GitHub's `ubuntu-26.04` runner; Setu's `ci.yml` runs it).
 ///
 /// Example
 ///     >>> // the project's build.zig (`setu` in its build.zig.zon)
@@ -297,21 +316,22 @@ pub fn addCoverageSteps(
     ext: *std.Build.Step.Compile,
     options: CoverageOptions,
 ) void {
-    coverage(b, setu_dep.path("tools/check_coverage.py"), ext, options);
+    _ = coverage(b, setu_dep.path("tools/check_coverage.py"), ext, options);
 }
 
-/// `addCoverageSteps` with Setu's `tools/check_coverage.py` given (Setu's own build has no dependency).
+/// `addCoverageSteps` with Setu's `tools/check_coverage.py` given (Setu's own build has no dependency). The run
+/// (null when `ext` can not be measured).
 fn coverage(
     b: *std.Build,
     runner: std.Build.LazyPath,
     ext: *std.Build.Step.Compile,
     options: CoverageOptions,
-) void {
+) ?*std.Build.Step.Run {
     const step = b.step("coverage", "Line coverage of the extension's Zig code under pytest (kcov)");
     const module = ext.root_module;
     if ((module.optimize orelse .debug) != .debug or module.strip == true) {
         step.dependOn(&b.addFail("coverage: the extension's module must be Debug, not stripped").step);
-        return;
+        return null;
     }
     // `ext` as built: with the self-hosted x86_64 backend (the Debug default), whose line tables kcov reads once
     // `check_coverage.py` has fixed their padding (a copy), and which, unlike LLVM's, give each line its own code
@@ -332,10 +352,13 @@ fn coverage(
     run.addArgs(&.{ "--name", options.module_name });
     for (options.include) |dir| run.addDirectoryArg2(dir, .{ .prefix = "--include=", .make_absolute = true });
     if (options.min) |min| run.addArg(b.fmt("--min={d}", .{min}));
+    if (options.badge) |path| run.addArg(b.fmt("--badge={s}", .{path}));
+    if (options.history) |path| run.addArg(b.fmt("--history={s}", .{path}));
     run.addFileArg2(so, .{ .make_absolute = true });
     run.addPassthruArgs(); // the runner's options (`--missed`), the rest is pytest's
     run.has_side_effects = true; // the tests are no input the step knows of
     step.dependOn(&run.step);
+    return run;
 }
 
 /// What `addZigTestCoverage` takes.
@@ -422,7 +445,8 @@ pub const ProfileOptions = struct {
 ///
 /// Note
 ///     - Needs valgrind (3.25 tested); `ext.root_module` optimized (not Debug), with debug info, for a CPU without
-///       AVX-512 (valgrind can not run it): `-Doptimize=fast -Dcpu=x86_64_v3` (else the step fails).
+///       AVX-512 (valgrind can not run it): `-Doptimize=fast -Dcpu=x86_64_v3` (else the step fails); a project with
+///       a `preferred_optimize_mode` takes `-Drelease` instead (`--release=fast` works for both).
 ///     - Counts instructions, not time: exact on every run, so a change of 1 per call shows. `tools/bench.py`
 ///       times the same cases.
 ///     - After `--`: the runner's `-k <text>` / `--lines <k>` (each case's costliest lines) / `--python <path>`
@@ -461,7 +485,7 @@ fn profile(
         (cpu.arch == .x86_64 and cpu.has(.x86, .avx512f)))
     {
         const message = "profile: build the extension optimized, with debug info, for a CPU valgrind runs: " ++
-            "-Doptimize=fast -Dcpu=x86_64_v3";
+            "--release=fast -Dcpu=x86_64_v3 (or -Doptimize=fast; -Drelease with a preferred optimize mode)";
         step.dependOn(&b.addFail(message).step);
         return;
     }
