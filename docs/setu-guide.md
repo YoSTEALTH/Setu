@@ -710,13 +710,15 @@ goes to a temporary directory, removed after the run; `-- --html DIR` keeps its 
 on a file shows its source, Zig highlighted, the missed lines red; a source changed since the run (its CRC-32) is
 flagged `changed`. `.badge = "docs/coverage-badge.json"` also writes the total as a shields.io endpoint file; committed,
 it is a README badge: the image `https://img.shields.io/endpoint?url=<URL>`, `<URL>` the file's
-`raw.githubusercontent.com` address, percent-encoded (run with every `--python` first: the badge shows the merged
-total). `.history = "docs/coverage-history.json"` also keeps the totals per project version (`build.zig.zon`'s
-`.version`; a run sets its version's entry, one line each); committed, with `coverage_history =
-'docs/coverage-history.json'` in `[tool.setu_docs]` the Coverage page charts them next to the project's donut. In CI it
-needs kcov, packaged for Ubuntu 25.04+: on GitHub's `ubuntu-26.04` runner the apt package `kcov`, then the step with
-every `--python`; Setu's `.github/workflows/ci.yml` also fails when the committed badge or history differs from the
-run's (`git diff --exit-code docs/coverage-badge.json docs/coverage-history.json`). Notes:
+`raw.githubusercontent.com` address, percent-encoded, linked to the docs site's Coverage page (`<site>/coverage.html`)
+(run with every `--python` first: the badge shows the merged total). `.history = "docs/coverage-history.json"` also
+keeps the totals per project version (`build.zig.zon`'s `.version`; a run sets its version's entry, one line each),
+with the project's own files' (no dependency's) beside them; committed, with `coverage_history =
+'docs/coverage-history.json'` in `[tool.setu_docs]` the Coverage page charts the own lines (the donut's figure) next to
+the project's donut, each point naming the total with dependencies too. In CI it needs kcov, packaged for Ubuntu
+25.04+: on GitHub's `ubuntu-26.04` runner the apt package `kcov`, then the step with every `--python`; Setu's
+`.github/workflows/ci.yml` also fails when the committed badge or history differs from the run's (`git diff
+--exit-code docs/coverage-badge.json docs/coverage-history.json`). Notes:
 
 - It measures the extension as built, in Debug. The default Debug backend (self-hosted x86_64) pads its line
   tables with ops kcov (elfutils) misreads, so kcov runs a copy with the padding rewritten (the build is not

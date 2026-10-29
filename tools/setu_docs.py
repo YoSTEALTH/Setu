@@ -124,8 +124,8 @@ again. Setu numbers the headers in the docstring (`help()` shows `Example #1`, `
 
 The Coverage page (`coverage`: the JSON of Setu's `tools/check_coverage.py`, merged over the interpreters it ran)
 shows the line coverage of the project's Zig code under its tests, a section per owner: the project's files (a
-donut, with `coverage_history` (`check_coverage.py --history`) a chart of the total per version beside it, a row per
-file, lowest first, with its missed lines by function: a function Python has links to its entry, one
+donut, with `coverage_history` (`check_coverage.py --history`) a chart of its own lines per version beside it,
+a row per file, lowest first, with its missed lines by function: a function Python has links to its entry, one
 none of whose lines ran says `never run`, each range linked to the file on GitHub at the run's `commit` when the run
 was on a tree as committed; where the interpreters ran different lines of a file, each one's count),
 then each dependency's (a file whose path does not
@@ -937,7 +937,11 @@ class Site:
             data = json.loads(path.read_text())
             runs = data.get('runs') if isinstance(data, dict) and data.keys() == {'runs'} else None
             if not isinstance(runs, list) or not all(
-                isinstance(r, dict) and {'version', 'covered', 'lines'} <= r.keys() and r['lines'] > 0 for r in runs
+                isinstance(r, dict)
+                and {'version', 'covered', 'lines'} <= r.keys()
+                and r['lines'] > 0
+                and ('own' not in r or isinstance(r['own'], list) and len(r['own']) == 2)
+                for r in runs
             ):
                 fail(f'`coverage_history`: {path} is not a `--history` file of `tools/check_coverage.py`')
             self.coverage_history = runs
@@ -2220,30 +2224,40 @@ def coverage_donut(name, covered, lines):
 
 
 def coverage_history_chart(runs):
-    '''A line of the total per version (`coverage_history`, oldest first), from the lowest percent (rounded down)
-    to 100%; hovering a point names its version. '' without runs.'''
+    '''A line of the project's own lines per version (`coverage_history`, oldest first; the donut's figure, an entry
+    without `own` by its total), from the lowest percent (rounded down) to 100%; hovering a point names its version
+    and both figures. '' without runs.'''
     if not runs:
         return ''
-    percents = [100 * r['covered'] / r['lines'] for r in runs]
+    own = [r['own'] if r.get('own', [0, 0])[1] else [r['covered'], r['lines']] for r in runs]
+    percents = [100 * covered / lines for covered, lines in own]
     low = min(int(min(percents)), 99)  # at least 1% of height
     x = [20 + 260 * i / (len(runs) - 1) if len(runs) > 1 else 150 for i in range(len(runs))]
     y = [20 + 100 * (100 - p) / (100 - low) for p in percents]
     points = ' '.join(f'{a:.1f},{b:.1f}' for a, b in zip(x, y))
+
+    def title(r, p, covered, lines):
+        text = f'{html.escape(r["version"])}: {p:.1f}% ({covered} / {lines} own lines)'
+        if [covered, lines] != [r['covered'], r['lines']]:
+            text += f'; with dependencies {100 * r["covered"] / r["lines"]:.1f}% ({r["covered"]} / {r["lines"]})'
+        return text
+
     dots = ''.join(
         f'<circle cx="{a:.1f}" cy="{b:.1f}" r="4" fill="var(--{coverage_level(p)})"><title>'
-        f'{html.escape(r["version"])}: {p:.1f}% ({r["covered"]} / {r["lines"]} lines)</title></circle>'
-        for a, b, p, r in zip(x, y, percents, runs)
+        f'{title(r, p, *o)}</title></circle>'
+        for a, b, p, r, o in zip(x, y, percents, runs, own)
     )
     first, last = html.escape(runs[0]['version']), html.escape(runs[-1]['version'])
     span = f'{len(runs)} versions, {first} to {last}' if len(runs) > 1 else f'1 version, {first}'
     return (
-        f'<figure><svg class="cov-history" viewBox="0 0 300 144" role="img" aria-label="Coverage history: {span}">'
+        '<figure><svg class="cov-history" viewBox="0 0 300 144" role="img" '
+        f'aria-label="Coverage history, own lines: {span}">'
         '<line x1="20" y1="20" x2="280" y2="20" stroke="var(--line)"/>'
         '<line x1="20" y1="120" x2="280" y2="120" stroke="var(--line)"/>'
         '<text x="20" y="14">100%</text>'
         f'<text x="20" y="136">{low}%</text>'
         f'<polyline points="{points}" fill="none" stroke="var(--muted)" stroke-width="2"/>{dots}</svg>'
-        f'<figcaption><strong>History</strong><br>{span}</figcaption></figure>'
+        f'<figcaption><strong>History</strong> (own lines)<br>{span}</figcaption></figure>'
     )
 
 

@@ -679,8 +679,13 @@ def check_coverage_page(project, out):
         ),
         ('<small class="stale"', 'no `changed` by a changed file'),
         ('<a href="coverage.html" class="on">Coverage</a>', 'no nav item'),
-        ('aria-label="Coverage history: 3 versions, 1.0 to 1.2"', 'no history chart'),
-        ('<title>1.1: 75.0% (12 / 16 lines)</title>', 'no point of a version'),
+        ('aria-label="Coverage history, own lines: 3 versions, 1.0 to 1.2"', 'no history chart'),
+        ('<title>1.1: 75.0% (12 / 16 own lines)</title>', 'no point of a version without `own` (its total)'),
+        (
+            '<title>1.2: 100.0% (10 / 10 own lines); with dependencies 81.2% (13 / 16)</title>',
+            'no point of a version with `own` (both figures)',
+        ),
+        ('<strong>History</strong> (own lines)', 'the chart not named as own lines'),
         ('<text x="20" y="136">75%</text>', 'not the lowest percent, rounded down, at the bottom'),
     ):
         if text not in page:
@@ -729,22 +734,27 @@ def check_coverage_history(project):
     sys.path.insert(0, str(SETU / 'tools'))
     import check_coverage
 
-    one = check_coverage.history(None, '1.0', 9, 10, [('3.15', 9, 10)])
-    two = check_coverage.history(one, '1.1', 10, 10, [])
+    one = check_coverage.history(None, '1.0', 9, 10, (9, 10), [('3.15', 9, 10)])
+    two = check_coverage.history(one, '1.1', 10, 10, (5, 5), [])
     same('history: a new version last', [r['version'] for r in two['runs']], ['1.0', '1.1'])
-    same('history: a version set in place', check_coverage.history(two, '1.0', 8, 10, [])['runs'][0],
-         {'version': '1.0', 'covered': 8, 'lines': 10, 'interpreters': {}})  # fmt: skip
+    same('history: a version set in place', check_coverage.history(two, '1.0', 8, 10, (4, 5), [])['runs'][0],
+         {'version': '1.0', 'covered': 8, 'lines': 10, 'own': [4, 5], 'interpreters': {}})  # fmt: skip
     same(
         'history_text',
         check_coverage.history_text(one),
-        '{"runs": [\n {"version": "1.0", "covered": 9, "lines": 10, "interpreters": {"3.15": [9, 10]}}\n]}\n',
+        '{"runs": [\n {"version": "1.0", "covered": 9, "lines": 10, "own": [9, 10], "interpreters": {"3.15": [9, 10]}}'
+        '\n]}\n',
     )
     same('history_text: no runs', check_coverage.history_text({'runs': []}), '{"runs": [\n]}\n')
     chart = setu_docs.coverage_history_chart(one['runs'])
-    for text in ('aria-label="Coverage history: 1 version, 1.0"', '<circle cx="150.0" cy="120.0"', '>90%</text>'):
+    for text in ('aria-label="Coverage history, own lines: 1 version, 1.0"', '<circle cx="150.0" cy="120.0"',
+                 '>90%</text>'):  # fmt: skip
         if text not in chart:
             fail(f'coverage_history_chart: one run: {text!r} missing')
     same('coverage_history_chart: no runs', setu_docs.coverage_history_chart([]), '')
+    no_own = check_coverage.history(None, '1.0', 9, 10, (0, 0), [])['runs']  # every file a package's: its total
+    if '<title>1.0: 90.0% (9 / 10 own lines)</title>' not in setu_docs.coverage_history_chart(no_own):
+        fail('coverage_history_chart: `own` without lines not charted by the total')
     snapshot = project.config['coverage_history']
     with tempfile.TemporaryDirectory() as tmp:
         try:
@@ -882,22 +892,33 @@ def check_profile_page(project, out):
 
 
 def check_profile_paths():
-    '''`check_profile.py` names a dependency's file `<its .name>/<path in it>` (as the Coverage page does), not
-    through the project with `..`, which the Profile page's `source/<path>` could not fetch.'''
+    '''`check_profile.py` and `check_coverage.py` name a dependency's file `<its .name>/<path in it>` (as the Coverage
+    page does), not through the project with `..`, which the Profile page's `source/<path>` could not fetch, nor as
+    the fetched copy in the project's `zig-pkg/<name>-<hash>/`, which the Coverage page would take for the
+    project's own.'''
     sys.path.insert(0, str(SETU / 'tools'))
+    import check_coverage
     import check_profile
 
+    fetched = 'zig-pkg/setu-1-abc/src/c.zig'
     with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / 'proj').mkdir()
+        (Path(tmp) / 'proj/zig-pkg/setu-1-abc/src').mkdir(parents=True)
+        (Path(tmp) / 'proj/zig-pkg/setu-1-abc/build.zig.zon').write_text('.{ .name = .setu, .version = "1" }\n')
         (Path(tmp) / 'dep/src').mkdir(parents=True)
         (Path(tmp) / 'dep/build.zig.zon').write_text('.{ .name = .dep, .version = "1" }\n')
         cwd = os.getcwd()
         os.chdir(Path(tmp) / 'proj')
         try:
-            shown = [check_profile.display(os.path.join(os.getcwd(), p)) for p in ('src/a.zig', '../dep/src/b.zig')]
+            paths = ('src/a.zig', '../dep/src/b.zig', fetched)
+            shown = [check_profile.display(os.path.join(os.getcwd(), p)) for p in paths]
+            kcov = [check_coverage.shown(p) for p in ('src/a.zig', fetched)]  # kcov: relative under the project
         finally:
             os.chdir(cwd)
-    same('check_profile.display: the project\'s file, a dependency\'s', shown, ['src/a.zig', 'dep/src/b.zig'])
+    same('check_profile.display: the project\'s file, a dependency\'s, a fetched one\'s', shown,
+         ['src/a.zig', 'dep/src/b.zig', 'setu/src/c.zig'])  # fmt: skip
+    same('check_coverage.shown: the project\'s file, a fetched one\'s', kcov, ['src/a.zig', 'setu/src/c.zig'])
+    same('check_coverage.is_package', [check_coverage.is_package(p) for p in ('src/a.zig', fetched, '/x/a.zig')],
+         [False, True, True])  # fmt: skip
 
 
 def check_server(project):

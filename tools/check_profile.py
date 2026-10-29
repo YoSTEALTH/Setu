@@ -216,7 +216,7 @@ def display(path):
     path = os.path.normpath(path)
     cwd = os.getcwd() + os.sep
     if path.startswith(cwd):
-        return path[len(cwd) :]
+        return shown(path[len(cwd) :])  # a fetched package's file in `zig-pkg/`: `setu/src/args.zig` too
     path = shown(path)
     if os.path.isabs(path) and '/std/' in path:
         return 'std/' + path.rpartition('/std/')[2]

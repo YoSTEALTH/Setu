@@ -3,7 +3,7 @@
 [![ci](https://github.com/YoSTEALTH/Setu/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YoSTEALTH/Setu/actions/workflows/ci.yml?query=branch%3Amain)
 [![docs](https://img.shields.io/badge/docs-yostealth.github.io%2FSetu-2e7de9)](https://yostealth.github.io/Setu/)
 [![tag](https://img.shields.io/github/v/tag/YoSTEALTH/Setu?sort=date&label=tag)](https://github.com/YoSTEALTH/Setu/tags)
-[![coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FYoSTEALTH%2FSetu%2Fmain%2Fdocs%2Fcoverage-badge.json)](docs/setu-guide.md#11-checks)
+[![coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FYoSTEALTH%2FSetu%2Fmain%2Fdocs%2Fcoverage-badge.json)](https://yostealth.github.io/Setu/coverage.html)
 [![zig](https://img.shields.io/badge/zig-0.17.0-F7A41D?logo=zig&logoColor=white)](https://ziglang.org/download/)
 [![python](https://img.shields.io/badge/python-3.14%20%7C%203.14t%20%7C%203.15%20%7C%203.15t-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![abi](https://img.shields.io/badge/abi-abi3t%20(PEP%20803)-3776AB)](https://peps.python.org/pep-0803/)

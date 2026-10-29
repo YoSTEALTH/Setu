@@ -23,9 +23,9 @@ Options
                       replaced on each run (refused unless it is an earlier result)
     --badge FILE      also write the merged total as a shields.io endpoint file (format below), for a README
                       badge; replaced on each run (refused unless it is an earlier badge)
-    --history FILE    also keep the totals per project version (`.version` of `./build.zig.zon`) in this file
-                      (format below), for the docs site's history chart: the run sets its version's entry, the
-                      others stay (refused unless it is an earlier history)
+    --history FILE    also keep the totals (and the project's own files') per project version (`.version` of
+                      `./build.zig.zon`) in this file (format below), for the docs site's history chart: the run
+                      sets its version's entry, the others stay (refused unless it is an earlier history)
     --html DIR        also keep kcov's HTML report, one per interpreter in `<DIR>/<3.15t, 3.14, ...>/index.html`;
                       replaced on each run (refused unless it is empty or an earlier report). Without it kcov writes
                       into a temporary directory, removed after the run
@@ -38,7 +38,7 @@ Options
     Arguments that are none of these (and all after a `--`) go to pytest (with `--exe`: to the executable).
 
 The `--json` file (paths as in the table: relative to the current directory, `<package>/<path>` for a Zig
-package's file outside it, `setu/src/args.zig`; `hits` of `possible` addresses ran)
+package's file outside it or in its `zig-pkg/`, `setu/src/args.zig`; `hits` of `possible` addresses ran)
     {"total": {"covered": 1025, "lines": 1028},
      "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "covered": 1019, "lines": 1028,
                                "files": {"src/args.zig": [94, 94], ...}}, ...},
@@ -54,8 +54,10 @@ The `--badge` file (https://shields.io/badges/endpoint-badge; the percent rounde
     `color`: brightgreen from 95%, green 90, yellowgreen 80, yellow 70, orange 60, else red.
 
 The `--history` file (oldest first; a run on a version already there replaces its entry in place)
-    {"runs": [{"version": "2026.10.27-3", "covered": 1289, "lines": 1289,
+    {"runs": [{"version": "2026.10.27-3", "covered": 1289, "lines": 1289, "own": [1289, 1289],
                "interpreters": {"3.15t": [1281, 1289], ...}}, ...]}
+    `own`: the project's files only (no Zig package's: the Coverage page's donut), what the chart plots; an entry
+    without it (written before) is charted by its total.
 
 Note
     - Needs kcov (43 tested) and pytest (in each interpreter; not with `--exe`). Exit status: pytest's (the
@@ -463,17 +465,18 @@ def project_version():
     return found[1] if found else None
 
 
-def history(old, version, covered, total, runs):
-    '''The `--history` file `old` (None: a new one) with `version`'s entry set to `covered` of `total` lines and the
-    totals of `runs` (`(label, covered, lines)`): in place when there is one, else last.
+def history(old, version, covered, total, own, runs):
+    '''The `--history` file `old` (None: a new one) with `version`'s entry set to `covered` of `total` lines, `own`
+    (`(covered, lines)` of the project's own files, no package's) and the totals of `runs` (`(label, covered,
+    lines)`): in place when there is one, else last.
 
     Example
-        >>> h = history(None, '1.0', 9, 10, [('3.15', 9, 10)])
-        >>> h = history(h, '1.1', 10, 10, [('3.15', 10, 10)])
-        >>> history(h, '1.0', 8, 10, [])['runs'][0], [r['version'] for r in h['runs']]
-        ({'version': '1.0', 'covered': 8, 'lines': 10, 'interpreters': {}}, ['1.0', '1.1'])
+        >>> h = history(None, '1.0', 9, 10, (5, 5), [('3.15', 9, 10)])
+        >>> h = history(h, '1.1', 10, 10, (5, 5), [('3.15', 10, 10)])
+        >>> history(h, '1.0', 8, 10, (4, 5), [])['runs'][0], [r['version'] for r in h['runs']]
+        ({'version': '1.0', 'covered': 8, 'lines': 10, 'own': [4, 5], 'interpreters': {}}, ['1.0', '1.1'])
     '''
-    entry = {'version': version, 'covered': covered, 'lines': total}
+    entry = {'version': version, 'covered': covered, 'lines': total, 'own': list(own)}
     entry['interpreters'] = {label: [c, n] for label, c, n in runs}
     entries = [dict(e) for e in (old or {'runs': []})['runs']]
     at = next((i for i, e in enumerate(entries) if e.get('version') == version), None)
@@ -555,9 +558,12 @@ def result(runs, files, sources):
 def shown(path):
     '''`path` as the table and `--json` show it: relative to the current directory when under it (kcov strips
     that), else `<package>/<path in it>` for a file of a Zig package (`.name` of the nearest `build.zig.zon` above
-    it: `setu/src/args.zig`, wherever the dependency lives), else as is.'''
+    it: `setu/src/args.zig`, wherever the dependency lives: a path dependency, or a fetched one in the project's
+    `zig-pkg/<name>-<hash>/`), else as is.'''
     if not os.path.isabs(path):
-        return path
+        if not is_package(path):
+            return path
+        path = os.path.abspath(path)
     d = os.path.dirname(path)
     while d != os.path.dirname(d):
         zon = os.path.join(d, 'build.zig.zon')
@@ -567,6 +573,12 @@ def shown(path):
             return f'{name[1]}/{os.path.relpath(path, d)}' if name else path
         d = os.path.dirname(d)
     return path
+
+
+def is_package(path):
+    '''Whether kcov's `path` is a Zig package's file: outside the current directory (absolute), or a fetched one in
+    its `zig-pkg/` (`zig-pkg/setu-<hash>/src/args.zig`), not the project's own.'''
+    return os.path.isabs(path) or path.startswith('zig-pkg' + os.sep)
 
 
 def listing(files, sources, title, keep):
@@ -711,7 +723,8 @@ def main():
         if os.path.exists(out_history):
             with open(out_history) as f:
                 old = json.load(f)
-        new = history(old, version, covered, total, [(label, *totals(run)) for label, _, run in runs])
+        own = totals({name: lines for name, lines in files.items() if not is_package(sources[name])})
+        new = history(old, version, covered, total, own, [(label, *totals(run)) for label, _, run in runs])
         os.makedirs(os.path.dirname(out_history) or '.', exist_ok=True)
         with open(out_history, 'w') as f:
             f.write(history_text(new))

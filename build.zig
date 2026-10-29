@@ -278,9 +278,9 @@ pub const CoverageOptions = struct {
     /// the project root, for a README badge: `"docs/coverage-badge.json"`, committed, read by
     /// `https://img.shields.io/endpoint?url=<its raw URL>`.
     badge: ?[]const u8 = null,
-    /// Also keep the totals per project version (`build.zig.zon`'s `.version`) in this file from the project root,
-    /// for the docs site's history chart (`coverage_history`): `"docs/coverage-history.json"`, committed; a run sets
-    /// its version's entry.
+    /// Also keep the totals (and the project's own files', no dependency's: what the chart plots) per project
+    /// version (`build.zig.zon`'s `.version`) in this file from the project root, for the docs site's history chart
+    /// (`coverage_history`): `"docs/coverage-history.json"`, committed; a run sets its version's entry.
     history: ?[]const u8 = null,
 };
 
