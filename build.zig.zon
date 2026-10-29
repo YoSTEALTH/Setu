@@ -13,6 +13,8 @@
         "tools/setu_docs.py", // the docs site builder projects copy (`setu-docs-sync` / `setu-docs-check`)
         "tools/setu_docs_web.zig", // its Wasm module, built by a project's `docs-web` step (`addSetuDocsSteps`)
         "tools/check_coverage.py", // the `coverage` step's runner (`addCoverageSteps`), run from the dependency
+        "tools/check_profile.py", // the `profile` step's runner (`addProfileSteps`; imports check_coverage.py)
+        "tools/check_symbols.py", // the `check-symbols` step's runner (`addSymbolCheck`)
         "docs/setu-guide.md", // the guide projects copy (`setu-guide-sync` / `setu-guide-check`)
         "llms.txt",
         "LICENSE.txt",

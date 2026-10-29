@@ -43,3 +43,5 @@ https://yostealth.github.io/Setu/.
   coverage` (`addCoverageSteps` in `build.zig`), and of Zig unit tests (`addZigTestCoverage`, `zig build coverage-zig`)
 - [tools/check_profile.py](tools/check_profile.py): instructions per call of `bench.py`'s cases, per Zig line
   (callgrind), run by `zig build profile` (`addProfileSteps`); `--baseline` fails a case that grew
+- [tools/check_symbols.py](tools/check_symbols.py): the extension's CPython symbols, exported by an interpreter and
+  in abi3t on 3.15+, run by `zig build check-symbols -Dpython=...` (`addSymbolCheck`)

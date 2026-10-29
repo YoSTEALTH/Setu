@@ -48,6 +48,8 @@ tools/check_coverage.py  # line coverage under pytest (kcov), run by zig build c
 tools/check_api.py       # every public runtime function compiled into setu_classes (after zig build coverage)
 tools/check_profile.py   # instructions per call, per Zig line (callgrind), run by zig build profile
                          # (addProfileSteps)
+tools/check_symbols.py   # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
+                         # zig build check-symbols (addSymbolCheck)
 ```
 
 Commands:

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs every Setu check: zig fmt, int casts, ruff (also on the copied tools with the consumers' rules),
+# Runs every Setu check: zig fmt, package paths, int casts, ruff (also on the copied tools with the consumers' rules),
 # `zig build test`, the `setu-build-sync` / `setu-build-check` and `setu-guide-*` steps on the wheel fixture
 # `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_classes.so`
 # and its generated stubs, which `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14, and 3.16t-dev / 3.16-dev when installed)
-# `check_abi.py`, `check_symbols.py`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels
+# `check_abi.py`, `zig build check-symbols`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels
 # `tools/setu_build.py` builds (`check_wheels.py`) and the docs site `tools/setu_docs.py` builds, serves and runs
 # the examples of (`check_docs.py`), then
 # `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
@@ -27,6 +27,20 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
 step "zig fmt"
 "$ZIG" fmt --check src test tools build.zig build.zig.zon
+
+step "package paths"
+# Every file build.zig runs from a dependent's pinned Setu (`setu_dep.path("...")`) must ship in the package:
+# a URL-fetched Setu holds only `build.zig.zon`'s `.paths`.
+"$PY_FT" - <<'PY'
+import re, sys
+zon = open('build.zig.zon').read()
+paths = re.findall(r'"([^"]+)"', zon[zon.index('.paths'):])
+used = set(re.findall(r'setu_dep(?:\.path\(|, )"([^"]+)"', open('build.zig').read()))  # also `addCopySteps`
+bad = sorted(u for u in used if not any(u == p or u.startswith(p + '/') for p in paths))
+for u in bad:
+    print(f'build.zig runs `{u}` from the dependency, but build.zig.zon\'s .paths lacks it')
+sys.exit(1 if bad or not used else 0)
+PY
 
 step "int casts"
 # An `@intCast` / `@truncate` needs a `// cast: <why it fits>` on its line or the line above; a value a
@@ -77,7 +91,7 @@ done
 for py in "${pythons[@]}"; do
     step "$py"
     "$py" tools/check_abi.py
-    "$py" tools/check_symbols.py test/setu_classes.so
+    "$ZIG" build check-symbols -Dpython="$py" # tools/check_symbols.py, as `addSymbolCheck` runs it
     "$py" -m pytest "${PYTEST_ARGS[@]}"
     "$py" tools/check_wheels.py --all # glibc + musl, installed and imported here
     "$py" tools/check_wheels.py       # `build_wheel` (PEP 517)

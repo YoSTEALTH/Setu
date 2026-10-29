@@ -86,6 +86,12 @@ camelCase functions, plain structs, lowercase values, `pub var`s. Filters take P
 `.exclude` (not together; each name must exist), `.prefixes`, `.functions = false`. Classes are created
 bases first; a Python name found twice is a compile error naming both places.
 
+Pin a tag in the project's `build.zig.zon`: `zig fetch --save=setu
+"git+https://github.com/YoSTEALTH/Setu?ref=v<version>"`, then check the commit after the `#` of the `.url` it wrote
+against the tag's (`git ls-remote https://github.com/YoSTEALTH/Setu v<version>`): Zig 0.17.0 has resolved a tag to
+the branch head, and written the URL into an existing `.path` entry instead of `.url` / `.hash` (remove that entry
+first). A wrong commit: put the tag's into the URL (`?ref=v<version>#<commit>`) and fetch again.
+
 `build.zig` of the project (`setu` in its `build.zig.zon`):
 
 ```zig
@@ -110,6 +116,9 @@ b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "__init__.pyi").
     .module_name = "liburing",
     .package = true,
     .cases = b.path("tools/bench_cases.py"), // `CASES` + `namespace(module)`, as Setu's tools/bench.py
+});
+@import("setu").addSymbolCheck(b, setu_dep, ext, .{ // zig build check-symbols -Dpython=... (see 11.)
+    .python = b.option([]const u8, "python", "Python for `check-symbols`") orelse "python3",
 });
 ```
 
@@ -695,10 +704,14 @@ What the message says: the cause.
     python3 tools/bench.py --ref HEAD       # per-call cost A/B against a commit
     zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call, per line (callgrind);
                                                         # -Drelease with a preferred optimize mode
+    zig build check-symbols -Dpython=/opt/python/3.14/bin/python3   # CPython symbols, per interpreter
 
 A project using Setu runs its own `tools/check.sh`, which includes `zig build setu-build-check`,
 `setu-docs-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
-Setu it pins). After a Setu bump: `zig build setu-build-sync setu-docs-sync setu-guide-sync`.
+Setu it pins), and `zig build check-symbols -Dpython=<each interpreter>` (`addSymbolCheck`, Setu's
+`tools/check_symbols.py` on the extension as built: every CPython symbol it imports is exported by that interpreter
+and, on 3.15+, in the stable ABI for free-threading (abi3t); needs `nm`, and `cc` on 3.15+).
+After a Setu bump: `zig build setu-build-sync setu-docs-sync setu-guide-sync`.
 
 Line coverage: `zig build coverage [-Dpython=...] [-- --missed --partial pytest args]` (`addCoverageSteps`; kcov 43)
 prints a per-file table, with `--missed` the lines that never ran, with `--partial` the yellow ones, and writes the

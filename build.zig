@@ -8,10 +8,13 @@
 //! zig build coverage-zig    line coverage of tools/setu_docs_web.zig's unit tests (kcov)
 //! zig build profile         instructions per call of tools/bench.py's cases, per line (callgrind; needs
 //!                           -Doptimize=fast -Dcpu=x86_64_v3; arguments after `--` go to check_profile.py)
+//! zig build check-symbols   the test extension's CPython symbols: exported by -Dpython, abi3t on 3.15+
+//!                           (tools/check_symbols.py)
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
-//!   -Dpython=<path>         the interpreter `coverage` runs pytest with, `profile` the cases (default python3)
+//!   -Dpython=<path>         the interpreter `coverage` runs pytest with, `profile` the cases, `check-symbols`
+//!                           checks against (default python3)
 //!
 //! One build serves CPython 3.14, 3.14t, 3.15, 3.15t and later: the extension is `<name>.so`
 //! (`ext_suffix`), which every one of them imports (see `src/capi.zig`).
@@ -22,8 +25,9 @@
 //! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
 //! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide
 //! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
-//! `tools/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests), `addProfileSteps` (its
-//! `profile` step: callgrind over the project's cases, by `tools/check_profile.py`) and `ext_suffix`.
+//! `tools/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests),
+//! `addProfileSteps` (its `profile` step: callgrind over the project's cases, by `tools/check_profile.py`),
+//! `addSymbolCheck` (its `check-symbols` step, by `tools/check_symbols.py`) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
 //! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
 
@@ -88,6 +92,7 @@ pub fn build(b: *std.Build) void {
         .cases = b.path("tools/bench.py"),
         .python = python,
     });
+    symbolCheck(b, b.path("tools/check_symbols.py"), setu_test, .{ .python = python });
 
     // Compiled, never linked or run: Setu's functions call libpython, which only the interpreter provides.
     // Analysis type-checks every declaration (`refAllDecls` in each file) and runs the unit tests, which
@@ -421,6 +426,50 @@ fn zigTestCoverage(
     run.addArtifactArg2(tests, .{ .make_absolute = true });
     run.addPassthruArgs(); // the runner's options (`--missed`), the rest is the executable's
     run.has_side_effects = true; // kcov's run is no input the step knows of
+    step.dependOn(&run.step);
+}
+
+/// What `addSymbolCheck` takes.
+pub const SymbolCheckOptions = struct {
+    /// The interpreter to check against (it runs `tools/check_symbols.py`): run the step once per interpreter.
+    python: []const u8 = "python3",
+};
+
+/// The step `check-symbols`: Setu's `tools/check_symbols.py` on `ext` as built, with `options.python`. Every
+/// CPython symbol the extension imports must be exported by that interpreter and, on 3.15+, be in the stable ABI
+/// for free-threading (abi3t), so the one binary keeps loading on every version.
+///
+/// Note
+///     - Needs `nm` (binutils) and, on 3.15+, a C compiler `cc` with the interpreter's headers.
+///     - The extension links nothing from libpython: a symbol one version lacks fails only at import there; this
+///       catches it at build time.
+///
+/// Example
+///     >>> @import("setu").addSymbolCheck(b, setu_dep, ext, .{
+///     >>>     .python = b.option([]const u8, "python", "Python for `check-symbols`") orelse "python3",
+///     >>> });
+///     $ zig build check-symbols -Dpython=/opt/python/3.15t/bin/python3   # then 3.15, 3.14t, 3.14
+pub fn addSymbolCheck(
+    b: *std.Build,
+    setu_dep: *std.Build.Dependency,
+    ext: *std.Build.Step.Compile,
+    options: SymbolCheckOptions,
+) void {
+    symbolCheck(b, setu_dep.path("tools/check_symbols.py"), ext, options);
+}
+
+/// `addSymbolCheck` with Setu's `tools/check_symbols.py` given (Setu's own build has no dependency).
+fn symbolCheck(
+    b: *std.Build,
+    runner: std.Build.LazyPath,
+    ext: *std.Build.Step.Compile,
+    options: SymbolCheckOptions,
+) void {
+    const step = b.step("check-symbols", "Check the extension's CPython symbols against an interpreter");
+    const run = b.addSystemCommand(&.{options.python});
+    run.addFileArg2(runner, .{ .make_absolute = true });
+    run.addArtifactArg2(ext, .{ .make_absolute = true });
+    run.has_side_effects = true; // the interpreter is no input the step knows of
     step.dependOn(&run.step);
 }
 
