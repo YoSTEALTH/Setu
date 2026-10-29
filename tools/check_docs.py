@@ -101,6 +101,10 @@ def check_markdown(site):
         ('| a | b |\n|:-|-:|\n| 1 | x \\| y |', '<table class="md"><thead><tr><th>a</th><th style="text-align: right">'
          'b</th></tr></thead><tbody><tr><td>1</td><td style="text-align: right">x | y</td></tr></tbody></table>'),
         ('- a\n  b\n  - c\n- d\n\n1. e', '<ul><li>a b<ul><li>c</li></ul></li><li>d</li></ul><ol><li>e</li></ol>'),
+        # a bare URL is a link (its trailing `.` text), not in a link's text or in code
+        ('Docs: https://x.org/a. **https://x.org/b** [https://x.org/c](https://x.org/d) `https://x.org/e`',
+         '<p>Docs: <a href="https://x.org/a">https://x.org/a</a>. <strong><a href="https://x.org/b">https://x.org/b'
+         '</a></strong> <a href="https://x.org/d">https://x.org/c</a> <code>https://x.org/e</code></p>'),
         # a badge: brackets in the image's URL (balanced) stay in it
         ('[![abi](https://x.io/abi-abi3t%20(PEP%20803)-blue)](https://p.org/a)',
          '<p><a href="https://p.org/a"><img src="https://x.io/abi-abi3t%20(PEP%20803)-blue" alt="abi"></a></p>'),

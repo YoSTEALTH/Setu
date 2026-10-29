@@ -875,7 +875,7 @@ INLINE = re.compile(
     r'|(?P<em>(?<![\w*])\*(?P<etext>[^*\s](?:[^*]*[^*\s])?)\*(?![\w*])'
     r'|(?<!\w)_(?P<etext2>[^_\s](?:[^_]*[^_\s])?)_(?!\w))'
 )
-# A bare URL in a docstring; `autolink` leaves trailing punctuation (`see https://x.org/a.`) as text
+# A bare URL in a docstring or Markdown text; `autolink` leaves trailing punctuation (`see https://x.org/a.`) as text
 BARE_URL = re.compile(r'''https?://[^\s<>`"']+''')
 
 
@@ -1144,11 +1144,13 @@ class Site:
             return f'{stem}.html{fragment}'
         return url
 
-    def inline_md(self, text, base=None):
-        '''Markdown inline text as HTML: code spans, links, images, bold, emphasis; the rest escaped.'''
+    def inline_md(self, text, base=None, bare=True):
+        '''Markdown inline text as HTML: code spans, links, images, bold, emphasis, bare `http(s)://` URLs as links
+        (as GitHub does; not in a link's text: `bare=False`); the rest escaped.'''
+        plain = autolink if bare else html.escape
         out, pos = [], 0
         for m in INLINE.finditer(text):
-            out.append(html.escape(text[pos : m.start()]))
+            out.append(plain(text[pos : m.start()]))
             if m.group('code'):
                 code = m.group('ctext')
                 out.append(self.code(code[1:-1] if code.startswith(' ') and code.endswith(' ') else code))
@@ -1157,16 +1159,16 @@ class Site:
                 out.append(f'<img src="{src}" alt="{html.escape(m.group("ialt"))}">')
             elif m.group('link'):
                 href = html.escape(self.href(m.group('lhref'), base))
-                out.append(f'<a href="{href}">{self.inline_md(m.group("ltext"), base)}</a>')
+                out.append(f'<a href="{href}">{self.inline_md(m.group("ltext"), base, bare=False)}</a>')
             elif m.group('auto'):
                 url = html.escape(m.group('aurl'))
                 out.append(f'<a href="{url}">{url}</a>')
             elif m.group('strong'):
-                out.append(f'<strong>{self.inline_md(m.group("stext"), base)}</strong>')
+                out.append(f'<strong>{self.inline_md(m.group("stext"), base, bare)}</strong>')
             else:
-                out.append(f'<em>{self.inline_md(m.group("etext") or m.group("etext2"), base)}</em>')
+                out.append(f'<em>{self.inline_md(m.group("etext") or m.group("etext2"), base, bare)}</em>')
             pos = m.end()
-        out.append(html.escape(text[pos:]))
+        out.append(plain(text[pos:]))
         return ''.join(out)
 
     @staticmethod

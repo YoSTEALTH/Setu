@@ -23,10 +23,10 @@ Setu is mainly for the [Shakti](https://github.com/YoSTEALTH/Shakti) and
 either). For your own extensions, use [PyOZ](https://pyoz.dev) instead: it fills the same role and is
 documented and maintained for public use.
 
+Documentation: https://yostealth.github.io/Setu/ (the guide to writing an extension, the test extension's API).
+
 > **Note:** Setu is not on PyPI and has no Python package: it is a Zig dependency (`build.zig.zon`), used at build
 > time.
-
-Documentation: https://yostealth.github.io/Setu/ (the guide to writing an extension, the test extension's API).
 
 ```sh
 src/root.zig             # the module root (@import("setu"))

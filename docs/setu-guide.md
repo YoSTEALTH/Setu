@@ -575,8 +575,8 @@ Run and run on its own, in a new namespace. Setu numbers repeated headers in the
 the site show `Example #1`, `Example #2`, ... (`setu_docs.py run Sqe:2` runs `Example #2`); write plain `Example`,
 a hand-written `Example #<n>` is a compile error. A `Flags` section lists one name per line, optionally with a
 note (`IORING_TIMEOUT_ABS  # ts is a point in time`): the site links the name and shows the note as text. A bare
-`https://` URL anywhere in a docstring (outside backticks) becomes a link that opens in a new tab; a trailing `.`,
-`,` or `)` stays text unless the `)` closes a `(` in the URL.
+`https://` URL anywhere in a docstring or the site's Markdown pages (outside backticks) becomes a link that opens in a
+new tab; a trailing `.`, `,` or `)` stays text unless the `)` closes a `(` in the URL.
 In the site's Markdown pages an `@@path@@` line includes a project file as a code block (an example script, as tested);
 the header's ◐ button opens the theme menu (Nord Day, Nord Night, Tokyo Day, Tokyo Night; until one is picked,
 Tokyo Day, or Nord Night when the system is dark); `coverage =
