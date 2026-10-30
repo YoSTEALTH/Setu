@@ -40,6 +40,7 @@ src/stubgen.zig          # the stub generator addStubs builds (no libpython)
 test/                    # setu_classes, a test extension with a class per hook family (the model root file)
 test/wheel/              # setu_classes as a project, for the tools/setu_build.py wheel checks
 test/docs/               # setu_classes as a docs site, for the tools/setu_docs.py checks
+test/docs_md/            # a site of Markdown pages only (no Python module), for the same checks
 tools/setu_build.py      # the wheel build backend (PEP 517) projects copy into their tools/
 tools/setu_docs.py       # the docs site builder projects copy into their tools/
 tools/setu_docs_web.zig  # the site's behaviour (WebAssembly, zig build docs-web); app.js only runs it
@@ -152,7 +153,9 @@ none that read a name nothing defines; the published site has no Run buttons). A
 `<!-- chart -->` line becomes a colored bar chart (GitHub shows the table). The project keeps a byte-identical copy
 of `setu_docs.py` in `tools/`, like `setu_build.py`, in step with `addSetuDocsSteps` (`zig build setu-docs-sync` /
 `setu-docs-check`), which also adds `zig build docs-web` (the Wasm module, from the pinned Setu; `setu_docs.py` runs
-it). `test/docs/` is a working model (`tools/check_docs.py`). The workflow runs `zig build develop` (the extension
+it). A Zig project with no Python module gets the same site from its Markdown pages (no `module`, a `name`; a
+`static` folder such as Zig's autodoc output copied in). `test/docs/` is a working model, `test/docs_md/` a
+module-less one (`tools/check_docs.py`). The workflow runs `zig build develop` (the extension
 and its stub), then `python tools/setu_docs.py` (writes `site/`), and uploads `site/` to GitHub Pages.
 
 ## Releases

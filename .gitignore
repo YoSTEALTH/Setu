@@ -14,3 +14,4 @@ test/*.pyi
 test/wheel/tools/
 test/wheel/docs/
 test/docs/site/
+test/docs_md/site/

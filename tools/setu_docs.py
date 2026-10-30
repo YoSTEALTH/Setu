@@ -69,6 +69,11 @@ The settings, in `pyproject.toml` (paths relative to it):
     text = 'Everything else.'
     default = true                  # exactly one: the names no page claims
 
+    [[tool.setu_docs.static]]       # optional: a folder copied into the site as it is (Zig's autodoc output), a nav
+    dir = 'zig-out/docs'            # item under "API reference" linking to its `index.html`; built first
+    at = 'api'                      # where in the site (`api/index.html`)
+    title = 'Zig API'               # the nav item
+
     [[tool.setu_docs.pages]]
     slug = 'constants'
     title = 'Constants'
@@ -76,6 +81,10 @@ The settings, in `pyproject.toml` (paths relative to it):
     constants = true                # at most one: the module's values that are not classes or functions
     groups = ['IORING_OP_', 'O_']   # optional: prefixes, first match wins (default: up to the first `_`;
                                     # a group of one goes under `Other`)
+
+A project with no Python module (a Zig one) leaves out `module` and gives `name`: the site is its Markdown pages
+(`home`, `markdown`), `static` folders, Coverage, search and the llms text; no `path`, `stub`, `runner`, `hooks` or
+`pages`. The settings can be any TOML file with this table (`--config docs/site.toml`), not only `pyproject.toml`.
 
 The footer also reads `[project]`: `urls.Homepage` (the name links to it; else to the repository below) and
 `requires-python` (`>=3.14` shows as `CPython 3.14+`); each is left out when missing. The header's top right links
@@ -145,8 +154,11 @@ is a local tool: only `serve` has it, made per request from the file as it is (r
 its sources served at `source/<path>`; its nav item shows only on a live page. `build` writes no Profile page, so a
 published site (CI) never needs the file.
 
+Search finds the API's names and every Markdown heading (up to `###`, with the first sentence after it).
+
 The site also gets `llms.txt` (an index of the pages, for AI readers) and, with `stub`, `llms-full.txt` (every
-class, function and constant with its signature and docstring, one Markdown page). A build records what it wrote
+class, function and constant with its signature and docstring, one Markdown page); without a module, `llms-full.txt`
+is the home page and the Markdown pages, one after the other. A build records what it wrote
 in `.setu-docs-files` in the site's folder; the next one removes what it no longer writes (a page or source gone),
 so an old file is not served or deployed. Files it never wrote stay.
 
@@ -193,10 +205,13 @@ EXAMPLE = re.compile(r'Example(?: #\d+)?')
 
 KEYS = {'module', 'path', 'stub', 'name', 'version', 'summary', 'out', 'home', 'css', 'favicon', 'edit', 'repo',
         'scripts', 'scripts_skip', 'featured', 'runner', 'hooks', 'serial', 'timeout', 'coverage',
-        'coverage_history', 'profile', 'markdown', 'pages'}  # fmt: skip
+        'coverage_history', 'profile', 'markdown', 'pages', 'static'}  # fmt: skip
+NEEDS_MODULE = ('path', 'stub', 'runner', 'hooks', 'pages')  # the API half: settings a module-less site can not have
 FAVICON_TYPES = ('.svg', '.png', '.ico')
 PAGE_KEYS = {'slug', 'title', 'text', 'classes', 'functions', 'patterns', 'sources', 'default', 'constants', 'groups'}
 MARKDOWN_KEYS = {'file', 'title', 'section', 'slug', 'split'}
+STATIC_KEYS = {'dir', 'at', 'title'}
+STATIC_AT = re.compile(r'[\w-]+(?:/[\w-]+)*')  # a folder of the site: `api`, `ref/zig`
 
 
 def fail(msg):
@@ -228,9 +243,14 @@ def load_config(pyproject='pyproject.toml'):
         fail(f'no [tool.setu_docs] in {path}')
     if unknown := set(config) - KEYS:
         fail(f'[tool.setu_docs]: unknown key {sorted(unknown)}')
-    for key in ('module', 'pages'):
-        if key not in config:
-            fail(f'[tool.setu_docs] needs `{key}`')
+    if 'module' not in config:  # a module-less site (a Zig project's): the Markdown pages, no API half
+        if 'name' not in config:
+            fail('[tool.setu_docs] needs `module`, or `name` for a site of Markdown pages only')
+        if found := [k for k in NEEDS_MODULE if k in config]:
+            fail(f'[tool.setu_docs] without `module`: no {", ".join(f"`{k}`" for k in found)}')
+        config['pages'] = []
+    elif 'pages' not in config:
+        fail('[tool.setu_docs] needs `pages`')
     if 'favicon' in config and pathlib.Path(config['favicon']).suffix not in FAVICON_TYPES:
         fail(f'`favicon` is not one of {", ".join(FAVICON_TYPES)}: {config["favicon"]}')
     pages = config['pages']
@@ -250,7 +270,15 @@ def load_config(pyproject='pyproject.toml'):
         fail('a page slug twice')
     if {'index', 'examples', 'coverage', 'profile'} & set(slugs):
         fail('`index`, `examples`, `coverage` and `profile` are taken (the home page, the example scripts, ...)')
-    if sum(bool(p.get('default')) for p in pages) != 1:
+    statics = config.get('static', ())
+    for static in statics:
+        if set(static) != STATIC_KEYS:
+            fail(f'every `static` needs exactly `dir`, `at` and `title`: {static}')
+        if not STATIC_AT.fullmatch(static['at']) or static['at'].split('/')[0] == SOURCE_DIR:
+            fail(f'`static` at {static["at"]!r}: not a free folder name of the site (`api`, `ref/zig`)')
+    if len({s['at'] for s in statics}) != len(statics):
+        fail('a `static` `at` twice')
+    if 'module' in config and sum(bool(p.get('default')) for p in pages) != 1:
         fail('exactly one page needs `default = true`')
     if sum(bool(p.get('constants')) for p in pages) > 1:
         fail('at most one page can have `constants = true`')
@@ -285,6 +313,28 @@ def include_files(text, root):
 
 def md_slug(page):
     return page.get('slug') or pathlib.Path(page['file']).stem
+
+
+def first_sentence(lines):
+    '''The first sentence of the paragraph `lines` (Markdown, from a heading on) start with, markup dropped, at most
+    120 characters; '' when they start with no paragraph (a code block, a list, ...).
+
+    Example
+        >>> first_sentence(['', 'The **ring**: see [setup](ring.md). More.', 'x'])
+        'The ring: see setup.'
+    '''
+    text = []
+    for line in lines:
+        if not line.strip():
+            if text:
+                break
+        elif Site.starts_block(line) or HTML_BLOCK.match(line) or line.lstrip().startswith('|'):
+            break
+        else:
+            text.append(line.strip())
+    plain = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', ' '.join(text))  # a link or image: its text
+    plain = re.sub(r'<[^>]+>|[`*]', '', plain)
+    return (m.group(1) if (m := re.match(r'(.+?[.!?])(?:\s|$)', plain)) else plain)[:120]
 
 
 def heading_id(title):
@@ -344,8 +394,9 @@ class Project:
         for entry in reversed(self.path):
             if entry not in sys.path:
                 sys.path.insert(0, entry)
-        self.module = importlib.import_module(self.config['module'])
-        self.name = self.config.get('name', self.config['module'].rpartition('.')[2])
+        module = self.config.get('module')
+        self.module = importlib.import_module(module) if module else None  # None: a site of Markdown pages only
+        self.name = self.config.get('name') or module.rpartition('.')[2]
         self.version = getattr(self.module, '__version__', '')
         if 'version' in self.config:  # a `build.zig.zon`: its `.version` (the module may be a test or a stand-in)
             self.version = zon_version(self.root / self.config['version'])
@@ -410,6 +461,8 @@ class Project:
     # -- the API, grouped by page
 
     def exported(self):
+        if self.module is None:
+            return []
         return [n for n in dir(self.module) if not n.startswith('_') and not inspect.ismodule(getattr(self.module, n))]
 
     def is_constant(self, name):
@@ -945,8 +998,16 @@ class Site:
             ):
                 fail(f'`coverage_history`: {path} is not a `--history` file of `tools/check_coverage.py`')
             self.coverage_history = runs
+        self.statics = []  # `static`: (its folder, `at`, `title`)
+        for static in project.config.get('static', ()):
+            folder = project.root / static['dir']
+            if not (folder / 'index.html').is_file():
+                fail(f'`static` {static["dir"]}: no index.html there (build it first)')
+            self.statics.append((folder, static['at'], static['title']))
         self.load_profile()
         self.ids = set()  # the heading ids of the page being written
+        self.headings = []  # its Markdown headings: (id, title, first sentence after it)
+        self.md_entries = []  # the search entries of the Markdown pages written (`search_index`)
 
     def load_profile(self):
         '''Read `profile`'s JSON (`self.profile`; None without the file). The server calls it for each Profile page:
@@ -1314,6 +1375,8 @@ class Site:
                 anchor = self.anchor(plain)
                 if level in (2, 3):
                     toc.append((anchor, plain))
+                if level <= 3:
+                    self.headings.append((anchor, plain, first_sentence(lines[i + 1 :])))
                 while parts and parts[-1] >= level:
                     out.append('</section>')
                     parts.pop()
@@ -1515,10 +1578,14 @@ class Site:
             items.append(item(md_slug(page), page['title']))
             for slug, title, _text in self.chapters.get(md_slug(page), ('', ()))[1]:
                 items.append(item(slug, re.sub(r'[`*]', '', title), 'sub'))
-        items.append('<div class="nav-h">API reference</div>')
+        if self.pages or self.constants_page or self.statics:
+            items.append('<div class="nav-h">API reference</div>')
         items += [item(page['slug'], page['title']) for page, _names in self.pages]
         if self.constants_page:
             items.append(item(self.constants_page['slug'], self.constants_page['title']))
+        items += [
+            f'<a href="{html.escape(at)}/index.html">{html.escape(title)}</a>' for _dir, at, title in self.statics
+        ]
         if self.project.scripts():
             items.append(item('examples', 'Example scripts'))
         if self.coverage:
@@ -1538,6 +1605,8 @@ class Site:
         url = project.homepage or project.repo
         footer_name = f'<a href="{html.escape(url)}">{name}</a>' if url else name
         python = f' (CPython {html.escape(project.requires)})' if project.requires else ''
+        source = 'docstrings' if project.module else 'Markdown'
+        badge = 'Run buttons need' if project.module else 'Live: served by'
         repo = ''
         if project.repo:
             facts = ''.join(
@@ -1569,7 +1638,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
   <div class="search"><input id="q" type="search" placeholder="Search needs a server" autocomplete="off" disabled>
   <div id="hits" hidden></div></div>
   <div class="tools">
-  <span id="live" class="live" title="Run buttons need `setu_docs.py serve`">static</span>
+  <span id="live" class="live" title="{badge} `setu_docs.py serve`">static</span>
   {THEME_MENU}{repo}
   <button class="menu" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">{ICON_MENU}</button>
   </div>
@@ -1577,7 +1646,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 <div class="wrap">
 <main>
 {body}
-<footer>Generated by <code>tools/setu_docs.py</code> from the docstrings of {footer_name} {version}{python}.</footer>
+<footer>Generated by <code>tools/setu_docs.py</code> from the {source} of {footer_name} {version}{python}.</footer>
 </main>
 <nav class="side">
 <div class="pages">{self.nav(current)}</div>
@@ -1882,11 +1951,13 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 
     def markdown_page(self, page, slug, title, text, end=''):
         '''One page of the Markdown file of `page`: `text` (its Markdown), then the HTML `end`.'''
-        self.ids = set()
+        self.ids, self.headings = set(), []
         path = self.project.root / page['file']
         body, toc = self.markdown(text, path.parent)
         if not body.startswith('<h1'):
             body = f'<h1>{html.escape(title)}</h1>' + body
+            self.headings.insert(0, (None, title, first_sentence(text.splitlines())))
+        self.search_headings(slug, title)
         if edit := self.project.config.get('edit'):
             body = f'<a class="edit" href="{html.escape(edit + page["file"])}">Edit</a>' + body
         return self.page(slug, title, body + end, toc)
@@ -1897,18 +1968,28 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         toc = []
         if 'home' in project.config:
             path = project.root / project.config['home']
+            self.headings = []
             text, toc = self.markdown(include_files(path.read_text(), self.project.root), path.parent)
+            self.search_headings('index', 'Home')
         else:
             text = f'<h1>{html.escape(project.name)}</h1>'
             if summary := project.config.get('summary'):
                 text += f'<p class="lead">{self.inline(summary)}</p>'
-            text += self.paragraphs(project.module.__doc__ or '')
+            text += self.paragraphs(getattr(project.module, '__doc__', None) or '')
         if featured := project.config.get('featured'):
             code = (project.root / featured).read_text()
             text += f'{code_box(self.highlight(code.rstrip()))}{_run_box(featured)}'
         return self.page('index', 'Home', text, toc)
 
+    def search_headings(self, slug, title):
+        '''The search entries of the Markdown page `slug` (titled `title`) just rendered: a heading each.'''
+        for anchor, heading, sentence in self.headings:
+            link = f'{slug}.html#{anchor}' if anchor else f'{slug}.html'
+            self.md_entries.append({'n': heading, 'h': link, 'p': title, 's': sentence})
+
     def search_index(self):
+        '''`search.json`: the API's names (members too) and constants, then the Markdown pages' headings (the pages
+        must be written first).'''
         out = []
 
         def summary(obj):
@@ -1926,6 +2007,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             for name in self.constants:
                 value = repr(getattr(self.project.module, name))
                 out.append({'n': name, 'h': self.where[name], 'p': self.constants_page['title'], 's': value})
+        out += self.md_entries
         return json.dumps(out, separators=(',', ':'))
 
     def write(self, out):
@@ -1934,10 +2016,12 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         css = CSS
         if 'css' in self.project.config:
             css += '\n' + (self.project.root / self.project.config['css']).read_text()
-        files = {'index.html': self.index_page(), 'search.json': self.search_index(), 'style.css': css, 'app.js': JS,
+        self.md_entries = []
+        files = {'index.html': self.index_page(), 'style.css': css, 'app.js': JS,
                  'llms.txt': llms_index(self.project.config, self.chapters)}  # fmt: skip
         for page in self.markdown_pages:
             files.update((f'{slug}.html', text) for slug, text in self.markdown_pages_of(page).items())
+        files['search.json'] = self.search_index()  # after the Markdown pages: their headings
         for page, names in self.pages:
             files[f'{page["slug"]}.html'] = self.api_page(page, names)
         if self.constants_page:
@@ -1949,6 +2033,8 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             files['coverage.html'] = self.coverage_page()
         if self.project.stub:
             files['llms-full.txt'] = llms_full(self.project.stub, self.project.config['module'])
+        elif self.project.module is None:
+            files['llms-full.txt'] = llms_markdown(self.project)
         for name, text in files.items():
             (out / name).write_text(pretty_html(text) if name.endswith('.html') else text)
         copied = ['docs.wasm']
@@ -1956,6 +2042,12 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             shutil.copyfile(self.project.root / self.project.config['favicon'], out / self.project.favicon)
             copied.append(self.project.favicon)
         build_wasm(self.project.root, out / 'docs.wasm')
+        for folder, at, _title in self.statics:  # `static`: copied as they are
+            for path in sorted(p for p in folder.rglob('*') if p.is_file()):
+                name = f'{at}/{path.relative_to(folder).as_posix()}'
+                (out / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, out / name)
+                copied.append(name)
         # the Coverage page's sources, as they are, for its viewer (`source/<path>`); old ones go in `forget_old_files`
         for path, source in self.sources.items():
             dest = out / SOURCE_DIR / path
@@ -2904,22 +2996,41 @@ def llms_full(stub, module):
     return '\n'.join(lines).rstrip('\n') + '\n'
 
 
+def llms_markdown(project):
+    '''`llms-full.txt` of a module-less site: the home page's and every Markdown page's text, in nav order.'''
+    lines = [f'# {project.name}', '']
+    if summary := project.config.get('summary'):
+        lines += [f'> {summary}', '']
+    files = [project.config['home']] if 'home' in project.config else []
+    for path in [*files, *(p['file'] for p in project.config.get('markdown', ()))]:
+        lines += [include_files((project.root / path).read_text(), project.root).strip('\n'), '']
+    return '\n'.join(lines)
+
+
 def llms_index(config, chapters=None):
-    '''`llms.txt` (the llms.txt convention): the module, its summary, the pages (`chapters`: `Site.chapters`, a
-    `split` page's) and `llms-full.txt`.'''
-    module = config['module']
-    summary = config.get('summary', f'The Python API of `{module}`.')
-    lines = [f'# {module}', '', f'> {summary}', '']
+    '''`llms.txt` (the llms.txt convention): the module (or the site's `name`), its summary, the pages (`chapters`:
+    `Site.chapters`, a `split` page's), the `static` folders and `llms-full.txt`.'''
+    module = config.get('module')
+    title = module or config['name']
+    summary = config.get('summary', f'The Python API of `{module}`.' if module else f'The documentation of {title}.')
+    lines = [f'# {title}', '', f'> {summary}', '']
     if config.get('markdown'):
         lines += ['## Guide', '']
         for p in config['markdown']:
             lines.append(f'- [{p["title"]}]({md_slug(p)}.html)')
             lines += [f'  - [{t}]({s}.html)' for s, t, _text in (chapters or {}).get(md_slug(p), ('', ()))[1]]
         lines.append('')
-    lines += ['## API reference', '']
-    lines += [f'- [{p["title"]}]({p["slug"]}.html): {p["text"]}' for p in config['pages']]
+    if config['pages'] or config.get('static'):
+        lines += ['## API reference', '']
+        lines += [f'- [{p["title"]}]({p["slug"]}.html): {p["text"]}' for p in config['pages']]
+        lines += [f'- [{s["title"]}]({s["at"]}/index.html)' for s in config.get('static', ())]
+        lines.append('')
     if 'stub' in config:
-        lines += ['', '## Full text', '', '- [llms-full.txt](llms-full.txt): every signature and docstring on one page']
+        lines += ['## Full text', '', '- [llms-full.txt](llms-full.txt): every signature and docstring on one page']
+    elif not module:
+        lines += ['## Full text', '', '- [llms-full.txt](llms-full.txt): every page on one page']
+    while lines[-1] == '':
+        lines.pop()
     return '\n'.join(lines) + '\n'
 
 
@@ -2956,7 +3067,9 @@ def serve(project, port):
     scripts = re.escape(project.config.get('scripts', 'example'))
     target_rx = re.compile(rf'[A-Za-z_][\w.]{{0,80}}(?::[0-9]{{1,3}})?|{scripts}/[\w-]{{1,80}}\.py')
     lock = threading.Lock() if project.config.get('serial', True) else None
-    ping = json.dumps({'module': project.config['module'], 'version': project.version, 'python': PYTHON}).encode()
+    ping = json.dumps(
+        {'module': project.config.get('module', project.name), 'version': project.version, 'python': PYTHON}
+    ).encode()
     live = Site(project) if 'profile' in project.config else None  # the Profile page, made per request
     live_sources = {}  # what the last Profile page shows at `source/<path>`
     examples = set(project.examples())

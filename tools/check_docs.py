@@ -26,6 +26,7 @@ from pathlib import Path
 
 SETU = Path(__file__).resolve().parent.parent
 FIXTURE = SETU / 'test' / 'docs'
+FIXTURE_MD = SETU / 'test' / 'docs_md'  # a module-less site
 BOX, COPY = '<div class="codebox">', '<button class="copy" type="button" hidden>Copy</button></div>'  # `code_box`
 sys.path.insert(0, str(SETU / 'tools'))
 import setu_docs  # noqa: E402
@@ -967,6 +968,86 @@ def check_server(project):
         server.wait()
 
 
+def check_markdown_only(out):
+    """A module-less site (`test/docs_md/`, a Zig project's): Markdown pages, their headings in `search.json`, the
+    llms text from them, a `static` folder copied in and in the nav, no API half; the settings it may not have."""
+    project = setu_docs.Project(FIXTURE_MD / 'site.toml')
+    if (
+        project.module is not None
+        or project.exported()
+        or project.examples()
+        or project.version != setu_docs.zon_version(SETU / 'build.zig.zon')
+    ):
+        fail('module-less: a module, names or examples, or not the `version` file\'s')
+    files = setu_docs.Site(project).write(out)
+    for name in ('index.html', 'book.html', 'book-rings.html', 'coverage.html', 'search.json', 'llms.txt',
+                 'llms-full.txt', 'api/index.html', 'api/main.js'):  # fmt: skip
+        if name not in files:
+            fail(f'module-less site: no {name}')
+    if (out / 'api' / 'main.js').read_bytes() != (FIXTURE_MD / 'api' / 'main.js').read_bytes():
+        fail('module-less site: `static` not copied as it is')
+    if 'api/main.js' not in (out / setu_docs.MANIFEST).read_text().splitlines():
+        fail(f'module-less site: {setu_docs.MANIFEST} lacks the `static` files')
+    index = (out / 'index.html').read_text()
+    for text in ('<div class="nav-h">API reference</div>', '<a href="api/index.html">Zig API</a>',
+                 'from the Markdown of', 'title="Live: served by'):  # fmt: skip
+        if text not in index:
+            fail(f'module-less index.html lacks {text!r}')
+    if 'Run buttons' in index or 'docstrings' in index:
+        fail('module-less index.html: the API half\'s wording')
+    same(
+        'module-less search.json: a heading each, with the first sentence after it',
+        json.loads((out / 'search.json').read_text()),
+        [
+            {'n': 'Kern', 'h': 'index.html#kern', 'p': 'Home', 's': 'Kern is a made up kernel.'},
+            {'n': 'Building', 'h': 'index.html#building', 'p': 'Home', 's': 'Run zig build in the root.'},
+            {'n': 'Book', 'h': 'book.html#book', 'p': 'Book', 's': 'The text before the first chapter.'},
+            {'n': '1. Rings', 'h': 'book-rings.html#1-rings', 'p': '1. Rings', 's': 'A ring holds entries.'},
+            {'n': 'Claims', 'h': 'book-rings.html#claims', 'p': '1. Rings', 's': ''},
+        ],
+    )
+    same(
+        'module-less llms.txt',
+        (out / 'llms.txt').read_text(),
+        '# Kern\n\n> A Zig project without a Python module, as a documentation site.\n\n## Guide\n\n'
+        '- [Book](book.html)\n  - [1. Rings](book-rings.html)\n\n## API reference\n\n- [Zig API](api/index.html)\n\n'
+        '## Full text\n\n'
+        '- [llms-full.txt](llms-full.txt): every page on one page\n',
+    )
+    full = (out / 'llms-full.txt').read_text()
+    if not full.startswith('# Kern\n\n> ') or '\n## Building\n' not in full or '\n### Claims\n' not in full:
+        fail('module-less llms-full.txt: not the summary, then the home page and the Markdown pages')
+    same('first_sentence: none before a list', setu_docs.first_sentence(['', '- a. b']), '')
+    site = setu_docs.Site(project)
+    site.markdown_page({'file': 'docs/book.md'}, 'x', 'X', 'Hi. There.')
+    same('a Markdown page without `#`: its title searched', site.md_entries, [{'n': 'X', 'h': 'x.html', 'p': 'X',
+                                                                                's': 'Hi.'}])  # fmt: skip
+    settings = (FIXTURE_MD / 'site.toml').read_text()
+    for change, error in (
+        (("name = 'Kern'\n", ''), 'needs `module`, or `name`'),
+        (('[tool.setu_docs]\n', "[tool.setu_docs]\nstub = 'x.pyi'\n"), 'without `module`: no `stub`'),
+        (("at = 'api'", "at = 'source'"), 'not a free folder name'),
+        (("at = 'api'", "at = '../up'"), 'not a free folder name'),
+        (("title = 'Zig API'\n", ''), 'exactly `dir`, `at` and `title`'),
+        (("dir = 'api'", "dir = 'docs'"), 'no index.html there'),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            changed = Path(tmp) / 'site.toml'
+            changed.write_text(
+                settings.replace(*change).replace("'../../build.zig.zon'", repr(str(SETU / 'build.zig.zon')))
+            )
+            shutil.copytree(FIXTURE_MD / 'api', Path(tmp) / 'api')
+            shutil.copytree(FIXTURE_MD / 'docs', Path(tmp) / 'docs')
+            shutil.copy(FIXTURE_MD / 'index.md', Path(tmp))
+            try:
+                setu_docs.Site(setu_docs.Project(changed))
+            except SystemExit as e:
+                if error not in str(e):
+                    fail(f'module-less settings {change}: {e}')
+            else:
+                fail(f'module-less settings {change}: no error')
+
+
 if not (FIXTURE / setu_docs.load_config(FIXTURE / 'pyproject.toml')['stub']).exists():
     fail('the stub is missing: run `zig build develop` first')
 project = setu_docs.Project(FIXTURE / 'pyproject.toml')
@@ -978,4 +1059,6 @@ check_examples(project)
 with tempfile.TemporaryDirectory() as tmp:
     check_site(project, Path(tmp))
 check_server(project)
+with tempfile.TemporaryDirectory() as tmp:
+    check_markdown_only(Path(tmp))
 print('ok  setu_docs')

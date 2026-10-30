@@ -593,7 +593,10 @@ Tokyo Day, or Nord Night when the system is dark); `coverage =
 'zig-out/coverage.json'` and `profile = 'zig-out/profile.json'` in `[tool.setu_docs]` add the Coverage and Profile pages
 (section 11); the Profile page is local only: `setu_docs.py serve` makes it from the file as it is, `build` (CI, the
 published site) leaves it out, so nothing outside your machine needs `zig build profile`. The site builds from
-`setu_docs.py` alone: no wrapper script, no copied CSS (a `css` file only for the project's own colors).
+`setu_docs.py` alone: no wrapper script, no copied CSS (a `css` file only for the project's own colors). Search finds
+the API's names and every Markdown heading. A Zig project with no Python module gets the same site from its Markdown
+pages: leave out `module`, give `name`, and copy Zig's autodoc output in with `[[tool.setu_docs.static]]` (the keys
+are in `setu_docs.py`'s docstring).
 
 Ship the extension as its package's `__init__.so`, with the stub as `__init__.pyi` and a `py.typed` (PEP 561 marks
 packages only, so a bare top-level `liburing.so` gets no typing): `import liburing` loads the extension itself, a
