@@ -660,8 +660,6 @@ def check_coverage_page(project, out):
         ('aria-label="setu_classes + Setu: 81.2% covered"', 'no donut of both'),
         ('CPython 3.15 and CPython 3.14', 'not the interpreters'),
         ('CPython 3.14: <b>81.2%</b>, 13 / 16 lines', 'not a run on its own'),
-        ('<td class="missed"><span class="miss-fn">11-12</span></td>', 'not the missed lines as a range'),
-        ('<td class="missed"><span class="miss-fn"><code>norm2</code> 4</span></td>', 'missed lines not by function'),
         (
             '<small class="runs" title="The interpreters ran different lines of this file">CPython 3.15: 3 / 6, '
             'CPython 3.14: 4 / 6</small>',
@@ -691,9 +689,9 @@ def check_coverage_page(project, out):
     ):
         if text not in page:
             fail(f'coverage.html: {why} ({text!r})')
-    views = re.findall(r'</tr>\s*<tr class="src-view" hidden>\s*<td colspan="5">\s*<pre class="cov-src"></pre>', page)
+    views = re.findall(r'</tr>\s*<tr class="src-view" hidden>\s*<td colspan="4">\s*<pre class="cov-src"></pre>', page)
     if len(views) != 2:
-        fail(f'coverage.html: {len(views)} hidden, empty view rows (all 5 columns), not 2 (one per viewer row)')
+        fail(f'coverage.html: {len(views)} hidden, empty view rows (all 4 columns), not 2 (one per viewer row)')
     if page.index('example/vec.zig') > page.index('id="dep-setu"'):
         fail('coverage.html: the own file not before the dependency')
     for path, real in (('example/vec.zig', 'example/vec.zig'), ('setu/src/args.zig', '../../src/args.zig')):
@@ -701,19 +699,6 @@ def check_coverage_page(project, out):
         if not copy.is_file() or copy.read_bytes() != (project.root / real).read_bytes():
             fail(f'site: source/{path} is not a copy of its source')
     same('line_ranges', setu_docs.line_ranges([3, 4, 5, 9, 11, 12]), '3-5, 9, 11-12')
-    zig = 'const a = 1;\npub fn f() void {\n    x();\n}\ninline fn g(y: u8) void {\n    _ = y;\n    z();\n}\n'
-    same('missed_functions: before any function, one never run, one partly',
-         setu_docs.missed_functions(zig, {1: 0, 3: 0, 6: 1, 7: 0}),
-         [('', [1], False), ('f', [3], True), ('g', [7], False)])  # fmt: skip
-    site = setu_docs.Site(project)
-    same('missed_html: a function Python has linked, `never run`',
-         site.missed_html([('vec_norm2', [3, 4], True), ('', [9], False)]),
-         '<span class="miss-fn"><code><a href="functions.html#vec_norm2">vec_norm2</a></code> 3-4 '
-         '<small class="never">never run</small></span> <span class="miss-fn">9</span>')  # fmt: skip
-    same('missed_html: ranges linked to the file at the commit',
-         site.missed_html([('', [3, 4, 9], False)], 'https://g/f.zig'),
-         '<span class="miss-fn"><a href="https://g/f.zig#L3-L4">3-4</a>, '
-         '<a href="https://g/f.zig#L9">9</a></span>')  # fmt: skip
     check_coverage_commit(project)
     same('slug', setu_docs.slug('Liburing + Setu'), 'liburing-setu')
     same('dependency_root', setu_docs.dependency_root(project.root, 'setu'), (project.root / '../..').resolve())
@@ -778,25 +763,16 @@ def check_coverage_history(project):
 
 
 def check_coverage_commit(project):
-    '''`coverage`'s `commit`: read, and the project's files linked at it on GitHub (the fixture is `test/docs/` in
-    Setu's repository); `check_coverage.py` records it only for a tree as committed.'''
+    '''`coverage`'s `commit`: accepted; `check_coverage.py` records it only for a tree as committed.'''
     snapshot = project.config['coverage']
     with tempfile.TemporaryDirectory() as tmp:
         data = json.loads((project.root / snapshot).read_text())
         (Path(tmp) / 'c.json').write_text(json.dumps({**data, 'commit': 'abc123'}))
         project.config['coverage'] = str(Path(tmp) / 'c.json')
         try:
-            site = setu_docs.Site(project)
-            same('blob_url', site.blob_url('example/vec.zig'),
-                 'https://github.com/YoSTEALTH/Setu/blob/abc123/test/docs/example/vec.zig')  # fmt: skip
-            site.sources = {}
-            table = site.coverage_table([('example/vec.zig', 9, 10, [4], [1])], project.root)
-            if 'href="https://github.com/YoSTEALTH/Setu/blob/abc123/test/docs/example/vec.zig#L4">4</a>' not in table:
-                fail('coverage.html: a missed line of the project\'s file not linked at the commit')
+            same('coverage: a `commit` read', setu_docs.Site(project).coverage.get('commit'), 'abc123')
         finally:
             project.config['coverage'] = snapshot
-    if setu_docs.Site(project).blob_url('example/vec.zig') is not None:
-        fail('blob_url: a link without a `commit`')
     sys.path.insert(0, str(SETU / 'tools'))
     import check_coverage
 

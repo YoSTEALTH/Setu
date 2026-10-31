@@ -134,10 +134,8 @@ again. Setu numbers the headers in the docstring (`help()` shows `Example #1`, `
 The Coverage page (`coverage`: the JSON of Setu's `tools/check_coverage.py`, merged over the interpreters it ran)
 shows the line coverage of the project's Zig code under its tests, a section per owner: the project's files (a
 donut, with `coverage_history` (`check_coverage.py --history`) a chart of its own lines per version beside it,
-a row per file, lowest first, with its missed lines by function: a function Python has links to its entry, one
-none of whose lines ran says `never run`, each range linked to the file on GitHub at the run's `commit` when the run
-was on a tree as committed; where the interpreters ran different lines of a file, each one's count),
-then each dependency's (a file whose path does not
+a row per file, lowest first; where the interpreters ran different lines of a file, each one's count), then each
+dependency's (a file whose path does not
 start with a directory of the project, Setu's `setu/src/args.zig`): how much of it the project's tests run, the
 total with the project's code, each interpreter's run, its files. A dependency shows as the `name` in the
 `[tool.setu_docs]` of its own `pyproject.toml` (Setu's: `Setu`), else as its package name. A click on a file's row
@@ -1777,10 +1775,9 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
     def coverage_table(self, files, root, prefix=''):
         '''`coverage_table` of `files`, each row whose source (`root / path` without `prefix`) is there with what the
         viewer needs; a source whose CRC-32 is not the one `coverage`'s JSON has (changed since the run) is marked
-        `changed`: its line marks can be off. Under each such row the viewer's row, hidden and empty. Its missed
-        lines grouped by the function they are in (`missed_html`), and where the interpreters ran different lines of
-        a file, each one's count (`runs_note`).'''
-        table = coverage_table([f[:4] for f in files])
+        `changed`: its line marks can be off. Under each such row the viewer's row, hidden and empty. Where the
+        interpreters ran different lines of a file, each one's count (`runs_note`).'''
+        table = coverage_table([f[:3] for f in files])
         for path, _covered, _lines, missed, hit in files:
             cell = f'<td><code>{html.escape(path)}</code>'
             if note := self.runs_note(path):
@@ -1791,15 +1788,6 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
                 continue
             crc = self.coverage['files'][path].get('crc32')
             stale = crc is not None and zlib.crc32(source.read_bytes()) != crc
-            if missed:
-                hits = {int(n): h for n, (h, _possible) in self.coverage['files'][path]['hits'].items()}
-                grouped = missed_functions(source.read_text(errors='replace'), hits)
-                url = self.blob_url(path) if not prefix and not stale else None
-                at = table.index(f'<tr>{cell}')
-                plain = f'<td class="missed">{line_ranges(missed)}</td>'
-                end = table.index(plain, at)
-                html_ = self.missed_html(grouped, url)
-                table = table[:end] + f'<td class="missed">{html_}</td>' + table[end + len(plain) :]
             self.sources[path] = source
             flag = ' data-stale="1"' if stale else ''
             data = (
@@ -1809,7 +1797,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             mark = ' <small class="stale" title="Changed since `zig build coverage`">changed</small>' if stale else ''
             at = table.index(f'<tr>{cell}')
             end = table.index('</tr>', at) + len('</tr>')
-            view = '<tr class="src-view" hidden><td colspan="5"><pre class="cov-src"></pre></td></tr>'
+            view = '<tr class="src-view" hidden><td colspan="4"><pre class="cov-src"></pre></td></tr>'
             table = table[:at] + data + cell + mark + table[at + len(f'<tr>{cell}') : end] + view + table[end:]
         return table
 
@@ -1828,39 +1816,6 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         }
         text = ', '.join(f'{html.escape(names[n])}: {c} / {t}' for n, (c, t) in runs.items())
         return f' <small class="runs" title="The interpreters ran different lines of this file">{text}</small>'
-
-    def blob_url(self, path):
-        '''The project's file `path` on GitHub at `coverage`'s `commit` (`<repo>/blob/<commit>/<path in the repo>`),
-        or None: no commit (a run on a changed tree), no GitHub `repo`, or the project not in a git work tree.'''
-        commit, repo = self.coverage.get('commit'), self.project.repo or ''
-        if not commit or not repo.startswith('https://github.com/'):
-            return None
-        if not hasattr(self, 'repo_prefix'):  # the project's folder in the repository (`test/docs/`, or '')
-            git = ['git', '-C', str(self.project.root), 'rev-parse', '--show-prefix']
-            try:
-                run = subprocess.run(git, check=False, capture_output=True, text=True)
-            except OSError:  # no git
-                run = None
-            self.repo_prefix = run.stdout.strip() if run and run.returncode == 0 else None
-        if self.repo_prefix is None:
-            return None
-        return f'{repo.rstrip("/")}/blob/{commit}/{self.repo_prefix}{path}'
-
-    def missed_html(self, grouped, url=None):
-        '''The missed lines of `missed_functions` as HTML: per function its name (linked to its API entry when Python
-        has it) and line ranges (each linked to `url#La-Lb` with a `url`), `never run` when none of its lines ran.'''
-        out = []
-        for name, missed, never in grouped:
-            label = self.link(name) if name in self.where else html.escape(name)
-            head = f'<code>{label}</code> ' if name else ''
-            flag = ' <small class="never">never run</small>' if never else ''
-            ranges = line_ranges(missed)
-            if url:
-                ranges = ', '.join(
-                    f'<a href="{html.escape(url)}#L{r.replace("-", "-L")}">{r}</a>' for r in ranges.split(', ')
-                )
-            out.append(f'<span class="miss-fn">{head}{ranges}{flag}</span>')
-        return ' '.join(out)
 
     def profile_page(self):
         '''A row per case: a bar per interpreter (the instructions per call, the extension's part dark); a click on
@@ -2369,46 +2324,20 @@ def line_ranges(numbers):
     return ', '.join(f'{a}' if a == b else f'{a}-{b}' for a, b in out)
 
 
-FN_DECL = re.compile(r'^\s*(?:pub\s+)?(?:export\s+)?(?:inline\s+|noinline\s+)?fn\s+(\w+)\s*\(')
-
-
-def missed_functions(source, hits):
-    '''The missed lines of the Zig `source` grouped by the function they are in: `(name, missed, never_run)` per
-    function with one, in order; `name` '' for lines before any function, `never_run` when none of the function's
-    code lines ran. `hits`: each code line's hit count. A line belongs to the last `fn` above it.
-
-    Example
-        >>> missed_functions('fn a() void {\\n  x();\\n}\\nfn b() void {\\n  y();\\n  z();\\n}', {2: 0, 5: 1, 6: 0})
-        [('a', [2], True), ('b', [6], False)]
-    '''
-    starts = [(i + 1, m.group(1)) for i, line in enumerate(source.splitlines()) if (m := FN_DECL.match(line))]
-    groups = {}  # first line of the function -> (name, lines, missed)
-    for n in sorted(hits):
-        start, name = max(((s, fn) for s, fn in starts if s <= n), default=(0, ''))
-        group = groups.setdefault(start, (name, [], []))
-        group[1].append(n)
-        if hits[n] == 0:
-            group[2].append(n)
-    return [
-        (name, missed, bool(name) and len(missed) == len(lines)) for name, lines, missed in groups.values() if missed
-    ]
-
-
 def coverage_table(files):
-    '''A row per `(path, covered, lines, missed)`: the percent in its level's color, a bar, the counts and the missed
-    lines.'''
+    '''A row per `(path, covered, lines)`: the percent in its level's color, a bar and the counts.'''
     rows = []
-    for path, covered, lines, missed in files:
+    for path, covered, lines in files:
         percent = 100 * covered / lines if lines else 100
         level = coverage_level(percent)
         rows.append(
             f'<tr><td><code>{html.escape(path)}</code></td><td class="pct {level}">{percent:.1f}%</td>'
             f'<td><span class="bar"><span class="{level}" style="width:{percent:.1f}%"></span></span></td>'
-            f'<td class="num">{covered} / {lines}</td><td class="missed">{line_ranges(missed)}</td></tr>'
+            f'<td class="num">{covered} / {lines}</td></tr>'
         )
     return (
-        '<table class="cov"><thead><tr><th>File</th><th>Coverage</th><th></th><th>Lines</th><th>Missed lines</th>'
-        f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+        '<table class="cov"><thead><tr><th>File</th><th>Coverage</th><th></th><th>Lines</th></tr>'
+        f'</thead><tbody>{"".join(rows)}</tbody></table>'
     )
 
 
@@ -2715,9 +2644,7 @@ body.can-run .needs { display: block; }
 .cov-pies figcaption { color: var(--muted); font-size: 13px; } .cov-pies strong { color: var(--text); }
 table.cov td.pct { text-align: right; font-weight: bold; } table.cov td.num { text-align: right; white-space: nowrap; }
 table.cov td.pct.ok { color: var(--ok); } table.cov td.pct.warn { color: var(--warn); }
-table.cov td.pct.bad { color: var(--bad); } table.cov td.missed { color: var(--muted); font-size: 13px; }
-table.cov .miss-fn { white-space: nowrap; margin-right: 10px; } table.cov small.never { color: var(--bad); }
-table.cov small.runs { color: var(--warn); }
+table.cov td.pct.bad { color: var(--bad); } table.cov small.runs { color: var(--warn); }
 table.cov .bar { display: inline-block; width: 160px; height: 9px; border-radius: 3px; background: var(--line);
   overflow: hidden; vertical-align: middle; }
 table.cov .bar > span { display: block; height: 100%; } table.cov .bar > .ok { background: var(--ok); }
