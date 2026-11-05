@@ -20,6 +20,7 @@ edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/test/docs/'
 scripts = 'example'
 scripts_skip = ['forever.py']
 featured = 'example/hi.py'
+listen = true
 hooks = 'docs_hooks.py'
 # a snapshot, not `zig build coverage`'s result: `example/` is the project's own folder, `setu/` a dependency
 coverage = 'coverage.json'

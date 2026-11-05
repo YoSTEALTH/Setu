@@ -89,9 +89,18 @@ def check_markdown(site):
     '''Markdown blocks and inline text, as HTML.'''
     md = (FIXTURE / 'docs' / 'guide.md').resolve()
 
-    def render(text):
+    config = site.project.config
+
+    def render(text, listen=False):
         site.ids = set()
-        return site.markdown(text, md.parent)[0]
+        before = config.get('listen')
+        config['listen'] = listen  # `listen` writes a row's text for the Listen bar (`data-say`)
+        try:
+            return site.markdown(text, md.parent)[0]
+        finally:
+            config.pop('listen')
+            if before is not None:
+                config['listen'] = before
 
     for text, want in (
         ('# A `b`\n\ntext *em* **bold**', '<h1 id="a-b">A <code>b</code><a class="anchor" href="#a-b">#</a></h1>'
@@ -134,6 +143,13 @@ def check_markdown(site):
          '</span></pre>' + COPY),
     ):  # fmt: skip
         same(f'markdown {text!r}', render(text), want)
+    same(
+        'listen: a table row says its cells',
+        render('| a | b |\n|:-|-:|\n| 1 | `x` **y** |\n| | |', listen=True),
+        '<table class="md"><thead><tr><th>a</th><th style="text-align: right">b</th></tr></thead><tbody>'
+        '<tr data-say="a: 1. b: x y"><td>1</td><td style="text-align: right"><code>x</code> <strong>y</strong></td>'
+        '</tr><tr><td></td><td style="text-align: right"></td></tr></tbody></table>',
+    )
     same('chart_number', [setu_docs.chart_number(c) for c in ('627,427', '**1.5k**', '48 ns', '-')],
          [627427.0, 1500.0, 48.0, None])  # fmt: skip
     chart = render('<!-- chart -->\n| a | x | n |\n|-|-|-:|\n| p q | - | 4 |\n| r, s | - | **2k** |\n| p | - | 0 |')
@@ -500,6 +516,14 @@ JS_STRINGS = {
     'text/plain',
     ' ',
     '\\x1f',
+    '\\x1e',
+    'start',
+    'end',
+    'error',
+    'center',
+    'smooth',
+    'voiceschanged',
+    '1',
     '',
     '[data-n="',
     '"]',
@@ -593,7 +617,8 @@ def check_selectors(out):
     unquote = lambda text: text.replace('\\"', '"')  # noqa: E731
     top = re.findall(r'\.\{ el\.\w+, "([#.][^"]*)" \}', web)  # `bind`'s list in `begin`
     top += re.findall(r'bindAll\(el\.document, \.(\w+), "((?:[^"\\]|\\.)*)"', web)
-    inner = {'#themes button': 1, '.repo .facts': 1, 'table.prof tr.src-view pre': 1}  # the ones bound in an element
+    inner = {'#themes button': 1, '.repo .facts': 1, 'table.prof tr.src-view pre': 1, '.play': 1, '.stop': 1,
+             '.voice': 1, '.rate': 1}  # fmt: skip  # the ones bound in an element
     names = ('index.html', 'guide.html', 'coverage.html', 'functions.html', 'examples.html')
     pages = {name: elements((out / name).read_text()) for name in names}
     pages['profile.html'] = elements(setu_docs.Site(setu_docs.Project(FIXTURE / 'pyproject.toml')).profile_page())

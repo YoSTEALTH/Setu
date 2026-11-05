@@ -745,6 +745,26 @@ pub const Op = enum(u8) {
     scroll,
     /// `go url`: open `url`.
     go,
+    /// `blocks parent first id selector skip drop attr`: the matches of `selector` in `parent` that are not inside
+    /// an element matching `skip` are elements `first`, `first + 1`, ...; answered by `onEvent(id, count, texts)`:
+    /// each one's text (its text content without the descendants matching `drop`, whitespace collapsed), joined by
+    /// U+001F. An element with the attribute `attr` has that attribute's value as its text instead, marked by a
+    /// leading U+001E.
+    blocks,
+    /// `mark h start end drop name`: the text of `h` (as `blocks` reads it) from character `start` to `end`
+    /// (past the text: its end) is the highlight `name`; `start` = `end`: no highlight `name`.
+    mark,
+    /// `reveal h`: scroll `h` to the middle of the window, smoothly.
+    reveal,
+    /// `voices id`: the speech voices, answered by `onEvent(id, count, values)` now and whenever they change: each
+    /// one's name, language, URI and whether it is the default (`1` or empty), joined by U+001F; none (count 0)
+    /// without speech.
+    voices,
+    /// `speak id text voice rate`: queue `text` to be spoken with the voice whose URI is `voice` (`""`: the
+    /// default) at speed `rate`; `onEvent(id, 0, event)` for its `start`, `end` and `error`.
+    speak,
+    /// `cancel`: stop speaking and empty the queue.
+    cancel,
 };
 
 /// The arguments of `op`, in order: `n` a number, `h` an element (a number), `s` a string. A number is a
@@ -769,6 +789,12 @@ pub fn signatureOf(op: Op) []const u8 {
         .copy => "ns",
         .scroll => "hn",
         .go => "s",
+        .blocks => "hhnssss",
+        .mark => "hnnss",
+        .reveal => "h",
+        .voices => "n",
+        .speak => "nsss",
+        .cancel => "",
     };
 }
 
@@ -780,16 +806,23 @@ pub const el = struct {
     pub const body: u32 = 2;
     /// The `(prefers-color-scheme: dark)` media query.
     pub const dark: u32 = 3;
-    pub const q: u32 = 4;
-    pub const hits: u32 = 5;
-    pub const search: u32 = 6;
-    pub const theme: u32 = 7;
-    pub const menu: u32 = 8;
-    pub const themes: u32 = 9;
-    pub const live: u32 = 10;
-    pub const facts: u32 = 11;
+    /// The window (`pagehide`).
+    pub const window: u32 = 4;
+    pub const q: u32 = 5;
+    pub const hits: u32 = 6;
+    pub const search: u32 = 7;
+    pub const theme: u32 = 8;
+    pub const menu: u32 = 9;
+    pub const themes: u32 = 10;
+    pub const live: u32 = 11;
+    pub const facts: u32 = 12;
     /// The release, then stars (+ 1) and forks (+ 2).
-    pub const fact_tag: u32 = 12;
+    pub const fact_tag: u32 = 13;
+    /// The Listen bar's buttons and selects.
+    pub const say_play: u32 = 16;
+    pub const say_stop: u32 = 17;
+    pub const say_voice: u32 = 18;
+    pub const say_rate: u32 = 19;
 };
 
 /// A group of elements one `bind_all` names: element `i` is `handle(group, i)`. `prof_files + k` are the files
@@ -811,6 +844,10 @@ pub const Group = enum(u16) {
     run_buttons,
     run_statuses,
     run_results,
+    say_bars,
+    say_blocks,
+    say_skips,
+    say_langs,
     prof_files = 64,
     _,
 };
@@ -858,6 +895,21 @@ pub const On = enum(u32) {
     cov_click,
     prof_click,
     run_click,
+    /// The Listen bars found (count in `h`; any: the page has one).
+    say_found,
+    /// The page's `<html lang>` (the first value), then the readable blocks (count in `h`, texts), the elements a
+    /// click must not start reading at, and the voices.
+    say_lang,
+    say_texts,
+    say_skip,
+    say_skip_click,
+    say_voices,
+    say_play,
+    say_stop,
+    say_voice,
+    say_rate,
+    say_click,
+    pagehide,
 };
 
 /// The first id `request` gives out (the ones below are `On`'s).
@@ -888,6 +940,9 @@ pub const Pending = union(enum) {
     prof_source: struct { row: usize, file: usize },
     /// The answer of Run box `i`.
     run: usize,
+    /// The saved voice / speed of the Listen bar.
+    say_voice,
+    say_rate,
 };
 
 /// One Coverage row: what its view needs, and whether it was loaded / is shown.
@@ -917,6 +972,105 @@ const Repo = struct {
     releases: ?[]const u8 = null,
 };
 
+// --- Listen: the page read aloud --------------------------------------------------------------
+
+/// The speeds the Listen bar offers.
+const rates = [_][]const u8{ "0.75", "1", "1.25", "1.5" };
+
+/// The blocks of the page that are read: headings, paragraphs, list items and table rows (written with their text
+/// in `data-say`), but not code, navigation, the footer, the Listen bar, ...
+const say_blocks = "main h1, main h2, main h3, main h4, main h5, main h6, main p, main li, main tr[data-say]";
+const say_leave = "pre, nav, footer, .toc, .pager, .edit, .anchor, .listen";
+/// What a block's own text leaves out: `say_leave`, and the blocks inside it.
+const say_drop = say_leave ++ ", p, ul, ol";
+/// The elements a click does not start reading at.
+const say_skips = "main a, main button, main select, main .listen";
+
+/// The first id of a spoken sentence: `speech_first | turn << 16 | index`.
+const speech_first: u32 = 0x8000_0000;
+const max_units = 0xffff;
+
+/// One thing to say: a sentence (or a table row) of block `block`, from character `from` to `to` of its text.
+const Unit = struct { block: u32, text: []const u8, from: u32, to: u32 };
+
+/// One speech voice.
+const Voice = struct { name: []const u8, lang: []const u8, uri: []const u8, default: bool };
+
+const SayState = enum { stopped, playing, paused };
+
+/// The Listen bar: what is read, the voices, and where the reading is.
+const Say = struct {
+    on: bool = false,
+    lang: []const u8 = "",
+    units: []const Unit = &.{},
+    voices: []const Voice = &.{},
+    state: SayState = .stopped,
+    /// The sentence being read (an index of `units`), -1 when none.
+    at: i32 = -1,
+    /// Bumped on every (re)start: the events of cancelled sentences are not for this reading.
+    turn: u32 = 0,
+    /// The block highlighted, if any.
+    marked: ?u32 = null,
+    /// The voice (URI) and speed chosen.
+    voice: []const u8 = "",
+    rate: []const u8 = "1",
+    /// The first block a click reached (the outermost) while the document's click is pending.
+    click: ?u32 = null,
+    /// The click being handled was on a link, button or select.
+    skip: bool = false,
+};
+
+/// Whether `text` has a letter or a digit (a non-ASCII byte counts as a letter).
+fn readable(text: []const u8) bool {
+    for (text) |c| if (std.ascii.isAlphanumeric(c) or c >= 0x80) return true;
+    return false;
+}
+
+/// The number of UTF-16 code units of `text` (the characters a browser counts).
+fn utf16Len(text: []const u8) u32 {
+    var n: u32 = 0;
+    for (text) |c| {
+        if (c & 0xc0 == 0x80) continue; // a continuation byte
+        n += if (c >= 0xf0) 2 else 1;
+    }
+    return n;
+}
+
+/// Whether `c` can be inside a word (as `\w`; a non-ASCII byte counts).
+fn isWord(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c >= 0x80;
+}
+
+/// Whether `text` ends an abbreviation (`e.g.`, `etc.`, a capital letter and a dot), not a sentence.
+fn endsAbbreviation(text: []const u8) bool {
+    if (text.len == 0 or text[text.len - 1] != '.') return false;
+    const stem = text[0 .. text.len - 1];
+    for ([_][]const u8{ "e.g", "i.e", "etc", "vs", "cf", "approx" }) |word| {
+        if (std.mem.endsWith(u8, stem, word) and (stem.len == word.len or !isWord(stem[stem.len - word.len - 1]))) {
+            return true;
+        }
+    }
+    return stem.len > 0 and std.ascii.isUpper(stem[stem.len - 1]) and (stem.len == 1 or !isWord(stem[stem.len - 2]));
+}
+
+/// The sentences of `text` (whitespace already collapsed) as `[start, end)` byte ranges in `out`: a split after
+/// `. ! ? :` and a space when a capital, a digit, a quote or a bracket follows (so `0x1B.` and `v1.2` stay whole),
+/// except after an abbreviation.
+fn sentences(out: *std.ArrayList([2]usize), a: std.mem.Allocator, text: []const u8) !void {
+    var start: usize = 0;
+    var i: usize = 1;
+    while (i + 1 < text.len) : (i += 1) {
+        if (text[i] != ' ' or std.mem.findScalar(u8, ".!?:", text[i - 1]) == null) continue;
+        const next = text[i + 1];
+        if (!(std.ascii.isUpper(next) or std.ascii.isDigit(next) or next >= 0x80 or
+            std.mem.findScalar(u8, "\"'(", next) != null)) continue;
+        if (endsAbbreviation(text[start..i])) continue;
+        try out.append(a, .{ start, i });
+        start = i + 1;
+    }
+    try out.append(a, .{ start, text.len });
+}
+
 /// What this module knows of the page, from `onStart` on; its strings and lists are in `page_arena`.
 const Page = struct {
     /// Served by `setu_docs.py serve` (127.0.0.1 or localhost): Run may work.
@@ -938,6 +1092,7 @@ const Page = struct {
     cov: []CovRow = &.{},
     prof: []ProfRow = &.{},
     runs: []RunBox = &.{},
+    say: Say = .{},
 };
 
 var commands: std.ArrayList(u8) = .empty;
@@ -1040,6 +1195,7 @@ fn begin(dark: bool, host: []const u8) !void {
     try bindAll(el.document, .run_buttons, ".run button", "");
     try bindAll(el.document, .run_statuses, ".run .status", "");
     try bindAll(el.document, .run_results, ".run .result", "");
+    try emit(.bind_all, .{ el.document, handle(.say_bars, 0), onId(.say_found), ".listen", "" });
     if (page.local) try emit(.get, .{ "/api/ping", try request(.ping) });
 }
 
@@ -1283,6 +1439,250 @@ fn runDone(i: usize, status_code: u32, millis: u32, text: []const u8) !void {
     try emit(.unattr, .{ handle(.run_buttons, i), "disabled" });
 }
 
+/// `On` as the id of a command that is answered by `onEvent`.
+fn onId(on: On) u32 {
+    return @backingInt(on);
+}
+
+/// Show the Listen bar once there are voices and something to read, hide it otherwise.
+fn sayShow() !void {
+    const say = &page.say;
+    try setHidden(handle(.say_bars, 0), say.voices.len == 0 or say.units.len == 0);
+}
+
+/// The Listen button's label and the Stop button's state, for the reading's state.
+fn sayLabel() !void {
+    const say = &page.say;
+    try emit(.text, .{ el.say_play, switch (say.state) {
+        .playing => "Pause",
+        .paused => "Resume",
+        .stopped => "Listen",
+    } });
+    if (say.state == .stopped) {
+        try emit(.attr, .{ el.say_stop, "disabled", "" });
+    } else {
+        try emit(.unattr, .{ el.say_stop, "disabled" });
+    }
+}
+
+/// The block being read loses its mark.
+fn sayUnmarkBlock() !void {
+    const say = &page.say;
+    const block = say.marked orelse return;
+    say.marked = null;
+    try emit(.class, .{ handle(.say_blocks, block), "listening", 0 });
+}
+
+/// The sentence being read (`at`) highlighted, its block marked and brought into view when it is a new one.
+fn sayShowAt() !void {
+    const say = &page.say;
+    // cast: `at` is -1 or an index of `units`
+    const unit = say.units[@min(@as(usize, @intCast(@max(say.at, 0))), say.units.len - 1)];
+    const block = handle(.say_blocks, unit.block);
+    if (say.marked != unit.block) {
+        try sayUnmarkBlock();
+        say.marked = unit.block;
+        try emit(.class, .{ block, "listening", 1 });
+        try emit(.reveal, .{block});
+    }
+    try emit(.mark, .{ block, unit.from, unit.to, say_drop, "listen-now" });
+}
+
+/// Stop reading: nothing queued, nothing marked.
+fn sayHalt() !void {
+    const say = &page.say;
+    say.turn = (say.turn + 1) & 0x7fff;
+    try emit(.cancel, .{});
+    say.at = -1;
+    say.state = .stopped;
+    if (say.marked) |block| {
+        try emit(.mark, .{ handle(.say_blocks, block), 0, 0, say_drop, "listen-now" });
+    }
+    try sayUnmarkBlock();
+    try sayLabel();
+}
+
+/// Read from sentence `from` on: one utterance each, all queued; `at` advances as each ends.
+fn sayStart(from: usize) !void {
+    const say = &page.say;
+    say.turn = (say.turn + 1) & 0x7fff;
+    try emit(.cancel, .{});
+    // cast: an index of `units`, below `max_units`
+    say.at = @intCast(from);
+    say.state = .playing;
+    for (say.units[from..], from..) |unit, i| {
+        // cast: below `max_units`
+        try emit(.speak, .{ speech_first | say.turn << 16 | @as(u32, @intCast(i)), unit.text, say.voice, say.rate });
+    }
+    try sayLabel();
+}
+
+/// Where a restart goes: the sentence being read, or the first.
+fn sayHere() usize {
+    // cast: `at` is -1 or an index of `units`
+    return @intCast(@max(page.say.at, 0));
+}
+
+/// The Listen / Pause / Resume button.
+fn sayToggle() !void {
+    const say = &page.say;
+    if (say.state == .playing) {
+        // Pause cancels the queue and keeps the place; Resume reads again from it (engines differ on a real pause).
+        say.turn = (say.turn + 1) & 0x7fff;
+        try emit(.cancel, .{});
+        say.state = .paused;
+        try sayLabel();
+    } else {
+        try sayStart(if (say.state == .paused) sayHere() else 0);
+    }
+}
+
+/// A spoken sentence's event (`id`: `speech_first | turn << 16 | index`; `payload`: `start`, `end` or `error`).
+fn spoke(id: u32, payload: []const u8) !void {
+    const say = &page.say;
+    if ((id >> 16) & 0x7fff != say.turn) return;
+    const i = id & 0xffff;
+    if (i >= say.units.len) return;
+    const last = i == say.units.len - 1;
+    if (std.mem.eql(u8, payload, "start")) {
+        try sayShowAt();
+    } else if (std.mem.eql(u8, payload, "end")) {
+        if (last) return sayHalt();
+        // cast: below `max_units`
+        say.at = @intCast(i + 1);
+        try sayShowAt();
+    } else if (last) {
+        try sayHalt();
+    }
+}
+
+/// The block texts of the page (`blocks`' answer): what is read, sentence by sentence.
+fn sayTexts(count: u32, values: []const u8) !void {
+    const a = page_arena.allocator();
+    var units: std.ArrayList(Unit) = .empty;
+    var ranges: std.ArrayList([2]usize) = .empty;
+    var parts = std.mem.splitScalar(u8, values, 0x1f);
+    for (0..@min(count, max_units)) |block| {
+        var text = parts.next() orelse "";
+        const whole = std.mem.startsWith(u8, text, "\x1e"); // a table row: one sentence
+        if (whole) text = text[1..];
+        if (!readable(text)) continue;
+        text = try keep(text);
+        ranges.clearRetainingCapacity();
+        if (whole) try ranges.append(gpa, .{ 0, text.len }) else try sentences(&ranges, gpa, text);
+        for (ranges.items, 0..) |range, k| {
+            if (units.items.len == max_units) break;
+            const to = if (k + 1 == ranges.items.len) std.math.maxInt(u32) else utf16Len(text[0..range[1]]);
+            // cast: below `max_units`
+            try units.append(a, .{
+                .block = @intCast(block),
+                .text = text[range[0]..range[1]],
+                .from = utf16Len(text[0..range[0]]),
+                .to = to,
+            });
+        }
+    }
+    ranges.deinit(gpa);
+    page.say.units = units.items;
+    try listenAll(.say_blocks, @min(count, max_units), "click", .say_click);
+    try sayShow();
+}
+
+/// The voices (`voices`' answer): the page's language first, the one chosen kept when it is still there.
+fn sayVoices(count: u32, values: []const u8) !void {
+    const say = &page.say;
+    const a = page_arena.allocator();
+    const list = try a.alloc(Voice, count);
+    var parts = std.mem.splitScalar(u8, values, 0x1f);
+    for (list) |*voice| {
+        const name = try keep(parts.next() orelse "");
+        const lang = try keep(parts.next() orelse "");
+        const uri = try keep(parts.next() orelse "");
+        const default: []const u8 = parts.next() orelse "";
+        voice.* = .{ .name = name, .lang = lang, .uri = uri, .default = default.len > 0 };
+    }
+    say.voices = list;
+    var same: usize = 0;
+    for (list) |voice| same += @intFromBool(sameLang(voice.lang, say.lang));
+    // the voices shown: the page's language (all of them when there is none); the one chosen is kept when it is still
+    // shown, else the default, else the first
+    var first: ?[]const u8 = null;
+    var default: ?[]const u8 = null;
+    var kept = false;
+    for (list) |voice| {
+        if (same > 0 and !sameLang(voice.lang, say.lang)) continue;
+        if (first == null) first = voice.uri;
+        if (voice.default and default == null) default = voice.uri;
+        if (std.mem.eql(u8, voice.uri, say.voice)) kept = true;
+    }
+    if (!kept) say.voice = default orelse first orelse "";
+    scratch.clearRetainingCapacity();
+    for (list) |voice| {
+        if (same > 0 and !sameLang(voice.lang, say.lang)) continue;
+        try scratch.appendSlice(gpa, "<option value=\"");
+        try escape(&scratch, gpa, voice.uri);
+        try scratch.appendSlice(gpa, if (std.mem.eql(u8, voice.uri, say.voice)) "\" selected>" else "\">");
+        try escape(&scratch, gpa, voice.name);
+        try scratch.print(gpa, " ({s})</option>", .{voice.lang});
+    }
+    try emit(.html, .{ el.say_voice, scratch.items });
+    try sayShow();
+}
+
+/// Whether the voice language `voice` (`en-US`, `en_GB`) is the page's `lang` (`en`, lower case).
+fn sameLang(voice: []const u8, lang: []const u8) bool {
+    var end: usize = 0;
+    while (end < voice.len and voice[end] != '-' and voice[end] != '_') end += 1;
+    return std.ascii.eqlIgnoreCase(voice[0..end], lang);
+}
+
+/// The speed options, `rate` selected.
+fn sayRates(rate: []const u8) !void {
+    scratch.clearRetainingCapacity();
+    for (rates) |r| {
+        const selected_attr = if (std.mem.eql(u8, r, rate)) " selected" else "";
+        try scratch.print(gpa, "<option value=\"{s}\"{s}>{s}x</option>", .{ r, selected_attr, r });
+    }
+    try emit(.html, .{ el.say_rate, scratch.items });
+}
+
+/// The page has a Listen bar: bind what it needs, listen, and ask for the page's language, its blocks, the saved
+/// voice and speed, and the voices.
+fn sayBegin() !void {
+    const bar = handle(.say_bars, 0);
+    inline for (.{
+        .{ el.say_play, ".play" },   .{ el.say_stop, ".stop" },
+        .{ el.say_voice, ".voice" }, .{ el.say_rate, ".rate" },
+    }) |b| try emit(.bind, .{ bar, b[0], b[1] });
+    try sayRates(page.say.rate);
+    try emit(.bind_all, .{ el.document, handle(.say_langs, 0), onId(.say_lang), "html", "lang" });
+    const blocks_at = handle(.say_blocks, 0);
+    try emit(.blocks, .{ el.document, blocks_at, onId(.say_texts), say_blocks, say_leave, say_drop, "data-say" });
+    try emit(.bind_all, .{ el.document, handle(.say_skips, 0), onId(.say_skip), say_skips, "" });
+    try emit(.recall, .{ 0, "listen-voice", try request(.say_voice) });
+    try emit(.recall, .{ 0, "listen-rate", try request(.say_rate) });
+    inline for (.{
+        .{ el.say_play, "click", On.say_play },    .{ el.say_stop, "click", On.say_stop },
+        .{ el.say_voice, "change", On.say_voice }, .{ el.say_rate, "change", On.say_rate },
+        .{ el.window, "pagehide", On.pagehide },
+    }) |l| try emit(.listen, .{ l[0], l[1], onId(l[2]) });
+    try emit(.voices, .{onId(.say_voices)});
+}
+
+/// The click that reached the document: reading starts at the block it was in (the outermost), unless it was on a
+/// link, a button or a select, or nothing is being read.
+fn sayClick() !void {
+    const say = &page.say;
+    const block = say.click;
+    const skip = say.skip;
+    say.click = null;
+    say.skip = false;
+    if (say.state == .stopped or skip) return;
+    for (say.units, 0..) |unit, i| {
+        if (unit.block == (block orelse return)) return sayStart(i);
+    }
+}
+
 /// The `/api/ping` answer: the badge text (`live · <python>`) in `list` when it is the docs server.
 pub fn badge(list: *std.ArrayList(u8), a: std.mem.Allocator, answer: []const u8) !bool {
     var arena = std.heap.ArenaAllocator.init(a);
@@ -1328,6 +1728,7 @@ fn listener(on: On, h: u32, payload: []const u8) !void {
             if (!page.in_search) try hideHits();
             page.in_themes = false;
             page.in_search = false;
+            try sayClick();
         },
         .doc_key => if (std.mem.eql(u8, payload, "Escape") and page.menu_open) {
             try showThemes(false);
@@ -1392,12 +1793,48 @@ fn listener(on: On, h: u32, payload: []const u8) !void {
             try emit(.text, .{ handle(.run_statuses, i), "running…" });
             try emit(.post, .{ "/api/run", try request(.{ .run = i }), page.runs[i].target });
         },
+        .say_found => if (h > 0 and !page.say.on) {
+            page.say.on = true;
+            try sayBegin();
+        },
+        .say_lang => if (h > 0) {
+            var end: usize = 0;
+            while (end < payload.len and payload[end] != '-' and payload[end] != '_') end += 1;
+            page.say.lang = try std.ascii.allocLowerString(page_arena.allocator(), payload[0..end]);
+        },
+        .say_texts => try sayTexts(h, payload),
+        .say_skip => try listenAll(.say_skips, h, "click", .say_skip_click),
+        .say_skip_click => page.say.skip = true,
+        .say_voices => try sayVoices(h, payload),
+        .say_play => try sayToggle(),
+        .say_stop => try sayHalt(),
+        .say_voice => {
+            page.say.voice = try keep(payload);
+            try emit(.store, .{ 0, "listen-voice", payload });
+            if (page.say.state == .playing) try sayStart(sayHere());
+        },
+        .say_rate => {
+            const rate = for (rates) |r| {
+                if (std.mem.eql(u8, r, payload)) break r;
+            } else return;
+            page.say.rate = rate;
+            try emit(.store, .{ 0, "listen-rate", rate });
+            if (page.say.state == .playing) try sayStart(sayHere());
+        },
+        .say_click => {
+            const i = indexIn(h, .say_blocks) orelse return;
+            // cast: below `max_units`
+            const block: u32 = @intCast(i);
+            if (page.say.click == null or block < page.say.click.?) page.say.click = block;
+        },
+        .pagehide => if (page.say.on) try emit(.cancel, .{}),
     }
 }
 
 /// `onEvent`: a listened event (`id` an `On`), or the answer to a `bind_all` / `read` / `recall` / `copy`.
 fn event(id: u32, h: u32, payload: []const u8) !void {
     if (id < first_request) return listener(std.enums.fromInt(On, id) orelse return, h, payload);
+    if (id >= speech_first) return spoke(id, payload);
     switch ((pending.fetchSwapRemove(id) orelse return).value) {
         .bound => |b| try bound(b.group, h, payload, b.attrs),
         .palette => page.palette = try keep(payload),
@@ -1418,6 +1855,15 @@ fn event(id: u32, h: u32, payload: []const u8) !void {
             scratch.clearRetainingCapacity();
             try codeHtml(&scratch, gpa, payload);
             try emit(.html, .{ handle(.zig_blocks, i), scratch.items });
+        },
+        .say_voice => if (payload.len > 0) {
+            page.say.voice = try keep(payload);
+        },
+        .say_rate => {
+            page.say.rate = for (rates) |r| {
+                if (std.mem.eql(u8, r, payload)) break r;
+            } else "1";
+            try sayRates(page.say.rate);
         },
         .repo_cache => if (payload.len > 0) try showFacts(payload) else {
             const api = try page_arena.allocator().print("https://api.github.com/repos/{s}", .{page.repo.name});
@@ -1823,9 +2269,9 @@ fn resetPage() void {
 
 /// The names `decode` gives the elements of `el`, by number.
 const el_names = [_][]const u8{
-    "document", "root",   "body",  "dark",  "q",
-    "hits",     "search", "theme", "menu",  "themes",
-    "live",     "facts",  "tag",   "stars", "forks",
+    "document", "root", "body",   "dark", "window", "q",   "hits",  "search",
+    "theme",    "menu", "themes", "live", "facts",  "tag", "stars", "forks",
+    "play",     "stop", "voice",  "rate",
 };
 
 /// The command list `bytes` as text: a line per command, its op and arguments (a string quoted, an element of `el`
@@ -1886,7 +2332,7 @@ fn reply(id: u32, status_code: u32, text: []const u8) void {
 
 test signatureOf {
     // every op's arguments: numbers and elements before strings, except `listen`'s id and `class`' flag
-    for (std.enums.values(Op)) |op| try t.expect(signatureOf(op).len <= 5);
+    for (std.enums.values(Op)) |op| try t.expect(signatureOf(op).len <= 7);
     try t.expectEqualStrings("hsn", signatureOf(.listen));
 }
 
@@ -1935,6 +2381,7 @@ test "onStart" {
         \\bind_all document run_buttons.0 272 ".run button" ""
         \\bind_all document run_statuses.0 273 ".run .status" ""
         \\bind_all document run_results.0 274 ".run .result" ""
+        \\bind_all document say_bars.0 18 ".listen" ""
         \\get "/api/ping" 275
         \\
     );
@@ -2399,4 +2846,289 @@ test badge {
     try t.expect(try badge(&list, t.allocator, "{\"module\": \"m\", \"version\": \"1\", \"python\": \"3.14\"}"));
     try t.expectEqualStrings("live · 3.14", list.items);
     try t.expect(!try badge(&list, t.allocator, "{\"python\": \"3.14\"}"));
+}
+
+test sentences {
+    var ranges: std.ArrayList([2]usize) = .empty;
+    defer ranges.deinit(t.allocator);
+    const cases = [_]struct { text: []const u8, want: []const []const u8 }{
+        .{ .text = "One. Two!", .want = &.{ "One.", "Two!" } },
+        .{ .text = "No split here. and none: here", .want = &.{"No split here. and none: here"} },
+        .{
+            .text = "See e.g. Zig. Also v1.2 works. Then 3 more",
+            .want = &.{ "See e.g. Zig.", "Also v1.2 works.", "Then 3 more" },
+        },
+        .{
+            .text = "A. Smith left. \"Why?\" (Nobody knew.) Éa",
+            .want = &.{ "A. Smith left.", "\"Why?\" (Nobody knew.) Éa" },
+        },
+        .{ .text = "Done! (Really.) Yes", .want = &.{ "Done!", "(Really.) Yes" } },
+        .{ .text = "Compare vs. 3 more, etc. Then X", .want = &.{"Compare vs. 3 more, etc. Then X"} },
+        .{ .text = "", .want = &.{""} },
+        .{ .text = "a.", .want = &.{"a."} },
+    };
+    for (cases) |c| {
+        ranges.clearRetainingCapacity();
+        try sentences(&ranges, t.allocator, c.text);
+        try t.expectEqual(c.want.len, ranges.items.len);
+        for (ranges.items, c.want) |r, w| try t.expectEqualStrings(w, c.text[r[0]..r[1]]);
+    }
+}
+
+test "Listen helpers" {
+    try t.expect(readable("a") and readable("9") and readable("é") and !readable("-- . ") and !readable(""));
+    try t.expectEqual(5, utf16Len("héllo"));
+    try t.expectEqual(3, utf16Len("a😀"));
+    try t.expect(endsAbbreviation("e.g.") and endsAbbreviation("A.") and endsAbbreviation("see etc."));
+    for ([_][]const u8{ "Done.", "etc", "", "x." }) |text| try t.expect(!endsAbbreviation(text));
+    for ([_][]const u8{ "en-US", "EN_gb", "en" }) |lang| try t.expect(sameLang(lang, "en"));
+    try t.expect(!sameLang("de-DE", "en"));
+}
+
+/// Whether the last call's commands are `expected` with `$drop`, `$leave`, `$blocks`, `$skips` (the selectors the
+/// Listen bar sends) and `$rates1` / `$rates15` (the speed options, that speed selected) filled in.
+fn expectSay(expected: []const u8) !void {
+    const names = [_][2][]const u8{
+        .{ "$drop", say_drop },
+        .{ "$leave", say_leave },
+        .{ "$blocks", say_blocks },
+        .{ "$skips", say_skips },
+        .{ "$rates15", rate_options[0] },
+        .{ "$rates1", rate_options[1] },
+    };
+    var text: []u8 = try t.allocator.dupe(u8, expected);
+    defer t.allocator.free(text);
+    for (names) |n| {
+        const next = try std.mem.replaceOwned(u8, t.allocator, text, n[0], n[1]);
+        t.allocator.free(text);
+        text = next;
+    }
+    try expectCommands(text);
+}
+
+/// The speed options with 1.5 and with 1 selected.
+const rate_options = [_][]const u8{
+    "<option value=\"0.75\">0.75x</option><option value=\"1\">1x</option><option value=\"1.25\">1.25x</option>" ++
+        "<option value=\"1.5\" selected>1.5x</option>",
+    "<option value=\"0.75\">0.75x</option><option value=\"1\" selected>1x</option>" ++
+        "<option value=\"1.25\">1.25x</option><option value=\"1.5\">1.5x</option>",
+};
+
+test "Listen" {
+    resetPage();
+    onStart(false, "x", 1);
+    send(@backingInt(On.say_found), 0, ""); // no bar on the page: nothing
+    try expectSay("");
+    send(@backingInt(On.say_found), 1, ""); // the bar: its parts, the saved voice and speed, the voices
+    try expectSay(
+        \\bind say_bars.0 play ".play"
+        \\bind say_bars.0 stop ".stop"
+        \\bind say_bars.0 voice ".voice"
+        \\bind say_bars.0 rate ".rate"
+        \\html rate "$rates1"
+        \\bind_all document say_langs.0 19 "html" "lang"
+        \\blocks document say_blocks.0 20 "$blocks" "$leave" "$drop" "data-say"
+        \\bind_all document say_skips.0 21 "$skips" ""
+        \\recall 0 "listen-voice" 275
+        \\recall 0 "listen-rate" 276
+        \\listen play "click" 24
+        \\listen stop "click" 25
+        \\listen voice "change" 26
+        \\listen rate "change" 27
+        \\listen window "pagehide" 29
+        \\voices 23
+        \\
+    );
+    send(@backingInt(On.say_found), 1, ""); // once
+    try expectSay("");
+    send(@backingInt(On.say_lang), 1, "EN-us"); // the page language, lower case and without the country
+    try expectSay("");
+    send(@backingInt(On.say_lang), 0, "");
+    try expectSay("");
+    // two sentences, the row, the tail; the bar waits for voices
+    send(@backingInt(On.say_texts), 4, "Hello world. Second one.\x1f--\x1f\x1eField: a. Value: b\x1fTail");
+    try expectSay(
+        \\listen say_blocks.0 "click" 28
+        \\listen say_blocks.1 "click" 28
+        \\listen say_blocks.2 "click" 28
+        \\listen say_blocks.3 "click" 28
+        \\attr say_bars.0 "hidden" ""
+        \\
+    );
+    send(275, 0, "uB"); // the saved voice, not there yet
+    try expectSay("");
+    send(276, 0, "1.5"); // the saved speed
+    try expectSay(
+        \\html rate "$rates15"
+        \\
+    );
+    send(277, 0, "");
+    try expectSay("");
+    // the saved voice is German: the default of the English ones
+    send(@backingInt(On.say_voices), 3, "A\x1fen-US\x1fuA\x1f\x1fB\x1fde-DE\x1fuB\x1f\x1fC\x1fen-GB\x1fuC\x1f1");
+    try expectSay(
+        \\html voice "<option value="uA">A (en-US)</option><option value="uC" selected>C (en-GB)</option>"
+        \\unattr say_bars.0 "hidden"
+        \\
+    );
+    send(@backingInt(On.say_play), el.say_play, ""); // Listen: every sentence queued
+    try expectSay(
+        \\cancel
+        \\speak 2147549184 "Hello world." "uC" "1.5"
+        \\speak 2147549185 "Second one." "uC" "1.5"
+        \\speak 2147549186 "Field: a. Value: b" "uC" "1.5"
+        \\speak 2147549187 "Tail" "uC" "1.5"
+        \\text play "Pause"
+        \\unattr stop "disabled"
+        \\
+    );
+    const id0_11 = speech_first | page.say.turn << 16;
+    send(id0_11, 0, "start"); // the first one starts: its block marked, scrolled to
+    try expectSay(
+        \\class say_blocks.0 "listening" 1
+        \\reveal say_blocks.0
+        \\mark say_blocks.0 0 12 "$drop" "listen-now"
+        \\
+    );
+    const id0_12 = speech_first | page.say.turn << 16;
+    send(id0_12, 0, "end"); // the second sentence of the block: only the highlight moves
+    try expectSay(
+        \\mark say_blocks.0 13 4294967295 "$drop" "listen-now"
+        \\
+    );
+    const id0_13 = speech_first | page.say.turn << 16;
+    send(id0_13 + 1, 0, "start");
+    try expectSay(
+        \\mark say_blocks.0 13 4294967295 "$drop" "listen-now"
+        \\
+    );
+    const id0_14 = speech_first | page.say.turn << 16;
+    send(id0_14 + 1, 0, "end"); // the next block
+    try expectSay(
+        \\class say_blocks.0 "listening" 0
+        \\class say_blocks.2 "listening" 1
+        \\reveal say_blocks.2
+        \\mark say_blocks.2 0 4294967295 "$drop" "listen-now"
+        \\
+    );
+    // events of an older reading, or past the sentences: nothing
+    send(speech_first | ((page.say.turn + 5) & 0x7fff) << 16, 0, "end");
+    send(speech_first | page.say.turn << 16 | 99, 0, "end");
+    try expectCommands("");
+    send(@backingInt(On.say_play), el.say_play, ""); // Pause: the queue is cancelled, the place kept
+    try expectSay(
+        \\cancel
+        \\text play "Resume"
+        \\unattr stop "disabled"
+        \\
+    );
+    send(@backingInt(On.say_play), el.say_play, ""); // Resume from the place
+    try expectSay(
+        \\cancel
+        \\speak 2147680258 "Field: a. Value: b" "uC" "1.5"
+        \\speak 2147680259 "Tail" "uC" "1.5"
+        \\text play "Pause"
+        \\unattr stop "disabled"
+        \\
+    );
+    send(@backingInt(On.say_rate), el.say_rate, "1.25");
+    try expectSay(
+        \\store 0 "listen-rate" "1.25"
+        \\cancel
+        \\speak 2147745794 "Field: a. Value: b" "uC" "1.25"
+        \\speak 2147745795 "Tail" "uC" "1.25"
+        \\text play "Pause"
+        \\unattr stop "disabled"
+        \\
+    );
+    send(@backingInt(On.say_rate), el.say_rate, "9"); // not a speed
+    try expectSay("");
+    send(@backingInt(On.say_voice), el.say_voice, "uA");
+    try expectSay(
+        \\store 0 "listen-voice" "uA"
+        \\cancel
+        \\speak 2147811330 "Field: a. Value: b" "uA" "1.25"
+        \\speak 2147811331 "Tail" "uA" "1.25"
+        \\text play "Pause"
+        \\unattr stop "disabled"
+        \\
+    );
+    // the inner block first, then the outer: reading starts at the outer
+    send(@backingInt(On.say_click), handle(.say_blocks, 3), "");
+    try expectSay("");
+    send(@backingInt(On.say_click), handle(.say_blocks, 2), "");
+    try expectSay("");
+    send(@backingInt(On.say_click), el.q, ""); // not a block
+    try expectSay("");
+    send(@backingInt(On.doc_click), el.document, "");
+    try expectSay(
+        \\cancel
+        \\speak 2147876866 "Field: a. Value: b" "uA" "1.25"
+        \\speak 2147876867 "Tail" "uA" "1.25"
+        \\text play "Pause"
+        \\unattr stop "disabled"
+        \\
+    );
+    send(@backingInt(On.say_skip), 2, "");
+    try expectSay(
+        \\listen say_skips.0 "click" 22
+        \\listen say_skips.1 "click" 22
+        \\
+    );
+    send(@backingInt(On.say_skip_click), handle(.say_skips, 0), ""); // a click on a link
+    try expectSay("");
+    send(@backingInt(On.say_click), handle(.say_blocks, 0), ""); // does not start reading
+    try expectSay("");
+    send(@backingInt(On.doc_click), el.document, "");
+    try expectSay("");
+    const id0_28 = speech_first | page.say.turn << 16;
+    send(id0_28, 0, "start");
+    try expectSay(
+        \\mark say_blocks.2 0 4294967295 "$drop" "listen-now"
+        \\
+    );
+    send(speech_first | page.say.turn << 16 | 3, 0, "end"); // the last sentence ends: stopped
+    try expectSay(
+        \\cancel
+        \\mark say_blocks.2 0 0 "$drop" "listen-now"
+        \\class say_blocks.2 "listening" 0
+        \\text play "Listen"
+        \\attr stop "disabled" ""
+        \\
+    );
+    send(@backingInt(On.say_play), el.say_play, ""); // Listen again
+    try expectSay(
+        \\cancel
+        \\speak 2148007936 "Hello world." "uA" "1.25"
+        \\speak 2148007937 "Second one." "uA" "1.25"
+        \\speak 2148007938 "Field: a. Value: b" "uA" "1.25"
+        \\speak 2148007939 "Tail" "uA" "1.25"
+        \\text play "Pause"
+        \\unattr stop "disabled"
+        \\
+    );
+    send(speech_first | page.say.turn << 16 | 0, 0, "error"); // an error that is not the last one's: nothing
+    try expectSay("");
+    send(@backingInt(On.say_stop), el.say_stop, "");
+    try expectSay(
+        \\cancel
+        \\text play "Listen"
+        \\attr stop "disabled" ""
+        \\
+    );
+    send(@backingInt(On.say_click), handle(.say_blocks, 0), ""); // not reading: a click does not start it
+    try expectSay("");
+    send(@backingInt(On.doc_click), el.document, "");
+    try expectSay("");
+    send(@backingInt(On.pagehide), el.window, "");
+    try expectSay(
+        \\cancel
+        \\
+    );
+    // an error of the last sentence stops the reading
+    send(@backingInt(On.say_play), el.say_play, "");
+    try expectCommandsStart("cancel\nspeak ");
+    send(speech_first | page.say.turn << 16 | 3, 0, "error");
+    try expectCommands("cancel\ntext play \"Listen\"\nattr stop \"disabled\" \"\"\n");
+    try t.expect(page.say.on);
 }

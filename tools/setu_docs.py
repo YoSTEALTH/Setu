@@ -47,6 +47,7 @@ The settings, in `pyproject.toml` (paths relative to it):
     coverage_runs = false           # optional: no per-interpreter counts under a file where the runs differ (true)
     session_prompt = 'sh> '         # optional: a plain / `text` code block whose lines start with it is a shell session
     page_scripts = ['docs/listen.js']  # optional: scripts copied to the site's root, loaded (`defer`) by every page
+    listen = true                   # optional: a Listen bar (read the page aloud) on the home and Markdown pages
     profile = 'zig-out/profile.json'    # optional: a Profile page (`serve` only) from `zig build profile` (below)
 
     [[tool.setu_docs.markdown]]     # Markdown pages, in nav order
@@ -147,6 +148,12 @@ any HTTP server, not from `file://`): the site copies each source to `source/<pa
 the project's `build.zig.zon` (`.path`, else `zig-pkg/<.hash>`). A source whose CRC-32 is not the one measured
 (`crc32` in the JSON) is flagged `changed`. Without the file (no kcov in CI) the page is left out.
 
+Listen (`listen = true`): the home and Markdown pages get a bar (Listen / Pause, Stop, a voice, a speed) that reads
+the page aloud with the browser's own speech, sentence by sentence, the sentence and its block highlighted; code,
+navigation and the footer are skipped, a table row is read as `Label: text. Label: text`. All of it is in `docs.wasm`;
+the bar stays hidden without `docs.wasm` or speech voices. `session_prompt` and `page_scripts` are settings for
+projects whose pages need a prompt of their own or a script of their own.
+
 The Profile page (`profile`: the JSON of Setu's `tools/check_profile.py`) shows the instructions one call of each case
 costs (callgrind): a row per case, a bar per interpreter, its dark part the extension's own code. A click on a case
 shows, under it, the extension's files the call runs in, costliest first, each file's source Zig highlighted, every
@@ -206,7 +213,7 @@ EXAMPLE = re.compile(r'Example(?: #\d+)?')
 
 KEYS = {'module', 'path', 'stub', 'name', 'version', 'summary', 'out', 'home', 'css', 'favicon', 'edit', 'repo',
         'scripts', 'scripts_skip', 'featured', 'runner', 'hooks', 'serial', 'timeout', 'coverage',
-        'coverage_history', 'coverage_runs', 'session_prompt', 'page_scripts', 'profile', 'markdown', 'pages',
+        'coverage_history', 'coverage_runs', 'session_prompt', 'page_scripts', 'listen', 'profile', 'markdown', 'pages',
         'static'}  # fmt: skip
 NEEDS_MODULE = ('path', 'stub', 'runner', 'hooks', 'pages')  # the API half: settings a module-less site can not have
 FAVICON_TYPES = ('.svg', '.png', '.ico')
@@ -272,8 +279,9 @@ def load_config(pyproject='pyproject.toml'):
         fail('a page slug twice')
     if {'index', 'examples', 'coverage', 'profile'} & set(slugs):
         fail('`index`, `examples`, `coverage` and `profile` are taken (the home page, the example scripts, ...)')
-    if not isinstance(config.get('coverage_runs', True), bool):
-        fail('`coverage_runs` is `true` or `false`')
+    for key in ('coverage_runs', 'listen'):
+        if not isinstance(config.get(key, True), bool):
+            fail(f'`{key}` is `true` or `false`')
     if 'session_prompt' in config and not (
         isinstance(config['session_prompt'], str)
         and config['session_prompt'].strip()
@@ -1281,10 +1289,20 @@ class Site:
             aligns.append(' style="text-align: center"' if left and right else ' style="text-align: right"'
                           if right else '')  # fmt: skip
 
+        labels = [plain_text(self.inline_md(c, base)) for c in (self.cells(head) + [''] * len(aligns))[: len(aligns)]]
+
+        def say(cells):
+            '''`Label: text. Label: text` of a body row (`listen`: what is read for it), else nothing.'''
+            if not self.project.config.get('listen'):
+                return ''
+            texts = [plain_text(self.inline_md(c, base)) for c in (cells + [''] * len(aligns))[: len(aligns)]]
+            parts = [f'{label}: {text}' if label else text for label, text in zip(labels, texts) if text]
+            return f' data-say="{html.escape(". ".join(parts))}"' if parts else ''
+
         def row(cells, tag):
             cells = (cells + [''] * len(aligns))[: len(aligns)]
             return (
-                '<tr>'
+                f'<tr{say(cells) if tag == "td" else ""}>'
                 + ''.join(f'<{tag}{a}>{self.inline_md(c, base)}</{tag}>' for c, a in zip(cells, aligns))
                 + '</tr>'
             )
@@ -1936,6 +1954,14 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             out[s] = self.markdown_page(page, s, re.sub(r'[`*]', '', t), text, f'<nav class="pager">{pager}</nav>')
         return out
 
+    def listen_bar(self, body):
+        '''`body` with the Listen bar after its first heading (`listen`), else as it is.'''
+        if not self.project.config.get('listen'):
+            return body
+        at = body.find('</h1>')
+        at = at + 5 if at >= 0 else 0
+        return body[:at] + LISTEN_BAR + body[at:]
+
     def markdown_page(self, page, slug, title, text, end=''):
         '''One page of the Markdown file of `page`: `text` (its Markdown), then the HTML `end`.'''
         self.ids, self.headings = set(), []
@@ -1947,7 +1973,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         self.search_headings(slug, title)
         if edit := self.project.config.get('edit'):
             body = f'<a class="edit" href="{html.escape(edit + page["file"])}">Edit</a>' + body
-        return self.page(slug, title, body + end, toc)
+        return self.page(slug, title, self.listen_bar(body) + end, toc)
 
     def index_page(self):
         self.ids = set()
@@ -1966,7 +1992,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         if featured := project.config.get('featured'):
             code = (project.root / featured).read_text()
             text += f'{code_box(self.highlight(code.rstrip()))}{_run_box(featured)}'
-        return self.page('index', 'Home', text, toc)
+        return self.page('index', 'Home', self.listen_bar(text), toc)
 
     def search_headings(self, slug, title):
         '''The search entries of the Markdown page `slug` (titled `title`) just rendered: a heading each.'''
@@ -2411,6 +2437,24 @@ def src_hints(text):
     )
 
 
+LISTEN_BAR = (
+    '<div class="listen" hidden><button class="play" type="button">Listen</button>'
+    '<button class="stop" type="button" disabled>Stop</button>'
+    '<select class="voice" title="Voice" aria-label="Voice"></select>'
+    '<select class="rate" title="Speed" aria-label="Speed"></select></div>'
+)  # the bar `listen` writes, hidden: `docs.wasm` shows it once the browser has voices
+
+
+def plain_text(markup):
+    '''The text of the HTML `markup`: tags dropped, entities decoded, whitespace collapsed.
+
+    Example
+        >>> plain_text('a <code>b</code> &amp;  c')
+        'a b & c'
+    '''
+    return ' '.join(html.unescape(re.sub(r'<[^>]+>', '', markup)).split())
+
+
 def code_box(body, cls='code', attrs=''):
     '''A `<pre>` of the HTML `body` in its `.codebox` with its Copy button, hidden (`docs.wasm` shows it).'''
     return (
@@ -2608,6 +2652,12 @@ pre:has(> .ln) { white-space: normal; } pre > .ln { display: block; white-space:
 pre > .ln:empty::before { content: "\\200b"; }
 pre.code, pre.plain, pre.result { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
   padding: 10px 12px; overflow-x: auto; line-height: 1.5; margin: 6px 0; }
+.listen { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; } .listen[hidden] { display: none; }
+.listen button, .listen select { font: 13px system-ui, sans-serif; padding: 2px 10px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--panel); color: var(--text); }
+.listen button { cursor: pointer; } .listen button:disabled { opacity: .5; cursor: default; }
+.listening { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+::highlight(listen-now) { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .codebox { position: relative; }
 .codebox .copy { position: absolute; top: 6px; right: 6px; opacity: 0; font: 12px system-ui, sans-serif;
   padding: 1px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted);
@@ -2765,10 +2815,11 @@ JS = r'''
   }
   const enc = new TextEncoder(), dec = new TextDecoder();
   const dark = matchMedia('(prefers-color-scheme: dark)');
-  const nodes = new Map([[0, document], [1, document.documentElement], [2, document.body], [3, dark]]);
+  const nodes = new Map([[0, document], [1, document.documentElement], [2, document.body], [3, dark],
+    [4, globalThis]]);
   const areas = [localStorage, sessionStorage];
   const payload = { input: e => e.target.value, keydown: e => e.key, click: () => String(getSelection()),
-    change: e => String(e.matches) };
+    change: e => e.matches === undefined ? e.target.value : String(e.matches) };
   let event = null;  // the event being handled (`prevent`)
 
   // A zero-length Zig slice's pointer is a sentinel (-1 as a wasm32 i32): never view memory through it.
@@ -2784,6 +2835,34 @@ JS = r'''
     });
     try { fn(...flat); } finally { strings.forEach(([ptr, len]) => w.free(ptr, len)); }
     run(new Uint8Array(new Uint8Array(w.memory.buffer, w.outPtr(), w.outLen())));  // a copy: run may call back
+  }
+
+  // The text of `box` (as `blocks` reads it, the parts matching `drop` left out) from character `start` to `end` as a
+  // Range, or null.
+  function textRange(box, start, end, drop) {
+    const at = [];  // each character kept: its text node and offset
+    let space = true;  // the text so far is empty or ends with a blank
+    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      let left = false;
+      for (let p = t.parentElement; p && p !== box; p = p.parentElement) if (p.matches(drop)) left = true;
+      if (left) continue;
+      for (let k = 0; k < t.data.length; k++) {
+        if (t.data[k].trim() === '') {
+          if (space) continue;
+          space = true;
+        } else {
+          space = false;
+        }
+        at.push([t, k]);
+      }
+    }
+    const last = Math.min(end, at.length);
+    if (start >= last) return null;
+    const range = document.createRange();
+    range.setStart(at[start][0], at[start][1]);
+    range.setEnd(at[last - 1][0], at[last - 1][1] + 1);
+    return range;
   }
 
   async function get(url, id, init) {
@@ -2856,6 +2935,48 @@ JS = r'''
         if (line) box.scrollTop = line.offsetTop - box.clientHeight / 3;
       },
       () => { location.href = s(); },  // go
+      () => {  // blocks: the text of each match not inside `skip`; an `attr` value stands for it, marked
+        const parent = node(), first = n(), id = n(), pick = s(), skip = s(), drop = s(), attr = s();
+        const found = [], texts = [];
+        for (const e of parent.querySelectorAll(pick)) {
+          if (e.closest(skip)) continue;
+          found.push(e);
+          if (e.hasAttribute(attr)) {
+            texts.push('\x1e' + e.getAttribute(attr));
+            continue;
+          }
+          const copy = e.cloneNode(true);
+          for (const x of copy.querySelectorAll(drop)) x.remove();
+          texts.push(copy.textContent.split(/\s+/).join(' ').trim());
+        }
+        found.forEach((e, i) => nodes.set(first + i, e));
+        answers.push(() => send(w.onEvent, id, found.length, texts.join('\x1f')));
+      },
+      () => {  // mark: a highlight (CSS Custom Highlight API; none in older browsers)
+        const box = node(), start = n(), end = n(), drop = s(), name = s();
+        if (!globalThis.CSS?.highlights) return;
+        const range = start < end ? textRange(box, start, end, drop) : null;
+        if (range) CSS.highlights.set(name, new Highlight(range)); else CSS.highlights.delete(name);
+      },
+      () => { node().scrollIntoView({ block: 'center', behavior: 'smooth' }); },  // reveal
+      () => {  // voices: now and whenever they change
+        const id = n(), synth = globalThis.speechSynthesis;
+        const answer = () => {
+          const list = synth ? synth.getVoices() : [];
+          const fields = v => [v.name, v.lang, v.voiceURI, v.default ? '1' : ''];
+          send(w.onEvent, id, list.length, list.flatMap(fields).join('\x1f'));
+        };
+        answers.push(answer);
+        if (synth) synth.addEventListener('voiceschanged', answer);
+      },
+      () => {  // speak: one utterance; its start, end and error go back
+        const id = n(), u = new SpeechSynthesisUtterance(s()), uri = s();
+        u.rate = Number(s()) || 1;
+        for (const v of speechSynthesis.getVoices()) if (v.voiceURI === uri) { u.voice = v; u.lang = v.lang; }
+        for (const type of ['start', 'end', 'error']) u.addEventListener(type, () => send(w.onEvent, id, 0, type));
+        speechSynthesis.speak(u);
+      },
+      () => { globalThis.speechSynthesis?.cancel(); },  // cancel
     ];
     while (at < bytes.length) ops[bytes[at++]]();
     answers.forEach(answer => answer());

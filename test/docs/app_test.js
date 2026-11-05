@@ -29,6 +29,10 @@ class El {
   set scrollTop(top) { say(`${this.name} scrollTop ${top}`); }
   focus() { say(`${this.name} focus`); fire(this, 'focus', {}, false); }
   addEventListener(type, f) { (this.listeners[type] ??= []).push(f); }
+  hasAttribute(name) { return name in this.attrs; }
+  closest() { return null; }
+  cloneNode() { return { querySelectorAll: () => [], textContent: this.text }; }
+  scrollIntoView(how) { say(`${this.name} scrollIntoView ${JSON.stringify(how)}`); }
 }
 
 // `type` on `target`, then (`bubbles`) on each parent up to the document
@@ -63,6 +67,29 @@ profView.kids.pre = [
   el('prof-pre0', { 'data-src': 'source/test/functions.zig', 'data-lines': '25:8.0' }, '', profView),
   el('prof-pre1', { 'data-src': '', 'data-lines': '90:20.0' }, '', profView),
 ];
+// the Listen bar, a paragraph of two sentences and a table row; a speech engine that queues what it is told
+const bar = el('listen'), play = el('play', {}, 'Listen', bar), stop = el('stop', { disabled: '' }, 'Stop', bar);
+const voiceBox = el('voice', {}, '', bar), rateBox = el('rate', {}, '', bar);
+Object.assign(bar.kids, { '.play': [play], '.stop': [stop], '.voice': [voiceBox], '.rate': [rateBox] });
+const para = el('para', {}, 'Hello world. Second one.'), tableRow = el('row', { 'data-say': 'a: 1. b: 2' });
+root.attrs.lang = 'en-US';
+const speech = {
+  queue: [],
+  getVoices: () => [{ name: 'Ana', lang: 'en-US', voiceURI: 'ana', default: true },
+    { name: 'Boris', lang: 'de-DE', voiceURI: 'boris', default: false }],
+  addEventListener(type, f) { say(`speech ${type}`); this.changed = f; },
+  speak(u) { say(`speak ${JSON.stringify(u.text)} ${u.voice?.name} ${u.rate}`); this.queue.push(u); },
+  cancel() { say('cancel'); this.queue = []; },
+};
+class Utterance {
+  constructor(text) { this.text = text; this.listeners = {}; }
+  addEventListener(type, f) { this.listeners[type] = f; }
+}
+doc.createTreeWalker = box => {
+  const nodes = [{ data: box.text, parentElement: box }];
+  return { nextNode: () => nodes.shift() ?? null };
+};
+doc.createRange = () => ({ setStart: (node, k) => say(`range from ${k}`), setEnd: (node, k) => say(`range to ${k}`) });
 const run = el('run', { 'data-target': 'vec_norm2' }), button = el('run-button', {}, 'Run', run);
 const status = el('run-status', {}, '', run), result = el('run-result', { hidden: '' }, '', run);
 Object.assign(doc.kids, {
@@ -72,7 +99,8 @@ Object.assign(doc.kids, {
   '.repo[data-repo]:not([data-repo=""])': [repo], 'table.cov tr[data-src]': [covRow],
   'table.cov tr.src-view': [covView], 'table.cov tr.src-view pre': [covPre], 'table.prof tr.prof-row': [profRow],
   'table.prof tr.src-view': [profView], '.run': [run], '.run button': [button], '.run .status': [status],
-  '.run .result': [result],
+  '.run .result': [result], '.listen': [bar], html: [root], 'main a, main button, main select, main .listen': [],
+  'main h1, main h2, main h3, main h4, main h5, main h6, main p, main li, main tr[data-say]': [para, tableRow],
 });
 
 const answers = {
@@ -93,6 +121,11 @@ Object.assign(globalThis, {
   getSelection: () => '',
   location: { hostname: '127.0.0.1', set href(url) { say(`go ${url}`); } },
   performance: { now: () => (now += 50) },
+  speechSynthesis: speech,
+  SpeechSynthesisUtterance: Utterance,
+  NodeFilter: { SHOW_TEXT: 4 },
+  CSS: { highlights: { set: name => say(`highlight ${name}`), delete: name => say(`no highlight ${name}`) } },
+  Highlight: class {},
   setTimeout: (f, ms) => { say(`timer ${ms}`); timers.push(f); },
   fetch: async (url, init) => {
     if (url !== 'docs.wasm') say(`fetch ${url}${init ? ` ${init.method} ${JSON.stringify(init.body)}` : ''}`);
@@ -137,4 +170,13 @@ fire(button, 'click');  // Run
 await settle();
 dark.matches = true;
 fire(dark, 'change', { matches: true });
+fire(play, 'click');  // Listen: three sentences queued, each one starts and ends in turn
+for (const u of [...speech.queue]) { u.listeners.start(); u.listeners.end(); }
+speech.changed();  // the voices change: the same list again
+fire(play, 'click');  // read again, paused, then stopped
+fire(play, 'click');
+fire(stop, 'click');
+voiceBox.value = 'ana';
+fire(voiceBox, 'change');  // the voice picked
+dispatchEvent(new Event('pagehide'));
 console.log(log.join('\n'));
