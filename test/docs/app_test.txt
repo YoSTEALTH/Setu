@@ -123,8 +123,11 @@ speak "Hello world." Ana 1
 speak "Second one." Ana 1
 speak "a: 1. b: 2" Ana 1
 play text "Pause"
+mini text "Pause"
 stop -disabled
 para class listening true
+mini moved into para
+mini -hidden
 para scrollIntoView {"block":"center","behavior":"smooth"}
 range from 0
 range to 12
@@ -137,30 +140,38 @@ range to 24
 highlight listen-now
 para class listening false
 row class listening true
+mini moved into cell
+mini -hidden
 row scrollIntoView {"block":"center","behavior":"smooth"}
 no highlight listen-now
 no highlight listen-now
 cancel
 no highlight listen-now
 row class listening false
+mini hidden=""
 play text "Listen"
+mini text "Listen"
 stop disabled=""
 voice html "<option value=\"ana\" selected>Ana (en-US)</option>"
 listen -hidden
--- click play {}
+-- click mini {}
 cancel
 speak "Hello world." Ana 1
 speak "Second one." Ana 1
 speak "a: 1. b: 2" Ana 1
 play text "Pause"
+mini text "Pause"
 stop -disabled
 -- click play {}
 cancel
 play text "Resume"
+mini text "Resume"
 stop -disabled
 -- click stop {}
 cancel
+mini hidden=""
 play text "Listen"
+mini text "Listen"
 stop disabled=""
 -- change voice {}
 localStorage listen-voice="ana"

@@ -765,6 +765,8 @@ pub const Op = enum(u8) {
     speak,
     /// `cancel`: stop speaking and empty the queue.
     cancel,
+    /// `move h to`: element `h` becomes the last child of element `to`.
+    move,
 };
 
 /// The arguments of `op`, in order: `n` a number, `h` an element (a number), `s` a string. A number is a
@@ -795,6 +797,7 @@ pub fn signatureOf(op: Op) []const u8 {
         .voices => "n",
         .speak => "nsss",
         .cancel => "",
+        .move => "hh",
     };
 }
 
@@ -823,6 +826,9 @@ pub const el = struct {
     pub const say_stop: u32 = 17;
     pub const say_voice: u32 = 18;
     pub const say_rate: u32 = 19;
+    /// The small Pause / Resume button that sits in the block being read, and the cell of a table row it sits in.
+    pub const say_mini: u32 = 20;
+    pub const say_cell: u32 = 21;
 };
 
 /// A group of elements one `bind_all` names: element `i` is `handle(group, i)`. `prof_files + k` are the files
@@ -991,7 +997,7 @@ const speech_first: u32 = 0x8000_0000;
 const max_units = 0xffff;
 
 /// One thing to say: a sentence (or a table row) of block `block`, from character `from` to `to` of its text.
-const Unit = struct { block: u32, text: []const u8, from: u32, to: u32 };
+const Unit = struct { block: u32, text: []const u8, from: u32, to: u32, row: bool };
 
 /// One speech voice.
 const Voice = struct { name: []const u8, lang: []const u8, uri: []const u8, default: bool };
@@ -1453,11 +1459,13 @@ fn sayShow() !void {
 /// The Listen button's label and the Stop button's state, for the reading's state.
 fn sayLabel() !void {
     const say = &page.say;
-    try emit(.text, .{ el.say_play, switch (say.state) {
+    const label = switch (say.state) {
         .playing => "Pause",
         .paused => "Resume",
         .stopped => "Listen",
-    } });
+    };
+    try emit(.text, .{ el.say_play, label });
+    try emit(.text, .{ el.say_mini, label });
     if (say.state == .stopped) {
         try emit(.attr, .{ el.say_stop, "disabled", "" });
     } else {
@@ -1483,6 +1491,13 @@ fn sayShowAt() !void {
         try sayUnmarkBlock();
         say.marked = unit.block;
         try emit(.class, .{ block, "listening", 1 });
+        if (unit.row) {
+            try emit(.bind, .{ block, el.say_cell, ".say-end" });
+            try emit(.move, .{ el.say_mini, el.say_cell });
+        } else {
+            try emit(.move, .{ el.say_mini, block });
+        }
+        try emit(.unattr, .{ el.say_mini, "hidden" });
         try emit(.reveal, .{block});
     }
     try emit(.mark, .{ block, unit.from, unit.to, say_drop, "listen-now" });
@@ -1499,6 +1514,7 @@ fn sayHalt() !void {
         try emit(.mark, .{ handle(.say_blocks, block), 0, 0, say_drop, "listen-now" });
     }
     try sayUnmarkBlock();
+    try setHidden(el.say_mini, true);
     try sayLabel();
 }
 
@@ -1579,6 +1595,7 @@ fn sayTexts(count: u32, values: []const u8) !void {
                 .text = text[range[0]..range[1]],
                 .from = utf16Len(text[0..range[0]]),
                 .to = to,
+                .row = whole,
             });
         }
     }
@@ -1653,6 +1670,7 @@ fn sayBegin() !void {
     inline for (.{
         .{ el.say_play, ".play" },   .{ el.say_stop, ".stop" },
         .{ el.say_voice, ".voice" }, .{ el.say_rate, ".rate" },
+        .{ el.say_mini, ".mini" },
     }) |b| try emit(.bind, .{ bar, b[0], b[1] });
     try sayRates(page.say.rate);
     try emit(.bind_all, .{ el.document, handle(.say_langs, 0), onId(.say_lang), "html", "lang" });
@@ -1662,9 +1680,9 @@ fn sayBegin() !void {
     try emit(.recall, .{ 0, "listen-voice", try request(.say_voice) });
     try emit(.recall, .{ 0, "listen-rate", try request(.say_rate) });
     inline for (.{
-        .{ el.say_play, "click", On.say_play },    .{ el.say_stop, "click", On.say_stop },
-        .{ el.say_voice, "change", On.say_voice }, .{ el.say_rate, "change", On.say_rate },
-        .{ el.window, "pagehide", On.pagehide },
+        .{ el.say_play, "click", On.say_play },  .{ el.say_stop, "click", On.say_stop },
+        .{ el.say_mini, "click", On.say_play },  .{ el.say_voice, "change", On.say_voice },
+        .{ el.say_rate, "change", On.say_rate }, .{ el.window, "pagehide", On.pagehide },
     }) |l| try emit(.listen, .{ l[0], l[1], onId(l[2]) });
     try emit(.voices, .{onId(.say_voices)});
 }
@@ -2269,9 +2287,9 @@ fn resetPage() void {
 
 /// The names `decode` gives the elements of `el`, by number.
 const el_names = [_][]const u8{
-    "document", "root", "body",   "dark", "window", "q",   "hits",  "search",
-    "theme",    "menu", "themes", "live", "facts",  "tag", "stars", "forks",
-    "play",     "stop", "voice",  "rate",
+    "document", "root", "body",   "dark", "window", "q",    "hits",  "search",
+    "theme",    "menu", "themes", "live", "facts",  "tag",  "stars", "forks",
+    "play",     "stop", "voice",  "rate", "mini",   "cell",
 };
 
 /// The command list `bytes` as text: a line per command, its op and arguments (a string quoted, an element of `el`
@@ -2925,6 +2943,7 @@ test "Listen" {
         \\bind say_bars.0 stop ".stop"
         \\bind say_bars.0 voice ".voice"
         \\bind say_bars.0 rate ".rate"
+        \\bind say_bars.0 mini ".mini"
         \\html rate "$rates1"
         \\bind_all document say_langs.0 19 "html" "lang"
         \\blocks document say_blocks.0 20 "$blocks" "$leave" "$drop" "data-say"
@@ -2933,6 +2952,7 @@ test "Listen" {
         \\recall 0 "listen-rate" 276
         \\listen play "click" 24
         \\listen stop "click" 25
+        \\listen mini "click" 24
         \\listen voice "change" 26
         \\listen rate "change" 27
         \\listen window "pagehide" 29
@@ -2979,6 +2999,7 @@ test "Listen" {
         \\speak 2147549186 "Field: a. Value: b" "uC" "1.5"
         \\speak 2147549187 "Tail" "uC" "1.5"
         \\text play "Pause"
+        \\text mini "Pause"
         \\unattr stop "disabled"
         \\
     );
@@ -2986,6 +3007,8 @@ test "Listen" {
     send(id0_11, 0, "start"); // the first one starts: its block marked, scrolled to
     try expectSay(
         \\class say_blocks.0 "listening" 1
+        \\move mini say_blocks.0
+        \\unattr mini "hidden"
         \\reveal say_blocks.0
         \\mark say_blocks.0 0 12 "$drop" "listen-now"
         \\
@@ -3007,6 +3030,9 @@ test "Listen" {
     try expectSay(
         \\class say_blocks.0 "listening" 0
         \\class say_blocks.2 "listening" 1
+        \\bind say_blocks.2 cell ".say-end"
+        \\move mini cell
+        \\unattr mini "hidden"
         \\reveal say_blocks.2
         \\mark say_blocks.2 0 4294967295 "$drop" "listen-now"
         \\
@@ -3019,6 +3045,7 @@ test "Listen" {
     try expectSay(
         \\cancel
         \\text play "Resume"
+        \\text mini "Resume"
         \\unattr stop "disabled"
         \\
     );
@@ -3028,6 +3055,7 @@ test "Listen" {
         \\speak 2147680258 "Field: a. Value: b" "uC" "1.5"
         \\speak 2147680259 "Tail" "uC" "1.5"
         \\text play "Pause"
+        \\text mini "Pause"
         \\unattr stop "disabled"
         \\
     );
@@ -3038,6 +3066,7 @@ test "Listen" {
         \\speak 2147745794 "Field: a. Value: b" "uC" "1.25"
         \\speak 2147745795 "Tail" "uC" "1.25"
         \\text play "Pause"
+        \\text mini "Pause"
         \\unattr stop "disabled"
         \\
     );
@@ -3050,6 +3079,7 @@ test "Listen" {
         \\speak 2147811330 "Field: a. Value: b" "uA" "1.25"
         \\speak 2147811331 "Tail" "uA" "1.25"
         \\text play "Pause"
+        \\text mini "Pause"
         \\unattr stop "disabled"
         \\
     );
@@ -3066,6 +3096,7 @@ test "Listen" {
         \\speak 2147876866 "Field: a. Value: b" "uA" "1.25"
         \\speak 2147876867 "Tail" "uA" "1.25"
         \\text play "Pause"
+        \\text mini "Pause"
         \\unattr stop "disabled"
         \\
     );
@@ -3092,7 +3123,9 @@ test "Listen" {
         \\cancel
         \\mark say_blocks.2 0 0 "$drop" "listen-now"
         \\class say_blocks.2 "listening" 0
+        \\attr mini "hidden" ""
         \\text play "Listen"
+        \\text mini "Listen"
         \\attr stop "disabled" ""
         \\
     );
@@ -3104,6 +3137,7 @@ test "Listen" {
         \\speak 2148007938 "Field: a. Value: b" "uA" "1.25"
         \\speak 2148007939 "Tail" "uA" "1.25"
         \\text play "Pause"
+        \\text mini "Pause"
         \\unattr stop "disabled"
         \\
     );
@@ -3112,7 +3146,9 @@ test "Listen" {
     send(@backingInt(On.say_stop), el.say_stop, "");
     try expectSay(
         \\cancel
+        \\attr mini "hidden" ""
         \\text play "Listen"
+        \\text mini "Listen"
         \\attr stop "disabled" ""
         \\
     );
@@ -3129,6 +3165,8 @@ test "Listen" {
     send(@backingInt(On.say_play), el.say_play, "");
     try expectCommandsStart("cancel\nspeak ");
     send(speech_first | page.say.turn << 16 | 3, 0, "error");
-    try expectCommands("cancel\ntext play \"Listen\"\nattr stop \"disabled\" \"\"\n");
+    try expectCommands(
+        "cancel\nattr mini \"hidden\" \"\"\ntext play \"Listen\"\ntext mini \"Listen\"\nattr stop \"disabled\" \"\"\n",
+    );
     try t.expect(page.say.on);
 }

@@ -29,6 +29,7 @@ class El {
   set scrollTop(top) { say(`${this.name} scrollTop ${top}`); }
   focus() { say(`${this.name} focus`); fire(this, 'focus', {}, false); }
   addEventListener(type, f) { (this.listeners[type] ??= []).push(f); }
+  append(child) { say(`${child.name} moved into ${this.name}`); }
   hasAttribute(name) { return name in this.attrs; }
   closest() { return null; }
   cloneNode() { return { querySelectorAll: () => [], textContent: this.text }; }
@@ -70,8 +71,12 @@ profView.kids.pre = [
 // the Listen bar, a paragraph of two sentences and a table row; a speech engine that queues what it is told
 const bar = el('listen'), play = el('play', {}, 'Listen', bar), stop = el('stop', { disabled: '' }, 'Stop', bar);
 const voiceBox = el('voice', {}, '', bar), rateBox = el('rate', {}, '', bar);
-Object.assign(bar.kids, { '.play': [play], '.stop': [stop], '.voice': [voiceBox], '.rate': [rateBox] });
+const mini = el('mini', { hidden: '' }, 'Pause', bar);
+Object.assign(bar.kids, {
+  '.play': [play], '.stop': [stop], '.voice': [voiceBox], '.rate': [rateBox], '.mini': [mini],
+});
 const para = el('para', {}, 'Hello world. Second one.'), tableRow = el('row', { 'data-say': 'a: 1. b: 2' });
+tableRow.kids['.say-end'] = [el('cell', {}, '', tableRow)];
 root.attrs.lang = 'en-US';
 const speech = {
   queue: [],
@@ -173,7 +178,7 @@ fire(dark, 'change', { matches: true });
 fire(play, 'click');  // Listen: three sentences queued, each one starts and ends in turn
 for (const u of [...speech.queue]) { u.listeners.start(); u.listeners.end(); }
 speech.changed();  // the voices change: the same list again
-fire(play, 'click');  // read again, paused, then stopped
+fire(mini, 'click');  // the corner button: read again, paused, then stopped
 fire(play, 'click');
 fire(stop, 'click');
 voiceBox.value = 'ana';

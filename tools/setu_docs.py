@@ -1301,9 +1301,15 @@ class Site:
 
         def row(cells, tag):
             cells = (cells + [''] * len(aligns))[: len(aligns)]
+            said = say(cells) if tag == 'td' else ''
+            end = ' class="say-end"' if said else ''  # the cell the Listen button sits in
+            last = len(cells) - 1
             return (
-                f'<tr{say(cells) if tag == "td" else ""}>'
-                + ''.join(f'<{tag}{a}>{self.inline_md(c, base)}</{tag}>' for c, a in zip(cells, aligns))
+                f'<tr{said}>'
+                + ''.join(
+                    f'<{tag}{end if i == last else ""}{a}>{self.inline_md(c, base)}</{tag}>'
+                    for i, (c, a) in enumerate(zip(cells, aligns))
+                )
                 + '</tr>'
             )
 
@@ -2441,7 +2447,8 @@ LISTEN_BAR = (
     '<div class="listen" hidden><button class="play" type="button">Listen</button>'
     '<button class="stop" type="button" disabled>Stop</button>'
     '<select class="voice" title="Voice" aria-label="Voice"></select>'
-    '<select class="rate" title="Speed" aria-label="Speed"></select></div>'
+    '<select class="rate" title="Speed" aria-label="Speed"></select>'
+    '<button class="listen mini" type="button" hidden>Pause</button></div>'
 )  # the bar `listen` writes, hidden: `docs.wasm` shows it once the browser has voices
 
 
@@ -2656,7 +2663,10 @@ pre.code, pre.plain, pre.result { background: var(--code-bg); border: 1px solid 
 .listen button, .listen select { font: 13px system-ui, sans-serif; padding: 2px 10px; border: 1px solid var(--line);
   border-radius: 4px; background: var(--panel); color: var(--text); }
 .listen button { cursor: pointer; } .listen button:disabled { opacity: .5; cursor: default; }
-.listening { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.listening { background: color-mix(in srgb, var(--accent) 12%, transparent); position: relative; }
+.listen.mini { position: absolute; top: 0; right: 0; margin: 0; padding: 0 8px; display: none; }
+.listening:hover .listen.mini, .listening:focus-within .listen.mini { display: block; }
+.listen.mini[hidden] { display: none; }
 ::highlight(listen-now) { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .codebox { position: relative; }
 .codebox .copy { position: absolute; top: 6px; right: 6px; opacity: 0; font: 12px system-ui, sans-serif;
@@ -2977,6 +2987,7 @@ JS = r'''
         speechSynthesis.speak(u);
       },
       () => { globalThis.speechSynthesis?.cancel(); },  // cancel
+      () => { const child = node(); node().append(child); },  // move
     ];
     while (at < bytes.length) ops[bytes[at++]]();
     answers.forEach(answer => answer());
