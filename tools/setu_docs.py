@@ -44,6 +44,9 @@ The settings, in `pyproject.toml` (paths relative to it):
     timeout = 20                    # optional: seconds an example may take
     coverage = 'zig-out/coverage.json'  # optional: a Coverage page from `zig build coverage`'s result (below)
     coverage_history = 'docs/coverage-history.json'  # optional: its history chart (`zig build coverage`'s `.history`)
+    coverage_runs = false           # optional: no per-interpreter counts under a file where the runs differ (true)
+    session_prompt = 'sh> '         # optional: a plain / `text` code block whose lines start with it is a shell session
+    page_scripts = ['docs/listen.js']  # optional: scripts copied to the site's root, loaded (`defer`) by every page
     profile = 'zig-out/profile.json'    # optional: a Profile page (`serve` only) from `zig build profile` (below)
 
     [[tool.setu_docs.markdown]]     # Markdown pages, in nav order
@@ -203,7 +206,8 @@ EXAMPLE = re.compile(r'Example(?: #\d+)?')
 
 KEYS = {'module', 'path', 'stub', 'name', 'version', 'summary', 'out', 'home', 'css', 'favicon', 'edit', 'repo',
         'scripts', 'scripts_skip', 'featured', 'runner', 'hooks', 'serial', 'timeout', 'coverage',
-        'coverage_history', 'profile', 'markdown', 'pages', 'static'}  # fmt: skip
+        'coverage_history', 'coverage_runs', 'session_prompt', 'page_scripts', 'profile', 'markdown', 'pages',
+        'static'}  # fmt: skip
 NEEDS_MODULE = ('path', 'stub', 'runner', 'hooks', 'pages')  # the API half: settings a module-less site can not have
 FAVICON_TYPES = ('.svg', '.png', '.ico')
 PAGE_KEYS = {'slug', 'title', 'text', 'classes', 'functions', 'patterns', 'sources', 'default', 'constants', 'groups'}
@@ -268,6 +272,20 @@ def load_config(pyproject='pyproject.toml'):
         fail('a page slug twice')
     if {'index', 'examples', 'coverage', 'profile'} & set(slugs):
         fail('`index`, `examples`, `coverage` and `profile` are taken (the home page, the example scripts, ...)')
+    if not isinstance(config.get('coverage_runs', True), bool):
+        fail('`coverage_runs` is `true` or `false`')
+    if 'session_prompt' in config and not (
+        isinstance(config['session_prompt'], str)
+        and config['session_prompt'].strip()
+        and config['session_prompt'] != '$ '
+    ):
+        fail('`session_prompt` is a non-blank string other than `$ ` (which a `sh` block has already)')
+    scripts = config.get('page_scripts', [])
+    if not isinstance(scripts, list) or not all(isinstance(x, str) for x in scripts):
+        fail('`page_scripts` is a list of file paths')
+    names = [pathlib.PurePosixPath(x).name for x in scripts]
+    if len(set(names)) != len(names) or {'app.js', 'style.css', 'docs.wasm'} & set(names):
+        fail(f'`page_scripts`: a file name twice, or one the site has (`app.js`, ...): {scripts}')
     statics = config.get('static', ())
     for static in statics:
         if set(static) != STATIC_KEYS:
@@ -416,6 +434,9 @@ class Project:
         self.favicon = 'favicon' + pathlib.Path(self.config['favicon']).suffix if 'favicon' in self.config else ''
         if self.favicon and not (self.root / self.config['favicon']).is_file():
             fail(f'`favicon` not found: {self.config["favicon"]}')
+        for script in self.config.get('page_scripts', ()):
+            if not (self.root / script).is_file():
+                fail(f'`page_scripts` not found: {script}')
         hooks = self.load_hooks()
         self.fixtures = getattr(hooks, 'FIXTURES', {})
         self.skip = getattr(hooks, 'SKIP', {})
@@ -1108,21 +1129,23 @@ class Site:
                 lines.append(f'<span class="out">{html.escape(line)}</span>')
         return code_box('\n'.join(lines), 'code session')
 
-    def shell(self, code):
+    def shell(self, code, prompt='$ ', notes=False):
         '''A shell block as HTML: `fn` a command, `kw` a keyword, `arg` an option or a `<placeholder>`, `str` a
         string, `bi` a variable, `op` a pipe / `&&` / `;` / redirection, `com` a comment. When a line starts with a
-        `$ ` prompt (a `console` session), the prompt is `pr` and the other lines are output.
+        `prompt` (a `console` session), the prompt is `pr` and the other lines are output (`notes`: a line
+        starting with `#` is a comment, `com`).
         '''
-        session = any(line.startswith('$ ') for line in code.splitlines())
+        session = any(line.startswith(prompt) for line in code.splitlines())
         lines = []
         for line in code.splitlines():
-            if session and not line.startswith('$ '):
-                lines.append(f'<span class="out">{html.escape(line)}</span>' if line else '')
+            if session and not line.startswith(prompt):
+                cls = 'com' if notes and line.startswith('#') else 'out'
+                lines.append(f'<span class="{cls}">{html.escape(line)}</span>' if line else '')
                 continue
             out, pos, command = [], 0, True
             if session:
-                out.append('<span class="pr">$ </span>')
-                pos = 2
+                out.append(f'<span class="pr">{html.escape(prompt)}</span>')
+                pos = len(prompt)
             for m in SH_TOKEN.finditer(line, pos):
                 out.append(html.escape(line[pos : m.start()]))
                 kind, text = m.lastgroup, m.group(0)
@@ -1170,6 +1193,9 @@ class Site:
         lang = lang.lower()
         if lang == 'pycon' or (not lang and code.startswith('>>> ')):
             return self.session(code)
+        prompt = self.project.config.get('session_prompt')
+        if prompt and lang in ('', 'text') and any(line.startswith(prompt) for line in code.splitlines()):
+            return code_box(self.shell(code, prompt, notes=True), 'code session')
         if lang in ('python', 'py', 'python3'):
             body = self.highlight(code)
         elif lang in ('sh', 'bash', 'shell', 'console'):
@@ -1618,6 +1644,10 @@ class Site:
                 f' data-repo="{html.escape(project.repo_name)}">{ICON_GITHUB}<span class="repo-in">'
                 f'<span class="repo-name">{label}</span><span class="facts" hidden>{facts}</span></span></a>'
             )
+        extra_scripts = ''.join(
+            f'\n<script src="{html.escape(pathlib.PurePosixPath(x).name)}" defer></script>'
+            for x in project.config.get('page_scripts', ())
+        )
         page = f'''<!doctype html>
 <html lang="en">
 <head>
@@ -1651,7 +1681,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 {f'<div class="toc"><div class="toc-h">On this page</div>{toc_html}</div>' if toc_html else ''}
 </nav>
 </div>
-<script src="app.js"></script>
+<script src="app.js"></script>{extra_scripts}
 </body>
 </html>
 '''
@@ -1803,7 +1833,9 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 
     def runs_note(self, path):
         '''`<small class="runs">` with each interpreter's lines run of `path` when they differ (one ran a line another
-        did not), else ''.'''
+        did not), else '' (always '' with `coverage_runs = false`).'''
+        if not self.project.config.get('coverage_runs', True):
+            return ''
         runs = {
             name: run['files'][path]
             for name, run in self.coverage['interpreters'].items()
@@ -1996,6 +2028,10 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         if self.project.favicon:
             shutil.copyfile(self.project.root / self.project.config['favicon'], out / self.project.favicon)
             copied.append(self.project.favicon)
+        for script in self.project.config.get('page_scripts', ()):  # `page_scripts`: the site's root
+            name = pathlib.PurePosixPath(script).name
+            shutil.copyfile(self.project.root / script, out / name)
+            copied.append(name)
         build_wasm(self.project.root, out / 'docs.wasm')
         for folder, at, _title in self.statics:  # `static`: copied as they are
             for path in sorted(p for p in folder.rglob('*') if p.is_file()):

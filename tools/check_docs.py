@@ -471,6 +471,7 @@ def check_site(project, out):
     if 'data-target="example/forever.py"' in examples or 'data-target="example/hi.py"' not in examples:
         fail('examples.html: `scripts_skip` not applied')
     check_coverage_page(project, out)
+    check_site_settings(project, site, out)
     check_profile_page(project, out)
     check_old_files(out)
     check_js_binding()
@@ -646,6 +647,60 @@ def check_old_files(out):
         same('forget_old_files', left, [setu_docs.MANIFEST, 'a.html', 'mine.txt', 'source', 'source/keep',
                                         'source/keep/y.zig'])  # fmt: skip
         same('forget_old_files: the record', (site / setu_docs.MANIFEST).read_text(), 'a.html\nsource/keep/y.zig\n')
+
+
+def check_site_settings(project, site, out):
+    '''`coverage_runs`, `session_prompt` and `page_scripts`: each changes only what it names, and is checked.'''
+    config = project.config
+    block = 'sh> zig build\n# note\nBuilt <x>\n'
+    want = (
+        '<span class="pr">sh&gt; </span><span class="fn">zig</span> build\n<span class="com"># note</span>\n'
+        '<span class="out">Built &lt;x&gt;</span>'
+    )
+    config.update(coverage_runs=False, session_prompt='sh> ', page_scripts=['docs/icon.svg'])
+    try:
+        site.write(out)
+        if 'class="runs"' in (out / 'coverage.html').read_text():
+            fail('coverage_runs = false: coverage.html still has the per-interpreter note')
+        for lang in ('', 'text'):
+            same(
+                f'session_prompt: a `{lang}` block',
+                site.code_block(block, lang),
+                setu_docs.code_box(want, 'code session'),
+            )
+        if 'class="pr"' in site.code_block('sh>x\n', 'python') or 'class="pr"' in site.code_block('plain\n', ''):
+            fail('session_prompt: a block of another language, or without the prompt, is a session')
+        if not re.search(r'<script src="app.js"></script>\s*<script src="icon.svg" defer></script>\s*</body>',
+                         (out / 'index.html').read_text()):  # fmt: skip
+            fail('page_scripts: not loaded after app.js with `defer`')
+        if (out / 'icon.svg').read_bytes() != (project.root / 'docs/icon.svg').read_bytes():
+            fail('page_scripts: not copied to the site root')
+    finally:
+        for key in ('coverage_runs', 'session_prompt', 'page_scripts'):
+            del config[key]
+    site.write(out)
+    if 'class="runs"' not in (out / 'coverage.html').read_text() or (out / 'index.html').read_text().count('defer'):
+        fail('coverage_runs / page_scripts: on / empty by default')
+    base = (project.root / 'pyproject.toml').read_text()
+    with tempfile.TemporaryDirectory() as tmp:
+        for line, why in (
+            ('coverage_runs = 1', '`coverage_runs`'),
+            ("session_prompt = '$ '", '`session_prompt`'),
+            ("session_prompt = ' '", '`session_prompt`'),
+            ("page_scripts = 'x.js'", '`page_scripts`'),
+            ("page_scripts = ['a/x.js', 'b/x.js']", '`page_scripts`'),
+            ("page_scripts = ['app.js']", '`page_scripts`'),
+        ):
+            (Path(tmp) / 'pyproject.toml').write_text(
+                base.replace('[tool.setu_docs]\n', f'[tool.setu_docs]\n{line}\n', 1)
+            )
+            try:
+                setu_docs.load_config(Path(tmp) / 'pyproject.toml')
+            except SystemExit as e:
+                if why not in str(e):
+                    fail(f'{line}: refused for another reason: {e}')
+            else:
+                fail(f'{line}: not refused')
 
 
 def check_coverage_page(project, out):
