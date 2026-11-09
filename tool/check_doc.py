@@ -778,7 +778,7 @@ def check_coverage_page(project, out):
         if not copy.is_file() or copy.read_bytes() != (project.root / real).read_bytes():
             fail(f'site: source/{path} is not a copy of its source')
     same('line_ranges', setu_doc.line_ranges([3, 4, 5, 9, 11, 12]), '3-5, 9, 11-12')
-    check_coverage_commit(project)
+    check_coverage_old_commit(project)
     same('slug', setu_doc.slug('Liburing + Setu'), 'liburing-setu')
     same('dependency_root', setu_doc.dependency_root(project.root, 'setu'), (project.root / '../..').resolve())
     same('dependency_root', setu_doc.dependency_root(project.root, 'nope'), None)
@@ -841,46 +841,17 @@ def check_coverage_history(project):
             project.config['coverage_history'] = snapshot
 
 
-def check_coverage_commit(project):
-    '''`coverage`'s `commit`: accepted; `check_coverage.py` records it only for a tree as committed.'''
+def check_coverage_old_commit(project):
+    '''`coverage`'s `commit`, which older `check_coverage.py` runs wrote (nothing reads it now): still accepted.'''
     snapshot = project.config['coverage']
     with tempfile.TemporaryDirectory() as tmp:
         data = json.loads((project.root / snapshot).read_text())
         (Path(tmp) / 'c.json').write_text(json.dumps({**data, 'commit': 'abc123'}))
         project.config['coverage'] = str(Path(tmp) / 'c.json')
         try:
-            same('coverage: a `commit` read', setu_doc.Site(project).coverage.get('commit'), 'abc123')
+            same('coverage: an older `commit` accepted', setu_doc.Site(project).coverage['total'], data['total'])
         finally:
             project.config['coverage'] = snapshot
-    sys.path.insert(0, str(SETU / 'tool'))
-    import check_coverage
-
-    with tempfile.TemporaryDirectory() as tmp:
-        cwd = os.getcwd()
-        os.chdir(tmp)
-        try:
-            same('clean_commit: not a git work tree', check_coverage.clean_commit(), None)
-            git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
-            subprocess.run(['git', 'init', '-q'], check=True)
-            Path('a.zig').write_text('a\n')
-            subprocess.run(['git', 'add', 'a.zig'], check=True)
-            subprocess.run([*git, 'commit', '-q', '-m', 'a'], check=True)
-            head = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
-            same('clean_commit: as committed', check_coverage.clean_commit(), head)
-            Path('b.zig').write_text('untracked\n')
-            same('clean_commit: an untracked file', check_coverage.clean_commit(), head)
-            Path('c.zig').write_text('c\n')
-            subprocess.run(['git', 'add', 'c.zig'], check=True)
-            subprocess.run([*git, 'commit', '-q', '-m', 'c'], check=True)
-            head = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
-            Path('c.zig').write_text('changed, not measured\n')
-            same('clean_commit: a change in a file not measured', check_coverage.clean_commit(['a.zig']), head)
-            same('clean_commit: a changed file', check_coverage.clean_commit(), None)
-            Path('a.zig').write_text('changed\n')
-            same('clean_commit: a measured file changed', check_coverage.clean_commit([str(Path('a.zig').resolve())]),
-                 None)  # fmt: skip
-        finally:
-            os.chdir(cwd)
 
 
 def check_profile_page(project, out):

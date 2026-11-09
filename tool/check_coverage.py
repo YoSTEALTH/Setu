@@ -46,8 +46,6 @@ package's file outside it or in its `zig-pkg/`, `setu/src/arg.zig`; `hits` of `p
      "files": {"src/arg.zig": {"covered": 94, "lines": 94, "crc32": 1234567890, "hits": {"318": [2, 2], ...}},
                ...}}
     `crc32` is the source's CRC-32 when it was measured: the docs site flags a file changed since.
-    `commit` (only when the measured files in the git work tree are as committed, so their lines are the commit's):
-    the docs site links missed lines to the repository at it.
     With `--exe`, `interpreters` holds the one run, named after the executable: {"test": {"exe": "<path>", ...}}.
 
 The `--badge` file (https://shields.io/badges/endpoint-badge; the percent rounded down, so 100% means every line)
@@ -421,7 +419,7 @@ def is_result(path):
     except (OSError, ValueError):
         return False
     keys = {'total', 'interpreters', 'files'}
-    return isinstance(data, dict) and keys <= data.keys() <= keys | {'commit'}
+    return isinstance(data, dict) and keys <= data.keys() <= keys | {'commit'}  # `commit`: older runs wrote it
 
 
 def is_badge(path):
@@ -511,28 +509,15 @@ def source_crc(path):
         return None
 
 
-def clean_commit(paths=()):
-    '''The current directory's git commit when the files `paths` (the measured sources; those outside the current
-    directory, a dependency's, are left out) are as committed, else None (changes, or not a git work tree): their
-    line numbers match that commit's. Other changes (`build.zig.zon`, docs) move no measured line.'''
-    inside = [p for p in (os.path.relpath(p) for p in paths) if not p.startswith('..')]
-    try:
-        git = ['git', 'status', '--porcelain', '--untracked-files=no', '--', *inside], ['git', 'rev-parse', 'HEAD']
-        changes, head = (subprocess.run(c, capture_output=True, text=True, check=True).stdout.strip() for c in git)
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return None if changes else head
-
-
 def result(runs, files, sources):
     '''The `--json` result of `runs` (`(label, origin, files)`, `origin` `{"python": ...}` or `{"exe": ...}`), their
-    merge `files` and the files' `sources` (shown path -> real path); `commit` when `clean_commit` gives one.'''
+    merge `files` and the files' `sources` (shown path -> real path).'''
 
     def summary(lines):
         covered, total = totals(lines)
         return {'covered': covered, 'lines': total}
 
-    out = {
+    return {
         'total': summary(files),
         'interpreters': {
             label: {
@@ -551,9 +536,6 @@ def result(runs, files, sources):
             for path, lines in sorted(files.items())
         },
     }
-    if commit := clean_commit(sources[path] for path in files):
-        out['commit'] = commit
-    return out
 
 
 def shown(path):

@@ -1006,7 +1006,7 @@ class Site:
         self.coverage = None  # `coverage`'s JSON, if there is one
         if 'coverage' in project.config and (path := project.root / project.config['coverage']).is_file():
             self.coverage = json.loads(path.read_text())
-            keys = {'total', 'interpreters', 'files'}
+            keys = {'total', 'interpreters', 'files'}  # and `commit`, which older runs wrote
             if not isinstance(self.coverage, dict) or not keys <= self.coverage.keys() <= keys | {'commit'}:
                 fail(f'`coverage`: {path} is not a result of `tool/check_coverage.py`')
             self.coverage_date = datetime.datetime.fromtimestamp(path.stat().st_mtime).strftime('%Y-%m-%d %H:%M')
