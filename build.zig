@@ -1,11 +1,11 @@
 //! zig build develop         build the test extension `setu_classes` (+ its stubs) into test/
 //! zig build test            type-check every declaration, run the comptime unit tests and the tests of
-//!                           tool/setu_docs_web.zig
-//! zig build docs-web        the docs site's Wasm module (tool/setu_docs_web.zig) into zig-out/web/docs.wasm
+//!                           tool/setu_doc_web.zig
+//! zig build doc-web        the docs site's Wasm module (tool/setu_doc_web.zig) into zig-out/web/doc.wasm
 //! zig build coverage        line coverage of the test extension under class_test.py (kcov; arguments
 //!                           after `--` go to pytest), then tool/check_api.py (every public runtime
 //!                           function of src/ compiled into it)
-//! zig build coverage-zig    line coverage of tool/setu_docs_web.zig's unit tests (kcov)
+//! zig build coverage-zig    line coverage of tool/setu_doc_web.zig's unit tests (kcov)
 //! zig build profile         instructions per call of tool/bench.py's cases, per line (callgrind; needs
 //!                           -Doptimize=fast -Dcpu=x86_64_v3; arguments after `--` go to check_profile.py)
 //! zig build check-symbols   the test extension's CPython symbols: exported by -Dpython, abi3t on 3.15+
@@ -22,8 +22,8 @@
 //! Other projects use it as a dependency: `b.dependency("setu", .{})`, then `.module("setu")`.
 //! Their `build.zig` can also `@import("setu")` for `addStubs` (the extension's `.pyi`, from its root
 //! file's `module`), `addSetuBuildSteps` (keeping their copy of `tool/setu_build.py`, the wheel build
-//! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tool/setu_docs.py`, the documentation
-//! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `doc/setu-guide.md`, the guide
+//! backend, the same as Setu's), `addSetuDocSteps` (the same for `tool/setu_doc.py`, the documentation
+//! site builder, plus its `doc-web` step), `addSetuGuideSteps` (the same for `doc/setu-guide.md`, the guide
 //! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
 //! `tool/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests),
 //! `addProfileSteps` (its `profile` step: callgrind over the project's cases, by `tool/check_profile.py`),
@@ -33,7 +33,7 @@
 
 const std = @import("std");
 
-/// Declares the `setu` module and the `develop`, `test` and `docs-web` steps (see the top of this file).
+/// Declares the `setu` module and the `develop`, `test` and `doc-web` steps (see the top of this file).
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     // `-Doptimize=...` (default Debug), so a dependent build can pass `.optimize` (`test/wheel/`).
@@ -102,12 +102,12 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
         .link_libc = true,
     }) });
-    const test_step = b.step("test", "Type-check every declaration, run the comptime and docs-web unit tests");
+    const test_step = b.step("test", "Type-check every declaration, run the comptime and doc-web unit tests");
     test_step.dependOn(&tests.step);
 
     // The docs site's Wasm module, for the fixture `test/doc/` (`tool/check_doc.py`), and its host tests.
-    const web_source = b.path("tool/setu_docs_web.zig");
-    docsWeb(b, web_source);
+    const web_source = b.path("tool/setu_doc_web.zig");
+    docWeb(b, web_source);
     const web_tests = b.addTest(.{
         .root_module = b.createModule(.{ .root_source_file = web_source, .target = b.graph.host }),
     });
@@ -132,25 +132,25 @@ pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
     addCopySteps(b, setu_dep, "tool/setu_build.py", "setu-build");
 }
 
-/// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tool/setu_docs.py`:
-/// the steps `setu-docs-check` and `setu-docs-sync`, and `docs-web`, which builds the site's Wasm module
-/// from the pinned Setu's `tool/setu_docs_web.zig` (`setu_docs.py` runs it; the Zig file is not copied).
+/// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tool/setu_doc.py`:
+/// the steps `setu-doc-check` and `setu-doc-sync`, and `doc-web`, which builds the site's Wasm module
+/// from the pinned Setu's `tool/setu_doc_web.zig` (`setu_doc.py` runs it; the Zig file is not copied).
 ///
 /// Example
-///     >>> @import("setu").addSetuDocsSteps(b, setu_dep);
-///     $ zig build setu-docs-sync     # tool/setu_docs.py = the pinned Setu's
-///     $ zig build setu-docs-check    # in tool/check.sh: `cmp` fails if they differ
-///     $ zig build docs-web           # zig-out/web/docs.wasm
-pub fn addSetuDocsSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    addCopySteps(b, setu_dep, "tool/setu_docs.py", "setu-docs");
-    docsWeb(b, setu_dep.path("tool/setu_docs_web.zig"));
+///     >>> @import("setu").addSetuDocSteps(b, setu_dep);
+///     $ zig build setu-doc-sync     # tool/setu_doc.py = the pinned Setu's
+///     $ zig build setu-doc-check    # in tool/check.sh: `cmp` fails if they differ
+///     $ zig build doc-web           # zig-out/web/doc.wasm
+pub fn addSetuDocSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
+    addCopySteps(b, setu_dep, "tool/setu_doc.py", "setu-doc");
+    docWeb(b, setu_dep.path("tool/setu_doc_web.zig"));
 }
 
-/// The `docs-web` step: `source` (`tool/setu_docs_web.zig`) as a wasm32 module with its `export fn`s,
-/// installed as `web/docs.wasm` (`zig-out/web/docs.wasm`, or under `--prefix`).
-fn docsWeb(b: *std.Build, source: std.Build.LazyPath) void {
+/// The `doc-web` step: `source` (`tool/setu_doc_web.zig`) as a wasm32 module with its `export fn`s,
+/// installed as `web/doc.wasm` (`zig-out/web/doc.wasm`, or under `--prefix`).
+fn docWeb(b: *std.Build, source: std.Build.LazyPath) void {
     const web = b.addExecutable(.{
-        .name = "docs",
+        .name = "doc",
         .root_module = b.createModule(.{
             .root_source_file = source,
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
@@ -160,8 +160,8 @@ fn docsWeb(b: *std.Build, source: std.Build.LazyPath) void {
     });
     web.entry = .disabled;
     web.rdynamic = true; // keep the `export fn`s
-    const step = b.step("docs-web", "Build the docs site's Wasm module into zig-out/web/docs.wasm");
-    step.dependOn(&b.addInstallFileWithDir(web.getEmittedBin(), .{ .custom = "web" }, "docs.wasm").step);
+    const step = b.step("doc-web", "Build the docs site's Wasm module into zig-out/web/doc.wasm");
+    step.dependOn(&b.addInstallFileWithDir(web.getEmittedBin(), .{ .custom = "web" }, "doc.wasm").step);
 }
 
 /// Like `addSetuBuildSteps`, for Setu's guide to writing an extension (`doc/setu-guide.md`, what a session

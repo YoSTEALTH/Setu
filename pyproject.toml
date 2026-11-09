@@ -11,10 +11,10 @@ select = ["E", "F", "W"]
 [tool.ruff.format]
 quote-style = "preserve"
 
-# Setu's docs site (`python3 tool/setu_docs.py`, after `zig build develop`; `serve` for Run): the README, the
+# Setu's docs site (`python3 tool/setu_doc.py`, after `zig build develop`; `serve` for Run): the README, the
 # guide, the test extension `setu_classes` as the API Setu generates, and Setu's coverage and profile. `name` is also
 # what a project's site calls Setu (its Coverage page, Setu as a dependency).
-[tool.setu_docs]
+[tool.setu_doc]
 name = 'Setu'
 version = 'build.zig.zon'  # Setu's version, not `setu_classes`' placeholder `0.0`
 module = 'setu_classes'
@@ -29,25 +29,25 @@ coverage = 'zig-out/coverage.json'  # `zig build coverage`
 coverage_history = 'doc/coverage-history.json'  # its `.history`, committed
 profile = 'zig-out/profile.json'  # `zig build profile -Doptimize=fast -Dcpu=x86_64_v3`
 
-[[tool.setu_docs.markdown]]
+[[tool.setu_doc.markdown]]
 file = 'doc/setu-guide.md'
 title = 'Writing an extension'
 section = 'Guide'
 split = true  # a page per chapter
 
-[[tool.setu_docs.pages]]
+[[tool.setu_doc.pages]]
 slug = 'functions'
 title = 'Functions'
 text = "`setu_classes`' module functions: every parameter type Setu converts, as Python sees it."
 sources = ['test/function.zig']
 
-[[tool.setu_docs.pages]]
+[[tool.setu_doc.pages]]
 slug = 'classes'
 title = 'Classes'
 text = 'A `setu.Class` per hook family: what Setu generates for each.'
 default = true
 
-[[tool.setu_docs.pages]]
+[[tool.setu_doc.pages]]
 slug = 'constants'
 title = 'Constants'
 text = 'Typed module constants.'

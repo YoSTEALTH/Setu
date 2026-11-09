@@ -1,28 +1,28 @@
 '''Documentation site for a Zig + Setu extension: static HTML built from the imported module's docstrings (the
 `///` docs Setu turns into them), Markdown pages of the project, and a runner for the `>>>` examples.
 
-Kept in Setu (`tool/setu_docs.py`) and copied unchanged into each project that uses Setu
-(`zig build setu-docs-sync` / `setu-docs-check`, see `addSetuDocsSteps` in Setu's `build.zig`). Project settings
+Kept in Setu (`tool/setu_doc.py`) and copied unchanged into each project that uses Setu
+(`zig build setu-doc-sync` / `setu-doc-check`, see `addSetuDocSteps` in Setu's `build.zig`). Project settings
 go in `pyproject.toml`, never in a copy. Python standard library only; the site's behaviour (search, Run, the ◐ menu,
-Copy, the repository facts, the source views) is Zig compiled to WebAssembly (Setu's `tool/setu_docs_web.zig`, built
-by the project's `zig build docs-web`), and `app.js` is a fixed loop that runs the module's commands. The HTML has
+Copy, the repository facts, the source views) is Zig compiled to WebAssembly (Setu's `tool/setu_doc_web.zig`, built
+by the project's `zig build doc-web`), and `app.js` is a fixed loop that runs the module's commands. The HTML has
 every element those need, hidden, and is the page as it is without the module: `file://` pages can not load
 `.wasm`, so served the site has search, Run and the rest; from disk it is the static HTML.
 
 Usage (after `zig build develop`, from the project root)
-    python3 tool/setu_docs.py                    # build the site into `out` (runs `zig build docs-web`)
-    python3 tool/setu_docs.py build --out DIR    # ... somewhere else
-    python3 tool/setu_docs.py serve              # serve it on http://127.0.0.1:8000, Run buttons enabled
-    python3 tool/setu_docs.py run read           # run the `read` example, print the session
-    python3 tool/setu_docs.py run read:2         # ... only its second `Example` block
-    python3 tool/setu_docs.py run --json File.read
-    python3 tool/setu_docs.py run example/hi.py  # run an example script
-    python3 tool/setu_docs.py check              # run every example, report mismatches
-    python3 tool/setu_docs.py --config other/pyproject.toml build
+    python3 tool/setu_doc.py                    # build the site into `out` (runs `zig build doc-web`)
+    python3 tool/setu_doc.py build --out DIR    # ... somewhere else
+    python3 tool/setu_doc.py serve              # serve it on http://127.0.0.1:8000, Run buttons enabled
+    python3 tool/setu_doc.py run read           # run the `read` example, print the session
+    python3 tool/setu_doc.py run read:2         # ... only its second `Example` block
+    python3 tool/setu_doc.py run --json File.read
+    python3 tool/setu_doc.py run example/hi.py  # run an example script
+    python3 tool/setu_doc.py check              # run every example, report mismatches
+    python3 tool/setu_doc.py --config other/pyproject.toml build
 
 The settings, in `pyproject.toml` (paths relative to it):
 
-    [tool.setu_docs]
+    [tool.setu_doc]
     module = 'pkg.pkg'              # the module documented (imported after `path`)
     path = ['src']                  # optional: put on `sys.path` (and `PYTHONPATH` of Run) first
     stub = 'src/pkg/pkg.pyi'        # optional: typed signatures, and `llms-full.txt`
@@ -50,7 +50,7 @@ The settings, in `pyproject.toml` (paths relative to it):
     listen = true                   # optional: a Listen bar (read the page aloud) on the home and Markdown pages
     profile = 'zig-out/profile.json'    # optional: a Profile page (`serve` only) from `zig build profile` (below)
 
-    [[tool.setu_docs.markdown]]     # Markdown pages, in nav order
+    [[tool.setu_doc.markdown]]     # Markdown pages, in nav order
     file = 'doc/install.md'
     title = 'Install'
     section = 'Guide'               # optional: a nav heading (consecutive pages with one share it)
@@ -58,7 +58,7 @@ The settings, in `pyproject.toml` (paths relative to it):
     split = true                    # optional: a page per `##` chapter (`<slug>-<title>`), listed under this one;
                                     # this page keeps the text before the first `##` and a list of the chapters
 
-    [[tool.setu_docs.pages]]        # API pages, in this order; a name goes on the first that claims it
+    [[tool.setu_doc.pages]]        # API pages, in this order; a name goes on the first that claims it
     slug = 'ring'
     title = 'Ring and setup'
     text = 'Create, configure and tear down a `Ring`.'
@@ -67,18 +67,18 @@ The settings, in `pyproject.toml` (paths relative to it):
     patterns = ['^io_uring_(queue_|setup)']         # `re.search` on function names
     sources = ['src/pkg/ring.zig']                  # the `pub` names (and `setu.Class(Name, ...)`) of files
 
-    [[tool.setu_docs.pages]]
+    [[tool.setu_doc.pages]]
     slug = 'types'
     title = 'Types'
     text = 'Everything else.'
     default = true                  # exactly one: the names no page claims
 
-    [[tool.setu_docs.static]]       # optional: a folder copied into the site as it is (Zig's autodoc output), a nav
+    [[tool.setu_doc.static]]       # optional: a folder copied into the site as it is (Zig's autodoc output), a nav
     dir = 'zig-out/docs'            # item under "API reference" linking to its `index.html`; built first
     at = 'api'                      # where in the site (`api/index.html`)
     title = 'Zig API'               # the nav item
 
-    [[tool.setu_docs.pages]]
+    [[tool.setu_doc.pages]]
     slug = 'constants'
     title = 'Constants'
     text = 'Grouped by prefix.'
@@ -92,7 +92,7 @@ A project with no Python module (a Zig one) leaves out `module` and gives `name`
 
 The footer also reads `[project]`: `urls.Homepage` (the name links to it; else to the repository below) and
 `requires-python` (`>=3.14` shows as `CPython 3.14+`); each is left out when missing. The header's top right links
-the repository: `repo = 'https://github.com/me/pkg'` in `[tool.setu_docs]`, else the first GitHub URL of
+the repository: `repo = 'https://github.com/me/pkg'` in `[tool.setu_doc]`, else the first GitHub URL of
 `urls.Repository`, `.Source`, `.Homepage`; a GitHub one shows `me/pkg` with its latest release, stars and forks
 (the page asks GitHub's API, once a session).
 
@@ -106,7 +106,7 @@ code), `--slf` (`self` / `cls` / a dunder), `--attr` (attributes), `--arg` (`nam
 these last five else the text's).
 
 Markdown: headings (with anchors), paragraphs, `-` / `1.` lists, `>` quotes, GFM tables, fenced code (python, pycon, sh
-and c highlighted, zig by `docs.wasm`, every block with a Copy button), inline code, links (`page.md` -> its page),
+and c highlighted, zig by `doc.wasm`, every block with a Copy button), inline code, links (`page.md` -> its page),
 images, `**bold**`, `*em*`, raw HTML blocks. An inline code span naming an export links to its entry. A line `@@path@@`
 is replaced by that file (from the project's root) as a fenced code block, the language from its suffix: a page shows a
 tested example script as it is, with no generated copy.
@@ -142,22 +142,22 @@ a row per file, lowest first; where the interpreters ran different lines of a fi
 dependency's (a file whose path does not
 start with a directory of the project, Setu's `setu/src/args.zig`): how much of it the project's tests run, the
 total with the project's code, each interpreter's run, its files. A dependency shows as the `name` in the
-`[tool.setu_docs]` of its own `pyproject.toml` (Setu's: `Setu`), else as its package name. A click on a file's row
-shows its source under it, Zig highlighted, covered lines green and missed red (`docs.wasm` renders it; static, on
+`[tool.setu_doc]` of its own `pyproject.toml` (Setu's: `Setu`), else as its package name. A click on a file's row
+shows its source under it, Zig highlighted, covered lines green and missed red (`doc.wasm` renders it; static, on
 any HTTP server, not from `file://`): the site copies each source to `source/<path>`, a dependency's found through
 the project's `build.zig.zon` (`.path`, else `zig-pkg/<.hash>`). A source whose CRC-32 is not the one measured
 (`crc32` in the JSON) is flagged `changed`. Without the file (no kcov in CI) the page is left out.
 
 Listen (`listen = true`): the home and Markdown pages get a bar (Listen / Pause, Stop, a voice, a speed) that reads
 the page aloud with the browser's own speech, sentence by sentence, the sentence and its block highlighted; code,
-navigation and the footer are skipped, a table row is read as `Label: text. Label: text`. All of it is in `docs.wasm`;
-the bar stays hidden without `docs.wasm` or speech voices. `session_prompt` and `page_scripts` are settings for
+navigation and the footer are skipped, a table row is read as `Label: text. Label: text`. All of it is in `doc.wasm`;
+the bar stays hidden without `doc.wasm` or speech voices. `session_prompt` and `page_scripts` are settings for
 projects whose pages need a prompt of their own or a script of their own.
 
 The Profile page (`profile`: the JSON of Setu's `tool/check_profile.py`) shows the instructions one call of each case
 costs (callgrind): a row per case, a bar per interpreter, its dark part the extension's own code. A click on a case
 shows, under it, the extension's files the call runs in, costliest first, each file's source Zig highlighted, every
-costly line with its instructions per call and shaded by them (`docs.wasm` renders it), scrolled to the costliest. It
+costly line with its instructions per call and shaded by them (`doc.wasm` renders it), scrolled to the costliest. It
 is a local tool: only `serve` has it, made per request from the file as it is (rerun `zig build profile`, reload),
 its sources served at `source/<path>`; its nav item shows only on a live page. `build` writes no Profile page, so a
 published site (CI) never needs the file.
@@ -167,7 +167,7 @@ Search finds the API's names and every Markdown heading (up to `###`, with the f
 The site also gets `llms.txt` (an index of the pages, for AI readers) and, with `stub`, `llms-full.txt` (every
 class, function and constant with its signature and docstring, one Markdown page); without a module, `llms-full.txt`
 is the home page and the Markdown pages, one after the other. A build records what it wrote
-in `.setu-docs-files` in the site's folder; the next one removes what it no longer writes (a page or source gone),
+in `.setu-doc-files` in the site's folder; the next one removes what it no longer writes (a page or source gone),
 so an old file is not served or deployed. Files it never wrote stay.
 
 Example
@@ -224,7 +224,7 @@ STATIC_AT = re.compile(r'[\w-]+(?:/[\w-]+)*')  # a folder of the site: `api`, `r
 
 
 def fail(msg):
-    raise SystemExit(f'setu_docs: {msg}')
+    raise SystemExit(f'setu_doc: {msg}')
 
 
 def zon_version(path):
@@ -245,21 +245,21 @@ def zon_version(path):
 
 
 def load_config(pyproject='pyproject.toml'):
-    '''`[tool.setu_docs]` of `pyproject`, checked.'''
+    '''`[tool.setu_doc]` of `pyproject`, checked.'''
     path = pathlib.Path(pyproject)
-    config = tomllib.loads(path.read_text()).get('tool', {}).get('setu_docs')
+    config = tomllib.loads(path.read_text()).get('tool', {}).get('setu_doc')
     if config is None:
-        fail(f'no [tool.setu_docs] in {path}')
+        fail(f'no [tool.setu_doc] in {path}')
     if unknown := set(config) - KEYS:
-        fail(f'[tool.setu_docs]: unknown key {sorted(unknown)}')
+        fail(f'[tool.setu_doc]: unknown key {sorted(unknown)}')
     if 'module' not in config:  # a module-less site (a Zig project's): the Markdown pages, no API half
         if 'name' not in config:
-            fail('[tool.setu_docs] needs `module`, or `name` for a site of Markdown pages only')
+            fail('[tool.setu_doc] needs `module`, or `name` for a site of Markdown pages only')
         if found := [k for k in NEEDS_MODULE if k in config]:
-            fail(f'[tool.setu_docs] without `module`: no {", ".join(f"`{k}`" for k in found)}')
+            fail(f'[tool.setu_doc] without `module`: no {", ".join(f"`{k}`" for k in found)}')
         config['pages'] = []
     elif 'pages' not in config:
-        fail('[tool.setu_docs] needs `pages`')
+        fail('[tool.setu_doc] needs `pages`')
     if 'favicon' in config and pathlib.Path(config['favicon']).suffix not in FAVICON_TYPES:
         fail(f'`favicon` is not one of {", ".join(FAVICON_TYPES)}: {config["favicon"]}')
     pages = config['pages']
@@ -292,7 +292,7 @@ def load_config(pyproject='pyproject.toml'):
     if not isinstance(scripts, list) or not all(isinstance(x, str) for x in scripts):
         fail('`page_scripts` is a list of file paths')
     names = [pathlib.PurePosixPath(x).name for x in scripts]
-    if len(set(names)) != len(names) or {'app.js', 'style.css', 'docs.wasm'} & set(names):
+    if len(set(names)) != len(names) or {'app.js', 'style.css', 'doc.wasm'} & set(names):
         fail(f'`page_scripts`: a file name twice, or one the site has (`app.js`, ...): {scripts}')
     statics = config.get('static', ())
     for static in statics:
@@ -732,7 +732,7 @@ def run_example(project, name, example=None):
     ns = {**vars(project.module), **project.namespace, '__name__': '__example__', '_keep': [], '_cleanup': [],
           '_name': name}  # fmt: skip
     fds, cwd = _open_fds(), os.getcwd()
-    work = tempfile.mkdtemp(prefix='setu-docs-')
+    work = tempfile.mkdtemp(prefix='setu-doc-')
     os.chdir(work)
 
     def timeout(signum, frame):
@@ -786,7 +786,7 @@ def _raised(got):
 
 def run_script(project, path, timeout=30):
     '''Run an example script in a new temporary directory; give `(returncode, output)`.'''
-    with tempfile.TemporaryDirectory(prefix='setu-docs-') as work:
+    with tempfile.TemporaryDirectory(prefix='setu-doc-') as work:
         try:
             p = subprocess.run(
                 [sys.executable, str(project.root / path)],
@@ -1690,7 +1690,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
   <div class="search"><input id="q" type="search" placeholder="Search needs a server" autocomplete="off" disabled>
   <div id="hits" hidden></div></div>
   <div class="tools">
-  <span id="live" class="live" title="{badge} `setu_docs.py serve`">static</span>
+  <span id="live" class="live" title="{badge} `setu_doc.py serve`">static</span>
   {THEME_MENU}{repo}
   <button class="menu" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">{ICON_MENU}</button>
   </div>
@@ -1698,7 +1698,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 <div class="wrap">
 <main>
 {body}
-<footer>Generated by <code>tool/setu_docs.py</code> from the {source} of {footer_name} {version}{python}.</footer>
+<footer>Generated by <code>tool/setu_doc.py</code> from the {source} of {footer_name} {version}{python}.</footer>
 </main>
 <nav class="side">
 <div class="pages">{self.nav(current)}</div>
@@ -1750,7 +1750,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         body = [
             (
                 f'<h1>Example scripts</h1><p class="lead">The scripts in <code>{folder}/</code>. With '
-                '<code>setu_docs.py serve</code> running, <b>Run</b> starts one in a temporary directory and shows '
+                '<code>setu_doc.py serve</code> running, <b>Run</b> starts one in a temporary directory and shows '
                 'its output.</p>'
             )
         ]
@@ -1875,7 +1875,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 
     def profile_page(self):
         '''A row per case: a bar per interpreter (the instructions per call, the extension's part dark); a click on
-        the case shows its files' sources under it (`profileHtml` in `docs.wasm`), each line with its cost, as on
+        the case shows its files' sources under it (`profileHtml` in `doc.wasm`), each line with its cost, as on
         CPython `names[0]`: under the case's row a hidden row with a heading and an empty `<pre>` per file, the
         `<pre>` with what the view needs (`data-src`, `data-lines`). Only `serve` writes it (`self.sources`: the
         files it serves at `source/<path>`); without the file, a page that says how to make it.'''
@@ -2056,7 +2056,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             files['llms-full.txt'] = llms_markdown(self.project)
         for name, text in files.items():
             (out / name).write_text(pretty_html(text) if name.endswith('.html') else text)
-        copied = ['docs.wasm']
+        copied = ['doc.wasm']
         if self.project.favicon:
             shutil.copyfile(self.project.root / self.project.config['favicon'], out / self.project.favicon)
             copied.append(self.project.favicon)
@@ -2064,7 +2064,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
             name = pathlib.PurePosixPath(script).name
             shutil.copyfile(self.project.root / script, out / name)
             copied.append(name)
-        build_wasm(self.project.root, out / 'docs.wasm')
+        build_wasm(self.project.root, out / 'doc.wasm')
         for folder, at, _title in self.statics:  # `static`: copied as they are
             for path in sorted(p for p in folder.rglob('*') if p.is_file()):
                 name = f'{at}/{path.relative_to(folder).as_posix()}'
@@ -2082,7 +2082,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
         return written
 
 
-MANIFEST = '.setu-docs-files'  # in the site's folder: the files the last build wrote, one per line
+MANIFEST = '.setu-doc-files'  # in the site's folder: the files the last build wrote, one per line
 
 
 def forget_old_files(out, written):
@@ -2297,13 +2297,13 @@ def dependency_root(root, name):
 
 
 def display_name(root, name):
-    '''A dependency's name as shown: `name` in the `[tool.setu_docs]` of its own `pyproject.toml` (Setu's: `Setu`),
+    '''A dependency's name as shown: `name` in the `[tool.setu_doc]` of its own `pyproject.toml` (Setu's: `Setu`),
     else its package name `name`.'''
     if root is None:
         return name
     try:
         with open(root / 'pyproject.toml', 'rb') as f:
-            shown = tomllib.load(f).get('tool', {}).get('setu_docs', {}).get('name')
+            shown = tomllib.load(f).get('tool', {}).get('setu_doc', {}).get('name')
     except OSError:
         return name
     except tomllib.TOMLDecodeError:
@@ -2422,24 +2422,24 @@ def profile_bar(result, top):
 
 
 def build_wasm(root, dest):
-    '''Build the site's Wasm module (`zig build docs-web` in `root`, from Setu's `tool/setu_docs_web.zig`)
+    '''Build the site's Wasm module (`zig build doc-web` in `root`, from Setu's `tool/setu_doc_web.zig`)
     into `dest`.
 
     Note
         - `ZIG=/path/to/zig` picks the compiler (default: `zig` on PATH).
     '''
-    with tempfile.TemporaryDirectory(prefix='setu-docs-') as prefix:
-        zig = [os.environ.get('ZIG', 'zig'), 'build', 'docs-web', '--prefix', prefix]
+    with tempfile.TemporaryDirectory(prefix='setu-doc-') as prefix:
+        zig = [os.environ.get('ZIG', 'zig'), 'build', 'doc-web', '--prefix', prefix]
         subprocess.run(zig, cwd=root, check=True)
-        shutil.copyfile(pathlib.Path(prefix) / 'web' / 'docs.wasm', dest)
+        shutil.copyfile(pathlib.Path(prefix) / 'web' / 'doc.wasm', dest)
 
 
 def src_hints(text):
-    '''The viewer's hint `text` (HTML), hidden, and the one a page without `docs.wasm` (opened from disk) shows instead;
-    `docs.wasm` swaps them.'''
+    '''The viewer's hint `text` (HTML), hidden, and the one a page without `doc.wasm` (opened from disk) shows instead;
+    `doc.wasm` swaps them.'''
     return (
         f'<p class="src-hint" hidden>{text}</p>'
-        '<p class="src-hint">The sources need a server: python3 -m http.server in the site, or setu_docs.py serve.</p>'
+        '<p class="src-hint">The sources need a server: python3 -m http.server in the site, or setu_doc.py serve.</p>'
     )
 
 
@@ -2449,7 +2449,7 @@ LISTEN_BAR = (
     '<select class="voice" title="Voice" aria-label="Voice"></select>'
     '<select class="rate" title="Speed" aria-label="Speed"></select>'
     '<button class="listen mini" type="button" hidden>Pause</button></div>'
-)  # the bar `listen` writes, hidden: `docs.wasm` shows it once the browser has voices
+)  # the bar `listen` writes, hidden: `doc.wasm` shows it once the browser has voices
 
 
 def plain_text(markup):
@@ -2463,7 +2463,7 @@ def plain_text(markup):
 
 
 def code_box(body, cls='code', attrs=''):
-    '''A `<pre>` of the HTML `body` in its `.codebox` with its Copy button, hidden (`docs.wasm` shows it).'''
+    '''A `<pre>` of the HTML `body` in its `.codebox` with its Copy button, hidden (`doc.wasm` shows it).'''
     return (
         f'<div class="codebox"><pre class="{cls}"{attrs}>{body}</pre>'
         '<button class="copy" type="button" hidden>Copy</button></div>'
@@ -2504,7 +2504,7 @@ CSS = '''
 /* Tokyo Night colors (tokyonight.nvim): light = Tokyo Night Day, with Tokyo Night Light's darker text (Day's
    `#3760bf` is hard to read in long text; code keeps it, `--code-fg`); dark = Tokyo Night. A plain `:root`, so the
    dark blocks below (more specific) win in dark mode. Until a theme is picked in the ◐ menu (no `data-theme`) it is
-   Tokyo Day, or Nord Night (`setu_docs_web.zig`'s `default_theme`) when the system is dark. */
+   Tokyo Day, or Nord Night (`setu_doc_web.zig`'s `default_theme`) when the system is dark. */
 :root {
   --bg: #e1e2e7; --panel: #d0d5e3; --line: #c4c8da; --text: #343b58; --muted: #68709a;
   --accent: #2e7de9; --accent-soft: #b7c1e3; --code-bg: #e9e9ed; --ok: #587539; --bad: #f52a65; --warn: #8c6c3e;
@@ -2811,15 +2811,15 @@ THEME_MENU = (
 )
 
 JS = r'''
-// The binding for docs.wasm (Setu's tool/setu_docs_web.zig, `zig build docs-web`), where all of the site's
+// The binding for doc.wasm (Setu's tool/setu_doc_web.zig, `zig build doc-web`), where all of the site's
 // behaviour lives. This is a fixed loop: every call into the module returns a list of commands (its `Op`s, in
 // this order: `ops` below), run here in order; events, fetch answers and timers go back into the module. It knows
-// no element, selector or feature. The page is written for no docs.wasm (opened from disk): without it, nothing
+// no element, selector or feature. The page is written for no doc.wasm (opened from disk): without it, nothing
 // here runs and the page stays as written.
 (async function () {
   let w;
   try {
-    w = (await WebAssembly.instantiateStreaming(fetch('docs.wasm'))).instance.exports;
+    w = (await WebAssembly.instantiateStreaming(fetch('doc.wasm'))).instance.exports;
   } catch (e) {  // opened from disk (file://): browsers do not fetch .wasm there
     return;
   }
@@ -2838,7 +2838,7 @@ JS = r'''
     const flat = args.flatMap(a => {
       if (typeof a !== 'string') return [a];
       const bytes = enc.encode(a), ptr = w.alloc(bytes.length);
-      if (!ptr && bytes.length) throw new Error('docs.wasm: out of memory');
+      if (!ptr && bytes.length) throw new Error('doc.wasm: out of memory');
       if (bytes.length) new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes);
       strings.push([ptr, bytes.length]);
       return [ptr, bytes.length];
@@ -3148,7 +3148,7 @@ PYTHON = f'{sys.version_info.major}.{sys.version_info.minor}{"t" if FREE_THREADE
 
 def serve(project, port):
     '''Serve the site on http://127.0.0.1:`port`; Run buttons `POST /api/run`, which runs the example in a
-    child process (`setu_docs.py run --json <target>`). With `profile`, `/profile.html` is made per request (the
+    child process (`setu_doc.py run --json <target>`). With `profile`, `/profile.html` is made per request (the
     Profile page is live only) and its sources are served at `source/<path>`.
 
     Note
@@ -3305,7 +3305,7 @@ def check(project):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Build a Setu project\'s docs site, serve it, or run its examples.')
-    parser.add_argument('--config', default='pyproject.toml', help='the pyproject.toml with [tool.setu_docs]')
+    parser.add_argument('--config', default='pyproject.toml', help='the pyproject.toml with [tool.setu_doc]')
     sub = parser.add_subparsers(dest='cmd')
     build = sub.add_parser('build', help='write the HTML site (the default)')
     build.add_argument('--out', help='the site directory (default: `out` of the settings)')

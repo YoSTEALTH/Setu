@@ -1,6 +1,6 @@
 # Guide
 
-A Markdown page with each feature `setu_docs.py` renders, **bold**, *emphasis* and a link to
+A Markdown page with each feature `setu_doc.py` renders, **bold**, *emphasis* and a link to
 [the classes](classes.md#Vec) or [home](index.md).
 
 ## Tables
@@ -27,7 +27,7 @@ int main(void) { return 0; }
 ```
 
 ```zig
-pub const Vec = struct { x: i64, y: i64 }; // highlighted by docs.wasm
+pub const Vec = struct { x: i64, y: i64 }; // highlighted by doc.wasm
 ```
 
 An `@@path@@` line includes a file of the project as a code block (the tested script as it is):

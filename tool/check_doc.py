@@ -1,7 +1,7 @@
-'''Checks `tool/setu_docs.py` on the fixture `test/doc/` (Setu's test extension as a site): docstring and
+'''Checks `tool/setu_doc.py` on the fixture `test/doc/` (Setu's test extension as a site): docstring and
 Markdown rendering, the grouping, the `llms.txt` / `llms-full.txt` text, every example (with the fixture's hooks),
 the site it writes and the server. Standard library only; needs `zig build develop` (the extension and its stub)
-and `zig` (the site's `docs.wasm`).
+and `zig` (the site's `doc.wasm`).
 
 python3 tool/check_doc.py
 '''
@@ -29,7 +29,7 @@ FIXTURE = SETU / 'test' / 'doc'
 FIXTURE_MD = SETU / 'test' / 'doc_md'  # a module-less site
 BOX, COPY = '<div class="codebox">', '<button class="copy" type="button" hidden>Copy</button></div>'  # `code_box`
 sys.path.insert(0, str(SETU / 'tool'))
-import setu_docs  # noqa: E402
+import setu_doc  # noqa: E402
 
 
 def fail(msg):
@@ -43,19 +43,19 @@ def same(what, got, want):
 
 def check_text():
     '''The docstring helpers, as their own `Example`s say, and `convert` / `raw_docstring` for `llms-full.txt`.'''
-    same('sections', setu_docs.sections('Read it.\n\nType\n    return: int\n'), {'': 'Read it.', 'Type': 'return: int'})
+    same('sections', setu_doc.sections('Read it.\n\nType\n    return: int\n'), {'': 'Read it.', 'Type': 'return: int'})
     same(
         'parts',
-        setu_docs.parts('Read it.\n\nExample #1\n    >>> 1\n    1\nExample #2\n    >>> 2\n    2\n'),
+        setu_doc.parts('Read it.\n\nExample #1\n    >>> 1\n    1\nExample #2\n    >>> 2\n    2\n'),
         [('', 'Read it.'), ('Example #1', '>>> 1\n1'), ('Example #2', '>>> 2\n2')],
     )
-    same('example_blocks', setu_docs.example_blocks('A.\n\nExample\n    >>> 1\nExample\nExample\n    >>> 2'),
+    same('example_blocks', setu_doc.example_blocks('A.\n\nExample\n    >>> 1\nExample\nExample\n    >>> 2'),
          ['>>> 1', '>>> 2'])  # fmt: skip
-    same('example_blocks: numbered', setu_docs.example_blocks('A.\n\nExample #1\n    >>> 1\nExample #2\n    >>> 2'),
+    same('example_blocks: numbered', setu_doc.example_blocks('A.\n\nExample #1\n    >>> 1\nExample #2\n    >>> 2'),
          ['>>> 1', '>>> 2'])  # fmt: skip
-    same('convert: numbered', setu_docs.convert('Example #1\n    >>> 1\nExample #2\n    >>> 2'),
+    same('convert: numbered', setu_doc.convert('Example #1\n    >>> 1\nExample #2\n    >>> 2'),
          '**Example #1**\n\n```pycon\n>>> 1\n```\n\n**Example #2**\n\n```pycon\n>>> 2\n```')  # fmt: skip
-    same('sections: a repeated header keeps the first', setu_docs.sections('Note\n    a\nNote\n    b'),
+    same('sections: a repeated header keeps the first', setu_doc.sections('Note\n    a\nNote\n    b'),
          {'': '', 'Note': 'a'})  # fmt: skip
     for text, want in (
         ('(see https://en.wikipedia.org/wiki/Io_(moon).)', '(see <a href="https://en.wikipedia.org/wiki/Io_(moon)">'
@@ -64,13 +64,13 @@ def check_text():
         ('https://x.org/?a=1&b=<2>', '<a href="https://x.org/?a=1&amp;b=">https://x.org/?a=1&amp;b=</a>&lt;2&gt;'),
         ('http://. or http://', 'http://. or http://'),
     ):  # fmt: skip
-        same(f'autolink {text!r}', setu_docs.autolink(text), want)
+        same(f'autolink {text!r}', setu_doc.autolink(text), want)
     same(
         'steps',
-        [(s.source, s.expected) for s in setu_docs.steps('>>> x = 1\n>>> x + 1\n2')],
+        [(s.source, s.expected) for s in setu_doc.steps('>>> x = 1\n>>> x + 1\n2')],
         [('x = 1', ''), ('x + 1', '2')],
     )
-    got = setu_docs.convert('Adds.\n\nExample\n    >>> add(1)\n    1\n\nNote\n    Careful.\n\n>>> bare()\n1')
+    got = setu_doc.convert('Adds.\n\nExample\n    >>> add(1)\n    1\n\nNote\n    Careful.\n\n>>> bare()\n1')
     same(
         'convert',
         got,
@@ -82,7 +82,7 @@ def check_text():
     )
     method = tree.body[1].body[0]
     for node, want in ((tree, 'M.\n\nNote\n    Careful.\n'), (method, 'F.\n\nNote\n    Careful.\n')):
-        same(f'raw_docstring({type(node).__name__})', setu_docs.raw_docstring(node), want)
+        same(f'raw_docstring({type(node).__name__})', setu_doc.raw_docstring(node), want)
 
 
 def check_markdown(site):
@@ -151,7 +151,7 @@ def check_markdown(site):
         '<strong>y</strong></td>'
         '</tr><tr><td></td><td style="text-align: right"></td></tr></tbody></table>',
     )
-    same('chart_number', [setu_docs.chart_number(c) for c in ('627,427', '**1.5k**', '48 ns', '-')],
+    same('chart_number', [setu_doc.chart_number(c) for c in ('627,427', '**1.5k**', '48 ns', '-')],
          [627427.0, 1500.0, 48.0, None])  # fmt: skip
     chart = render('<!-- chart -->\n| a | x | n |\n|-|-|-:|\n| p q | - | 4 |\n| r, s | - | **2k** |\n| p | - | 0 |')
     same('chart', chart, (
@@ -209,7 +209,7 @@ def check_api(project):
 
 def check_llms(project):
     '''`llms.txt` / `llms-full.txt` text from the fixture's stub.'''
-    full = setu_docs.llms_full(project.stub, 'setu_classes')
+    full = setu_doc.llms_full(project.stub, 'setu_classes')
     for text in (
         '# setu_classes\n',
         '\n## @disjoint_base class Vec\n',
@@ -225,7 +225,7 @@ def check_llms(project):
     ):
         if text not in full:
             fail(f'llms-full.txt lacks {text!r}')
-    index = setu_docs.llms_index(project.config)
+    index = setu_doc.llms_index(project.config)
     for text in ('# setu_classes\n', "> Setu's test extension", '- [Guide](guide.html)', '- [Classes](classes.html):',
                  'llms-full.txt'):  # fmt: skip
         if text not in index:
@@ -234,13 +234,13 @@ def check_llms(project):
 
 def check_examples(project):
     '''Every example matches, the hooks apply, a script runs and a skipped or unknown one is refused.'''
-    if setu_docs.check(project):
+    if setu_doc.check(project):
         fail('an example differs from its docs (above)')
-    status = {s.source: s.status for s in setu_docs.run_example(project, 'buffer_len')}
+    status = {s.source: s.status for s in setu_doc.run_example(project, 'buffer_len')}
     same('SKIP', status['buffer_len(None)'], 'skip')
-    same('NAMESPACE', setu_docs.run_example(project, 'x', ">>> helper\n'from NAMESPACE'")[0].status, 'ok')
-    same('FIXTURES', setu_docs.run_example(project, 'seq_sum', '>>> sum(numbers)\n6')[0].status, 'ok')
-    same('LOOSE', setu_docs.run_example(project, 'vec_self', '>>> v = Vec()\n>>> vec_self(v) is v\nno')[1].status,
+    same('NAMESPACE', setu_doc.run_example(project, 'x', ">>> helper\n'from NAMESPACE'")[0].status, 'ok')
+    same('FIXTURES', setu_doc.run_example(project, 'seq_sum', '>>> sum(numbers)\n6')[0].status, 'ok')
+    same('LOOSE', setu_doc.run_example(project, 'vec_self', '>>> v = Vec()\n>>> vec_self(v) is v\nno')[1].status,
          'loose')  # fmt: skip
     for example, want in (
         ('>>> ring.submit()\n>>> sqe = 1\n>>> if x:\n>>> sqe + Vec().x + len(helper)', ['ring']),
@@ -250,21 +250,21 @@ def check_examples(project):
     ):
         same(f'needs {example!r}', project.needs('buffer_len', example), want)
     same('needs with a fixture', project.needs('seq_sum', '>>> sum(numbers)\n6'), [])
-    blocks = setu_docs.run_target(project, 'vec_scale')
+    blocks = setu_doc.run_target(project, 'vec_scale')
     same('Example blocks', (blocks['ok'], [s['block'] for s in blocks['steps']]), (True, [1, 1, 1, 2, 2, 2]))
-    second = setu_docs.run_target(project, 'vec_scale:2')
+    second = setu_doc.run_target(project, 'vec_scale:2')
     same('the 2nd Example block', [s['source'] for s in second['steps']][0], 'w = Vec(1, -2)')
     project.blocks = lambda name: ['>>> v = 1', '>>> v\n1']  # a block does not see the one before
     try:
-        same('a new namespace per block', [s.status for s in setu_docs.run_example(project, 'x')], ['ok', 'fail'])
+        same('a new namespace per block', [s.status for s in setu_doc.run_example(project, 'x')], ['ok', 'fail'])
     finally:
         del project.blocks
-    result = setu_docs.run_target(project, 'example/hi.py')
+    result = setu_doc.run_target(project, 'example/hi.py')
     if not result['ok'] or 'hi from setu_classes' not in result['output']:
         fail(f'example/hi.py: {result}')
     for target in ('example/forever.py', '/etc/passwd.py', 'nothing', 'vec_scale:0', 'vec_scale:3', 'vec_scale:x'):
         try:
-            setu_docs.run_target(project, target)
+            setu_doc.run_target(project, target)
         except LookupError:
             continue
         fail(f'run_target({target!r}) ran')
@@ -275,7 +275,7 @@ def check_split(site, out, files):
     the first chapter and a list of them on the page; Previous / Next links; a link to a heading goes to its chapter.'''
     same(
         'chapters: a code block `##` line is no chapter, headings one level up',
-        setu_docs.chapters('# T\nHi.\n## 1. A\n```\n## x\n```\n### B\n## 2. C\n'),
+        setu_doc.chapters('# T\nHi.\n## 1. A\n```\n## x\n```\n### B\n## 2. C\n'),
         ('# T\nHi.', [('1. A', '# 1. A\n```\n## x\n```\n## B'), ('2. C', '# 2. C')]),
     )
     for name in ('tour.html', 'tour-first-steps.html', 'tour-more.html'):
@@ -303,35 +303,35 @@ def check_split(site, out, files):
         or 'href="tour.html"' not in more
     ):
         fail('split: a link to a heading of the file not to its chapter')
-    index = setu_docs.llms_index(site.project.config, site.chapters)
+    index = setu_doc.llms_index(site.project.config, site.chapters)
     if '- [Tour](tour.html)\n  - [1. First steps](tour-first-steps.html)\n' not in index:
         fail('llms.txt: the chapters not under their page')
 
 
 def check_site(project, out):
-    site = setu_docs.Site(project)
+    site = setu_doc.Site(project)
     files = site.write(out)
     pages = ('index', 'guide', 'functions', 'classes', 'types', 'constants', 'examples', 'coverage')
-    for name in (*(f'{p}.html' for p in pages), 'search.json', 'style.css', 'app.js', 'docs.wasm', 'llms.txt',
+    for name in (*(f'{p}.html' for p in pages), 'search.json', 'style.css', 'app.js', 'doc.wasm', 'llms.txt',
                  'llms-full.txt'):  # fmt: skip
         if name not in files:
             fail(f'site: no {name}')
-    if (out / 'docs.wasm').read_bytes()[:4] != b'\0asm':
-        fail('docs.wasm is not WebAssembly')
+    if (out / 'doc.wasm').read_bytes()[:4] != b'\0asm':
+        fail('doc.wasm is not WebAssembly')
     check_split(site, out, files)
     for name in files:
-        if name.endswith('.html') and setu_docs.pretty_html(text := (out / name).read_text()) != text:
+        if name.endswith('.html') and setu_doc.pretty_html(text := (out / name).read_text()) != text:
             fail(f'{name}: `pretty_html` changes its own output')
     same(
         'pretty_html: a line break in text, then a block',
-        setu_docs.pretty_html('<li>a\nb\n<ul><li>c</li></ul></li><p>d\xa0\n<b>e</b></p>'),
+        setu_doc.pretty_html('<li>a\nb\n<ul><li>c</li></ul></li><p>d\xa0\n<b>e</b></p>'),
         '<li>a\n  b\n  <ul>\n    <li>c</li>\n  </ul>\n</li>\n<p>d\xa0\n  <b>e</b></p>\n',
     )
     same(
         'pretty_html: a `<pre>` in `.ln` lines, only a line break between them (the first line break and a last one'
         ' dropped), unless empty;'
         ' `<textarea>` content on its own line',
-        setu_docs.pretty_html(
+        setu_doc.pretty_html(
             '<div><pre class="code">a\n\n b</pre><pre hidden></pre><pre>\nc\n</pre><textarea>t</textarea></div>'
         ),
         '<div>\n  <pre class="code">\n<span class="ln">a</span>\n<span class="ln"></span>\n<span class="ln"> b</span>'
@@ -340,8 +340,8 @@ def check_site(project, out):
     same(
         'pre_lines: a tag open at a line break is closed and opened again; `.ln` lines come back as they are',
         (
-            setu_docs.pre_lines('x = <span class="str">\'\'\'a\nb\'\'\'</span><br>\ny'),
-            setu_docs.pre_lines('\n  <span class="ln">a</span>\n  <span class="ln"> <b>b</b></span>\n'),
+            setu_doc.pre_lines('x = <span class="str">\'\'\'a\nb\'\'\'</span><br>\ny'),
+            setu_doc.pre_lines('\n  <span class="ln">a</span>\n  <span class="ln"> <b>b</b></span>\n'),
         ),
         (
             ['x = <span class="str">\'\'\'a</span>', '<span class="str">b\'\'\'</span><br>', 'y'],
@@ -351,7 +351,7 @@ def check_site(project, out):
     guide = (out / 'guide.html').read_text()
     if '<span class="ln">' not in guide:
         fail('guide.html: no `<pre>` in `.ln` lines')
-    # written for no `docs.wasm` (opened from disk): app.js turns these on, it builds no elements
+    # written for no `doc.wasm` (opened from disk): app.js turns these on, it builds no elements
     for text, why in (
         ('<input id="q" type="search" placeholder="Search needs a server" autocomplete="off" disabled>', 'search'),
         ('title="Themes need a server" aria-haspopup="menu" aria-expanded="false" disabled>', 'the ◐ button'),
@@ -360,8 +360,8 @@ def check_site(project, out):
             fail(f'guide.html: {why} not off as written ({text!r})')
     if not re.search(rf'<div class="codebox">\s*<pre class="code"[^>]*>.*?</pre>\s*{COPY[:-6]}\s*</div>', guide, re.S):
         fail('guide.html: no `<pre>` in a `.codebox` with a hidden Copy button')
-    if 'createElement' in setu_docs.JS:
-        fail('app.js: builds elements (setu_docs.py writes them, hidden)')
+    if 'createElement' in setu_doc.JS:
+        fail('app.js: builds elements (setu_doc.py writes them, hidden)')
     index = {e['n']: e for e in json.loads((out / 'search.json').read_text())}
     same(
         'search vec_norm2',
@@ -382,7 +382,7 @@ def check_site(project, out):
     if '&#x27;hi from&#x27;' not in guide or '@@example/hi.py@@' in guide:
         fail('guide.html: the `@@example/hi.py@@` line not replaced by the file')
     hi = (project.root / 'example/hi.py').read_text().rstrip()
-    included = setu_docs.include_files('a\n@@example/hi.py@@\nb', project.root)
+    included = setu_doc.include_files('a\n@@example/hi.py@@\nb', project.root)
     same('include_files', included, f'a\n```python\n{hi}\n```\nb')
     if 'data-target="vec_scale:2"' not in page or 'data-target="vec_scale"' in page:
         fail('functions.html: `vec_scale` without a Run per `Example` block')
@@ -425,9 +425,9 @@ def check_site(project, out):
     repo = '<a class="repo" href="https://github.com/YoSTEALTH/Setu"'
     if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
         fail('index.html: no repository link from the `[project]` homepage')
-    web = (SETU / 'tool/setu_docs_web.zig').read_text()
+    web = (SETU / 'tool/setu_doc_web.zig').read_text()
     if '"{s}/releases?per_page=10"' not in web or '/releases/latest' in web:
-        fail('docs.wasm: the latest release from `releases/latest` (a 404 in the console without releases)')
+        fail('doc.wasm: the latest release from `releases/latest` (a 404 in the console without releases)')
     external, target = r'<a\b[^>]*href="https?://[^>]*>', r'<a\b[^>]* target='
     if any(not re.match(target, a) for a in re.findall(external, home + guide + page)):
         fail('index.html / guide.html / functions.html: an external link that does not open a new tab')
@@ -448,27 +448,27 @@ def check_site(project, out):
     project.favicon = favicon
     if not icon or '>S</text></svg>' not in urllib.parse.unquote(html.unescape(icon[1])):
         fail('a site without `favicon`: no inline letter icon (else the browser asks for /favicon.ico, a 404)')
-    icons = [urllib.parse.unquote(setu_docs.letter_icon(n)) for n in ('_x', '9', '_')]
+    icons = [urllib.parse.unquote(setu_doc.letter_icon(n)) for n in ('_x', '9', '_')]
     letters = [re.search(r'>([^<]*)</text>', i)[1] for i in icons]
     same('letter_icon: the first letter or digit, upper case', letters, ['X', '9', '?'])
     # each palette's light and dark set, and the system's dark before a pick (Nord Night): each sets every color
-    blocks = re.findall(r':root[^{]*\{([^}]*--bg:[^}]*)\}', setu_docs.CSS)
+    blocks = re.findall(r':root[^{]*\{([^}]*--bg:[^}]*)\}', setu_doc.CSS)
     themes = [set(re.findall(r'(--[\w-]+):', b)) for b in blocks]
-    if len(themes) != 2 * len(setu_docs.THEMES) + 1 or any(t != themes[0] for t in themes):
+    if len(themes) != 2 * len(setu_doc.THEMES) + 1 or any(t != themes[0] for t in themes):
         fail(f'CSS: the theme blocks set different variables: {[sorted(t) for t in themes]}')
-    for key in setu_docs.THEME_NAMES:
-        sets = re.findall(rf':root\[data-palette="{key}"\][^{{]*\{{[^}}]*--bg:', setu_docs.CSS)
+    for key in setu_doc.THEME_NAMES:
+        sets = re.findall(rf':root\[data-palette="{key}"\][^{{]*\{{[^}}]*--bg:', setu_doc.CSS)
         if len(sets) != 2:
             fail(f'CSS: theme {key!r} has not a light and a dark set')
 
     def colors(selector):
-        found = re.search(rf'{re.escape(selector)} \{{([^}}]*)\}}', setu_docs.CSS)
+        found = re.search(rf'{re.escape(selector)} \{{([^}}]*)\}}', setu_doc.CSS)
         return found and found[1].split()
 
     if not colors(':root:not([data-theme])') or colors(':root:not([data-theme])') != colors(
         ':root[data-palette="nord"][data-theme="dark"]'
     ):
-        fail("CSS: the system's dark before a pick is not Nord Night (setu_docs_web.zig's `default_theme`)")
+        fail("CSS: the system's dark before a pick is not Nord Night (setu_doc_web.zig's `default_theme`)")
     index = (out / 'index.html').read_text()
     for text, why in (
         ('<button id="theme" class="theme" type="button" aria-label="Theme"', 'no ◐ button'),
@@ -495,20 +495,20 @@ def check_site(project, out):
 
 
 # What `app.js` must not use: each is logic (formatting, picking, parsing text, arithmetic), which belongs in
-# `docs.wasm` (tool/setu_docs_web.zig); `app.js` only binds it to the page.
+# `doc.wasm` (tool/setu_doc_web.zig); `app.js` only binds it to the page.
 JS_LOGIC = (
     '% .toFixed( .filter( .find( .sort( .reduce( RegExp .match( .replace( .test( .slice( .substring( '
     'parseInt parseFloat toLocaleString'
 ).split()
 
 
-# Every string `app.js` may have: it is a fixed loop over `docs.wasm`'s commands, so a selector, an element id or a
-# feature's text in it is feature code, which belongs in `docs.wasm`.
+# Every string `app.js` may have: it is a fixed loop over `doc.wasm`'s commands, so a selector, an element id or a
+# feature's text in it is feature code, which belongs in `doc.wasm`.
 JS_STRINGS = {
-    'docs.wasm',
+    'doc.wasm',
     '(prefers-color-scheme: dark)',
     'string',
-    'docs.wasm: out of memory',
+    'doc.wasm: out of memory',
     'POST',
     'Content-Type',
     'text/plain',
@@ -529,19 +529,19 @@ JS_STRINGS = {
 
 
 def check_js_binding():
-    '''`app.js` is only the loop that runs `docs.wasm`'s commands: none of `JS_LOGIC` in its code (comments aside),
-    no string but `JS_STRINGS`, and an entry in `ops` per `Op` of `tool/setu_docs_web.zig`, in its order.'''
-    code = re.sub(r'^\s*//.*$|\s//.*$', '', setu_docs.JS, flags=re.M)
+    '''`app.js` is only the loop that runs `doc.wasm`'s commands: none of `JS_LOGIC` in its code (comments aside),
+    no string but `JS_STRINGS`, and an entry in `ops` per `Op` of `tool/setu_doc_web.zig`, in its order.'''
+    code = re.sub(r'^\s*//.*$|\s//.*$', '', setu_doc.JS, flags=re.M)
     found = [x for x in JS_LOGIC if x in code]
     if found:
-        fail(f'app.js: logic belongs in docs.wasm (tool/setu_docs_web.zig), not app.js: {found}')
+        fail(f'app.js: logic belongs in doc.wasm (tool/setu_doc_web.zig), not app.js: {found}')
     strings = set(re.findall(r"'((?:[^'\\]|\\.)*)'", code)) - JS_STRINGS
     if strings:
-        fail(f'app.js: names an element or a feature (docs.wasm does): {sorted(strings)}')
-    web = (SETU / 'tool/setu_docs_web.zig').read_text()
+        fail(f'app.js: names an element or a feature (doc.wasm does): {sorted(strings)}')
+    web = (SETU / 'tool/setu_doc_web.zig').read_text()
     enum = re.search(r'pub const Op = enum\(u8\) \{(.*?)\n\};', web, re.S).group(1)
     ops = re.findall(r'^    (\w+),$', enum, re.M)
-    entries = re.findall(r'^      \(\) => .*?// (\w+)', setu_docs.JS, re.M)
+    entries = re.findall(r'^      \(\) => .*?// (\w+)', setu_doc.JS, re.M)
     same('app.js: an `ops` entry per `Op`, in order (each with its name in a comment)', entries, ops)
 
 
@@ -559,7 +559,7 @@ def elements(text):
     class Parser(html.parser.HTMLParser):
         def handle_starttag(self, tag, attrs):
             found.append(Element(tag, ((k, v or '') for k, v in attrs), stack[-1] if stack else None))
-            if tag not in setu_docs.VOID_TAGS:
+            if tag not in setu_doc.VOID_TAGS:
                 stack.append(found[-1])
 
         def handle_endtag(self, tag):
@@ -609,9 +609,9 @@ def select(found, selector):
 
 
 def check_selectors(out):
-    '''Every selector `docs.wasm` binds matches on the fixture's pages, and the groups that go together (a row, its
+    '''Every selector `doc.wasm` binds matches on the fixture's pages, and the groups that go together (a row, its
     view, its `<pre>`; a Run box's parts; a code block and its Copy button) are as many on each page.'''
-    web = (SETU / 'tool/setu_docs_web.zig').read_text()
+    web = (SETU / 'tool/setu_doc_web.zig').read_text()
     unquote = lambda text: text.replace('\\"', '"')  # noqa: E731
     top = re.findall(r'\.\{ el\.\w+, "([#.][^"]*)" \}', web)  # `bind`'s list in `begin`
     top += re.findall(r'bindAll\(el\.document, \.(\w+), "((?:[^"\\]|\\.)*)"', web)
@@ -619,23 +619,23 @@ def check_selectors(out):
              '.voice': 1, '.rate': 1, '.mini': 1, '.say-end': 1}  # fmt: skip  # the ones bound in an element
     names = ('index.html', 'guide.html', 'coverage.html', 'functions.html', 'examples.html')
     pages = {name: elements((out / name).read_text()) for name in names}
-    pages['profile.html'] = elements(setu_docs.Site(setu_docs.Project(FIXTURE / 'pyproject.toml')).profile_page())
+    pages['profile.html'] = elements(setu_doc.Site(setu_doc.Project(FIXTURE / 'pyproject.toml')).profile_page())
     counts = {}
     for entry in [*top, *inner]:
         group, selector = entry if isinstance(entry, tuple) else ('', entry)
         selector = unquote(selector)
         hits = {name: len(select(found, selector)) for name, found in pages.items()}
         if not any(hits.values()):
-            fail(f'docs.wasm binds {selector!r}: nothing matches on the fixture\'s pages')
+            fail(f'doc.wasm binds {selector!r}: nothing matches on the fixture\'s pages')
         counts[group] = hits
     for groups in (('cov_rows', 'cov_views', 'cov_pres'), ('prof_rows', 'prof_views'), ('code_pres', 'copies'),
                    ('run_boxes', 'run_buttons', 'run_statuses', 'run_results')):  # fmt: skip
         if len({tuple(counts[g].values()) for g in groups}) != 1:
-            fail(f'docs.wasm: {", ".join(groups)} not as many on each page: {[counts[g] for g in groups]}')
+            fail(f'doc.wasm: {", ".join(groups)} not as many on each page: {[counts[g] for g in groups]}')
 
 
 def check_app(out):
-    '''The site's `app.js` and `docs.wasm` in deno, against a recording stand-in for the browser
+    '''The site's `app.js` and `doc.wasm` in deno, against a recording stand-in for the browser
     (`test/doc/app_test.js`): what the page saw is `test/doc/app_test.txt`.'''
     deno = shutil.which('deno')
     if not deno:
@@ -652,24 +652,24 @@ def check_version():
     with tempfile.TemporaryDirectory() as tmp:
         zon = pathlib.Path(tmp) / 'build.zig.zon'
         zon.write_text('.{\n    // .version = "0.1",\n    .name = .x,\n    .version = "2026.10.28-2",\n}\n')
-        same('zon_version', setu_docs.zon_version(zon), '2026.10.28-2')
+        same('zon_version', setu_doc.zon_version(zon), '2026.10.28-2')
 
 
 def check_old_files(out):
     '''A file the last build wrote and this one does not is removed (and its empty folders); others stay.'''
-    if 'coverage.html' not in (out / setu_docs.MANIFEST).read_text().splitlines():
-        fail(f'site: {setu_docs.MANIFEST} does not list the files written')
+    if 'coverage.html' not in (out / setu_doc.MANIFEST).read_text().splitlines():
+        fail(f'site: {setu_doc.MANIFEST} does not list the files written')
     with tempfile.TemporaryDirectory() as tmp:
         site = pathlib.Path(tmp)
         for name in ('a.html', 'gone.html', 'source/old/x.zig', 'mine.txt', 'source/keep/y.zig'):
             (site / name).parent.mkdir(parents=True, exist_ok=True)
             (site / name).write_text('x')
-        (site / setu_docs.MANIFEST).write_text('a.html\ngone.html\nsource/old/x.zig\nsource/keep/y.zig\n../out\n')
-        setu_docs.forget_old_files(site, ['a.html', 'source/keep/y.zig'])
+        (site / setu_doc.MANIFEST).write_text('a.html\ngone.html\nsource/old/x.zig\nsource/keep/y.zig\n../out\n')
+        setu_doc.forget_old_files(site, ['a.html', 'source/keep/y.zig'])
         left = sorted(str(p.relative_to(site)) for p in site.rglob('*'))
-        same('forget_old_files', left, [setu_docs.MANIFEST, 'a.html', 'mine.txt', 'source', 'source/keep',
+        same('forget_old_files', left, [setu_doc.MANIFEST, 'a.html', 'mine.txt', 'source', 'source/keep',
                                         'source/keep/y.zig'])  # fmt: skip
-        same('forget_old_files: the record', (site / setu_docs.MANIFEST).read_text(), 'a.html\nsource/keep/y.zig\n')
+        same('forget_old_files: the record', (site / setu_doc.MANIFEST).read_text(), 'a.html\nsource/keep/y.zig\n')
 
 
 def check_site_settings(project, site, out):
@@ -689,7 +689,7 @@ def check_site_settings(project, site, out):
             same(
                 f'session_prompt: a `{lang}` block',
                 site.code_block(block, lang),
-                setu_docs.code_box(want, 'code session'),
+                setu_doc.code_box(want, 'code session'),
             )
         if 'class="pr"' in site.code_block('sh>x\n', 'python') or 'class="pr"' in site.code_block('plain\n', ''):
             fail('session_prompt: a block of another language, or without the prompt, is a session')
@@ -715,10 +715,10 @@ def check_site_settings(project, site, out):
             ("page_scripts = ['app.js']", '`page_scripts`'),
         ):
             (Path(tmp) / 'pyproject.toml').write_text(
-                base.replace('[tool.setu_docs]\n', f'[tool.setu_docs]\n{line}\n', 1)
+                base.replace('[tool.setu_doc]\n', f'[tool.setu_doc]\n{line}\n', 1)
             )
             try:
-                setu_docs.load_config(Path(tmp) / 'pyproject.toml')
+                setu_doc.load_config(Path(tmp) / 'pyproject.toml')
             except SystemExit as e:
                 if why not in str(e):
                     fail(f'{line}: refused for another reason: {e}')
@@ -744,7 +744,7 @@ def check_coverage_page(project, out):
             'no note where the interpreters differ',
         ),
         ('<p class="src-hint" hidden>Click a file', 'no hint for the viewer, hidden'),
-        ('<p class="src-hint">The sources need a server', 'not the hint without `docs.wasm` as the default'),
+        ('<p class="src-hint">The sources need a server', 'not the hint without `doc.wasm` as the default'),
         (
             '<tr class="src-row" data-src="source/example/vec.zig" data-hit="1-3, 5-10" data-miss="4" title=',
             'the own file: not a viewer row (its source found, not changed)',
@@ -776,15 +776,15 @@ def check_coverage_page(project, out):
         copy = out / 'source' / path
         if not copy.is_file() or copy.read_bytes() != (project.root / real).read_bytes():
             fail(f'site: source/{path} is not a copy of its source')
-    same('line_ranges', setu_docs.line_ranges([3, 4, 5, 9, 11, 12]), '3-5, 9, 11-12')
+    same('line_ranges', setu_doc.line_ranges([3, 4, 5, 9, 11, 12]), '3-5, 9, 11-12')
     check_coverage_commit(project)
-    same('slug', setu_docs.slug('Liburing + Setu'), 'liburing-setu')
-    same('dependency_root', setu_docs.dependency_root(project.root, 'setu'), (project.root / '../..').resolve())
-    same('dependency_root', setu_docs.dependency_root(project.root, 'nope'), None)
-    same('display_name', setu_docs.display_name(project.root, 'x'), 'x')  # no `name` in its [tool.setu_docs]
+    same('slug', setu_doc.slug('Liburing + Setu'), 'liburing-setu')
+    same('dependency_root', setu_doc.dependency_root(project.root, 'setu'), (project.root / '../..').resolve())
+    same('dependency_root', setu_doc.dependency_root(project.root, 'nope'), None)
+    same('display_name', setu_doc.display_name(project.root, 'x'), 'x')  # no `name` in its [tool.setu_doc]
     project.config['coverage'], snapshot = 'missing.json', project.config['coverage']
     try:
-        site = setu_docs.Site(project)
+        site = setu_doc.Site(project)
         if site.coverage or 'coverage.html' in site.nav('index'):
             fail('a missing `coverage` file: still a Coverage page')
     finally:
@@ -810,26 +810,26 @@ def check_coverage_history(project):
         '\n]}\n',
     )
     same('history_text: no runs', check_coverage.history_text({'runs': []}), '{"runs": [\n]}\n')
-    chart = setu_docs.coverage_history_chart(one['runs'])
+    chart = setu_doc.coverage_history_chart(one['runs'])
     for text in ('aria-label="Coverage history, own lines: 1 version, 1.0"', '<circle cx="150.0" cy="120.0"',
                  '>90%</text>'):  # fmt: skip
         if text not in chart:
             fail(f'coverage_history_chart: one run: {text!r} missing')
-    same('coverage_history_chart: no runs', setu_docs.coverage_history_chart([]), '')
+    same('coverage_history_chart: no runs', setu_doc.coverage_history_chart([]), '')
     no_own = check_coverage.history(None, '1.0', 9, 10, (0, 0), [])['runs']  # every file a package's: its total
-    if '<title>1.0: 90.0% (9 / 10 own lines)</title>' not in setu_docs.coverage_history_chart(no_own):
+    if '<title>1.0: 90.0% (9 / 10 own lines)</title>' not in setu_doc.coverage_history_chart(no_own):
         fail('coverage_history_chart: `own` without lines not charted by the total')
     snapshot = project.config['coverage_history']
     with tempfile.TemporaryDirectory() as tmp:
         try:
             project.config['coverage_history'] = 'missing.json'
-            same('coverage_history: a missing file', setu_docs.Site(project).coverage_history, [])
+            same('coverage_history: a missing file', setu_doc.Site(project).coverage_history, [])
             bad = Path(tmp) / 'h.json'
             bad.write_text('{"schemaVersion": 1, "label": "coverage"}')  # a badge
             same('is_history: a badge', check_coverage.is_history(str(bad)), False)
             project.config['coverage_history'] = str(bad)
             try:
-                setu_docs.Site(project)
+                setu_doc.Site(project)
                 fail('coverage_history: a badge taken for a history')
             except SystemExit as e:
                 if 'is not a `--history` file' not in str(e.code):
@@ -848,7 +848,7 @@ def check_coverage_commit(project):
         (Path(tmp) / 'c.json').write_text(json.dumps({**data, 'commit': 'abc123'}))
         project.config['coverage'] = str(Path(tmp) / 'c.json')
         try:
-            same('coverage: a `commit` read', setu_docs.Site(project).coverage.get('commit'), 'abc123')
+            same('coverage: a `commit` read', setu_doc.Site(project).coverage.get('commit'), 'abc123')
         finally:
             project.config['coverage'] = snapshot
     sys.path.insert(0, str(SETU / 'tool'))
@@ -891,10 +891,10 @@ def check_profile_page(project, out):
     item = '<a href="profile.html" class="live-only">Profile</a>'
     if item not in (out / 'index.html').read_text():
         fail(f'index.html: no Profile nav item shown only live ({item!r})')
-    if 'body.can-run .side a.live-only { display: block; }' not in setu_docs.CSS:
+    if 'body.can-run .side a.live-only { display: block; }' not in setu_doc.CSS:
         fail('CSS: the live-only nav item not shown when live')
-    site = setu_docs.Site(project)
-    page = setu_docs.pretty_html(site.profile_page())
+    site = setu_doc.Site(project)
+    page = setu_doc.pretty_html(site.profile_page())
     for text, why in (
         ('<th>CPython 3.15</th>', 'no column per interpreter'),
         ('title="200.0 per call: 50.0 in the extension (25%), 150.0 in the interpreter"', 'not the bar\'s numbers'),
@@ -906,7 +906,7 @@ def check_profile_page(project, out):
             fail(f'profile.html: {why} ({text!r})')
     if not re.search(r'<div class="prof-wrap">\s*<table class="prof">', page):
         fail('profile.html: the table not in its scrolling holder (it would overflow into the menu)')
-    if 'tr.src-view pre.cov-src { width: 0; min-width: 100%;' not in setu_docs.CSS:
+    if 'tr.src-view pre.cov-src { width: 0; min-width: 100%;' not in setu_doc.CSS:
         fail('CSS: a source view widens its table (the columns go out of view)')
     rows = re.findall(r'<tr class="prof-row" [^>]*>.*?</tr>\s*<tr class="src-view" hidden>(.*?)</tr>', page, re.S)
     if len(rows) != 2:
@@ -933,14 +933,14 @@ def check_profile_page(project, out):
     check_profile_paths()
     project.config['profile'], snapshot = 'missing.json', project.config['profile']
     try:
-        site = setu_docs.Site(project)
+        site = setu_doc.Site(project)
         if site.profile or 'No profile yet: run <code>zig build profile</code>' not in site.profile_page():
             fail('a missing `profile` file: not a page that says how to make it')
     finally:
         project.config['profile'] = snapshot
     del project.config['profile']
     try:
-        if 'profile.html' in setu_docs.Site(project).nav('index'):
+        if 'profile.html' in setu_doc.Site(project).nav('index'):
             fail('no `profile` setting: still a Profile nav item')
     finally:
         project.config['profile'] = snapshot
@@ -982,7 +982,7 @@ def check_server(project):
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         port = s.getsockname()[1]
-    cmd = [sys.executable, str(SETU / 'tool' / 'setu_docs.py'), '--config', str(project.pyproject), 'serve',
+    cmd = [sys.executable, str(SETU / 'tool' / 'setu_doc.py'), '--config', str(project.pyproject), 'serve',
            '--port', str(port)]  # fmt: skip
     env = {**os.environ, 'PYTHONPATH': os.pathsep.join(project.path)}
     server = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
@@ -1025,23 +1025,23 @@ def check_server(project):
 def check_markdown_only(out):
     """A module-less site (`test/doc_md/`, a Zig project's): Markdown pages, their headings in `search.json`, the
     llms text from them, a `static` folder copied in and in the nav, no API half; the settings it may not have."""
-    project = setu_docs.Project(FIXTURE_MD / 'site.toml')
+    project = setu_doc.Project(FIXTURE_MD / 'site.toml')
     if (
         project.module is not None
         or project.exported()
         or project.examples()
-        or project.version != setu_docs.zon_version(SETU / 'build.zig.zon')
+        or project.version != setu_doc.zon_version(SETU / 'build.zig.zon')
     ):
         fail('module-less: a module, names or examples, or not the `version` file\'s')
-    files = setu_docs.Site(project).write(out)
+    files = setu_doc.Site(project).write(out)
     for name in ('index.html', 'book.html', 'book-rings.html', 'coverage.html', 'search.json', 'llms.txt',
                  'llms-full.txt', 'api/index.html', 'api/main.js'):  # fmt: skip
         if name not in files:
             fail(f'module-less site: no {name}')
     if (out / 'api' / 'main.js').read_bytes() != (FIXTURE_MD / 'api' / 'main.js').read_bytes():
         fail('module-less site: `static` not copied as it is')
-    if 'api/main.js' not in (out / setu_docs.MANIFEST).read_text().splitlines():
-        fail(f'module-less site: {setu_docs.MANIFEST} lacks the `static` files')
+    if 'api/main.js' not in (out / setu_doc.MANIFEST).read_text().splitlines():
+        fail(f'module-less site: {setu_doc.MANIFEST} lacks the `static` files')
     index = (out / 'index.html').read_text()
     for text in ('<div class="nav-h">API reference</div>', '<a href="api/index.html">Zig API</a>',
                  'from the Markdown of', 'title="Live: served by'):  # fmt: skip
@@ -1071,15 +1071,15 @@ def check_markdown_only(out):
     full = (out / 'llms-full.txt').read_text()
     if not full.startswith('# Kern\n\n> ') or '\n## Building\n' not in full or '\n### Claims\n' not in full:
         fail('module-less llms-full.txt: not the summary, then the home page and the Markdown pages')
-    same('first_sentence: none before a list', setu_docs.first_sentence(['', '- a. b']), '')
-    site = setu_docs.Site(project)
+    same('first_sentence: none before a list', setu_doc.first_sentence(['', '- a. b']), '')
+    site = setu_doc.Site(project)
     site.markdown_page({'file': 'doc/book.md'}, 'x', 'X', 'Hi. There.')
     same('a Markdown page without `#`: its title searched', site.md_entries, [{'n': 'X', 'h': 'x.html', 'p': 'X',
                                                                                 's': 'Hi.'}])  # fmt: skip
     settings = (FIXTURE_MD / 'site.toml').read_text()
     for change, error in (
         (("name = 'Kern'\n", ''), 'needs `module`, or `name`'),
-        (('[tool.setu_docs]\n', "[tool.setu_docs]\nstub = 'x.pyi'\n"), 'without `module`: no `stub`'),
+        (('[tool.setu_doc]\n', "[tool.setu_doc]\nstub = 'x.pyi'\n"), 'without `module`: no `stub`'),
         (("at = 'api'", "at = 'source'"), 'not a free folder name'),
         (("at = 'api'", "at = '../up'"), 'not a free folder name'),
         (("title = 'Zig API'\n", ''), 'exactly `dir`, `at` and `title`'),
@@ -1094,7 +1094,7 @@ def check_markdown_only(out):
             shutil.copytree(FIXTURE_MD / 'doc', Path(tmp) / 'doc')
             shutil.copy(FIXTURE_MD / 'index.md', Path(tmp))
             try:
-                setu_docs.Site(setu_docs.Project(changed))
+                setu_doc.Site(setu_doc.Project(changed))
             except SystemExit as e:
                 if error not in str(e):
                     fail(f'module-less settings {change}: {e}')
@@ -1102,12 +1102,12 @@ def check_markdown_only(out):
                 fail(f'module-less settings {change}: no error')
 
 
-if not (FIXTURE / setu_docs.load_config(FIXTURE / 'pyproject.toml')['stub']).exists():
+if not (FIXTURE / setu_doc.load_config(FIXTURE / 'pyproject.toml')['stub']).exists():
     fail('the stub is missing: run `zig build develop` first')
-project = setu_docs.Project(FIXTURE / 'pyproject.toml')
+project = setu_doc.Project(FIXTURE / 'pyproject.toml')
 check_text()
 check_api(project)
-check_markdown(setu_docs.Site(project))
+check_markdown(setu_doc.Site(project))
 check_llms(project)
 check_examples(project)
 with tempfile.TemporaryDirectory() as tmp:
@@ -1115,4 +1115,4 @@ with tempfile.TemporaryDirectory() as tmp:
 check_server(project)
 with tempfile.TemporaryDirectory() as tmp:
     check_markdown_only(Path(tmp))
-print('ok  setu_docs')
+print('ok  setu_doc')

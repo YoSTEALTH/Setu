@@ -5,7 +5,7 @@
 # and its generated stubs, which `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14, and 3.16t-dev / 3.16-dev when installed)
 # `check_abi.py`, `zig build check-symbols`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels
-# `tool/setu_build.py` builds (`check_wheel.py`) and the docs site `tool/setu_docs.py` builds, serves and runs
+# `tool/setu_build.py` builds (`check_wheel.py`) and the docs site `tool/setu_doc.py` builds, serves and runs
 # the examples of (`check_doc.py`), then
 # `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
 # Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=..., PY316_FT=... / PY316_GIL=...
@@ -61,7 +61,7 @@ step "ruff"
 step "ruff on the copied tools, as the consumers see them"
 # Liburing and Shakti lint their copies with ruff's default rules (more than Setu's E/F/W) and format for
 # Python 3.14 (`except A, B:`), so the copies must pass both without their own settings.
-copied=(tool/setu_build.py tool/setu_docs.py)
+copied=(tool/setu_build.py tool/setu_doc.py)
 "$PY_FT" -m ruff check --isolated --line-length 120 --target-version py314 "${copied[@]}"
 "$PY_FT" -m ruff format --isolated --check --line-length 120 --target-version py314 \
     --config 'format.quote-style = "preserve"' "${copied[@]}"

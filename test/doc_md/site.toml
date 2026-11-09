@@ -1,7 +1,7 @@
 # The module-less docs check's fixture (`tool/check_doc.py`): a site of Markdown pages only, as a Zig project with
-# no Python module builds it (`tool/setu_docs.py --config test/doc_md/site.toml`), into `site/`.
+# no Python module builds it (`tool/setu_doc.py --config test/doc_md/site.toml`), into `site/`.
 
-[tool.setu_docs]
+[tool.setu_doc]
 name = 'Kern'
 version = '../../build.zig.zon'
 summary = 'A Zig project without a Python module, as a documentation site.'
@@ -9,13 +9,13 @@ home = 'index.md'
 repo = 'https://github.com/YoSTEALTH/Setu'
 coverage = '../doc/coverage.json'  # the other fixture's snapshot: the Coverage page needs no module
 
-[[tool.setu_docs.markdown]]
+[[tool.setu_doc.markdown]]
 file = 'doc/book.md'
 title = 'Book'
 section = 'Guide'
 split = true
 
-[[tool.setu_docs.static]]  # Zig's autodoc output (`-femit-docs`), here a stand-in
+[[tool.setu_doc.static]]  # Zig's autodoc output (`-femit-docs`), here a stand-in
 dir = 'api'
 at = 'api'
 title = 'Zig API'

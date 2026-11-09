@@ -34,7 +34,7 @@ directory, `setu/src/args.zig` for a Zig package's file, `std/math.zig` for Zig'
                                                           "files": {"src/export.zig": {"total": 20.0,
                                                                                        "lines": {"88": 4.0, ...}}}}}}}},
      "sources": {"src/export.zig": "/home/me/proj/src/export.zig", ...}}
-    `sources` gives each shown path's file (absolute), for the docs site's Profile page (`tool/setu_docs.py`).
+    `sources` gives each shown path's file (absolute), for the docs site's Profile page (`tool/setu_doc.py`).
 
 Note
     - Needs valgrind (3.25 tested), which runs no AVX-512 (SIGILL, exit 132): build the extension for a CPU without

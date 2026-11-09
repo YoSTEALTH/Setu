@@ -54,7 +54,7 @@ jobs:
           "${{ steps.py314_ft.outputs.python-path }}" -m pip install -U pip pytest
           "${{ steps.py314_gil.outputs.python-path }}" -m pip install -U pip pytest
 
-      # `check_doc.py` runs the docs site's app.js with its docs.wasm in deno (test/doc/app_test.js)
+      # `check_doc.py` runs the docs site's app.js with its doc.wasm in deno (test/doc/app_test.js)
       - name: deno
         uses: denoland/setup-deno@v2
 
@@ -82,12 +82,12 @@ jobs:
       - name: coverage badge and history up to date
         run: git diff --exit-code doc/coverage-badge.json doc/coverage-history.json
 
-      # The docs site (`tool/setu_docs.py`), built here so its Coverage page is this run's `zig-out/coverage.json`;
+      # The docs site (`tool/setu_doc.py`), built here so its Coverage page is this run's `zig-out/coverage.json`;
       # published to GitHub Pages (Settings > Pages > Source: GitHub Actions; Settings > Environments > github-pages
       # allows `dev` and `main`) only from a push whose checks all passed.
       - name: Build the docs site
         if: github.event_name == 'push'
-        run: '"${{ steps.py_ft.outputs.python-path }}" tool/setu_docs.py'
+        run: '"${{ steps.py_ft.outputs.python-path }}" tool/setu_doc.py'
 
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name == 'push'

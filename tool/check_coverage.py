@@ -502,7 +502,7 @@ def history_text(data):
 
 def source_crc(path):
     '''The CRC-32 of the file `path` (None when it can not be read): the docs site's Coverage page flags a source
-    changed since the run (`tool/setu_docs.py`).'''
+    changed since the run (`tool/setu_doc.py`).'''
     try:
         with open(path, 'rb') as f:
             return zlib.crc32(f.read())

@@ -104,7 +104,7 @@ const pyi = @import("setu").addStubs(b, setu_dep, .{
 });
 b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "__init__.pyi").step); // next to __init__.so
 @import("setu").addSetuBuildSteps(b, setu_dep); // tool/setu_build.py: setu-build-sync / -check
-@import("setu").addSetuDocsSteps(b, setu_dep); // tool/setu_docs.py: setu-docs-sync / -check, docs-web
+@import("setu").addSetuDocSteps(b, setu_dep); // tool/setu_doc.py: setu-doc-sync / -check, doc-web
 @import("setu").addSetuGuideSteps(b, setu_dep); // doc/setu-guide.md: setu-guide-sync / -check
 @import("setu").addCoverageSteps(b, setu_dep, ext, .{ // zig build coverage: kcov over pytest (see 11.)
     .module_name = "liburing", // the name the tests import the extension by
@@ -578,11 +578,11 @@ os.PathLike[...]`, buffers -> `Buffer`, `py.Sequence(T)` -> `Sequence[T]`, slice
 (rename a Zig helper camelCase, or add the entry). The stub imports only the names it uses, is laid out as
 `ruff format` would, leaves out `__repr__` / `__str__` (`object` declares them), and passes `mypy --strict`,
 `stubtest` and ruff's flake8-pyi rules (`PYI`, apart from `PYI021`: the docstrings stay) in Setu's checks.
-`tool/setu_docs.py` turns the same docstrings into a static HTML site (and `llms.txt` / `llms-full.txt` for AI
-readers), and runs every `Example` to check that its output is what the doc says (`setu_docs.py check`). A
+`tool/setu_doc.py` turns the same docstrings into a static HTML site (and `llms.txt` / `llms-full.txt` for AI
+readers), and runs every `Example` to check that its output is what the doc says (`setu_doc.py check`). A
 repeated `Example` header starts another block (one per call form: `Sqe()`, then `Sqe(2)`), shown with its own
 Run and run on its own, in a new namespace. Setu numbers repeated headers in the docstring: `help()`, the stub and
-the site show `Example #1`, `Example #2`, ... (`setu_docs.py run Sqe:2` runs `Example #2`); write plain `Example`,
+the site show `Example #1`, `Example #2`, ... (`setu_doc.py run Sqe:2` runs `Example #2`); write plain `Example`,
 a hand-written `Example #<n>` is a compile error. A `Flags` section lists one name per line, optionally with a
 note (`IORING_TIMEOUT_ABS  # ts is a point in time`): the site links the name and shows the note as text. A bare
 `https://` URL anywhere in a docstring or the site's Markdown pages (outside backticks) becomes a link that opens in a
@@ -590,13 +590,13 @@ new tab; a trailing `.`, `,` or `)` stays text unless the `)` closes a `(` in th
 In the site's Markdown pages an `@@path@@` line includes a project file as a code block (an example script, as tested);
 the header's ◐ button opens the theme menu (Nord Day, Nord Night, Tokyo Day, Tokyo Night; until one is picked,
 Tokyo Day, or Nord Night when the system is dark); `coverage =
-'zig-out/coverage.json'` and `profile = 'zig-out/profile.json'` in `[tool.setu_docs]` add the Coverage and Profile pages
-(section 11); the Profile page is local only: `setu_docs.py serve` makes it from the file as it is, `build` (CI, the
+'zig-out/coverage.json'` and `profile = 'zig-out/profile.json'` in `[tool.setu_doc]` add the Coverage and Profile pages
+(section 11); the Profile page is local only: `setu_doc.py serve` makes it from the file as it is, `build` (CI, the
 published site) leaves it out, so nothing outside your machine needs `zig build profile`. The site builds from
-`setu_docs.py` alone: no wrapper script, no copied CSS (a `css` file only for the project's own colors). Search finds
+`setu_doc.py` alone: no wrapper script, no copied CSS (a `css` file only for the project's own colors). Search finds
 the API's names and every Markdown heading. A Zig project with no Python module gets the same site from its Markdown
-pages: leave out `module`, give `name`, and copy Zig's autodoc output in with `[[tool.setu_docs.static]]` (the keys
-are in `setu_docs.py`'s docstring).
+pages: leave out `module`, give `name`, and copy Zig's autodoc output in with `[[tool.setu_doc.static]]` (the keys
+are in `setu_doc.py`'s docstring).
 
 Ship the extension as its package's `__init__.so`, with the stub as `__init__.pyi` and a `py.typed` (PEP 561 marks
 packages only, so a bare top-level `liburing.so` gets no typing): `import liburing` loads the extension itself, a
@@ -711,11 +711,11 @@ What the message says: the cause.
     zig build check-symbols -Dpython=/opt/python/3.14/bin/python3   # CPython symbols, per interpreter
 
 A project using Setu runs its own `tool/check.sh`, which includes `zig build setu-build-check`,
-`setu-docs-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
+`setu-doc-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
 Setu it pins), and `zig build check-symbols -Dpython=<each interpreter>` (`addSymbolCheck`, Setu's
 `tool/check_symbols.py` on the extension as built: every CPython symbol it imports is exported by that interpreter
 and, on 3.15+, in the stable ABI for free-threading (abi3t); needs `nm`, and `cc` on 3.15+).
-After a Setu bump: `zig build setu-build-sync setu-docs-sync setu-guide-sync`.
+After a Setu bump: `zig build setu-build-sync setu-doc-sync setu-guide-sync`.
 
 Line coverage: `zig build coverage [-Dpython=...] [-- --missed --partial pytest args]` (`addCoverageSteps`; kcov 43)
 prints a per-file table, with `--missed` the lines that never ran, with `--partial` the yellow ones, and writes the
@@ -731,7 +731,7 @@ it is a README badge: the image `https://img.shields.io/endpoint?url=<URL>`, `<U
 (run with every `--python` first: the badge shows the merged total). `.history = "doc/coverage-history.json"` also
 keeps the totals per project version (`build.zig.zon`'s `.version`; a run sets its version's entry, one line each),
 with the project's own files' (no dependency's) beside them; committed, with `coverage_history =
-'doc/coverage-history.json'` in `[tool.setu_docs]` the Coverage page charts the own lines (the donut's figure) next to
+'doc/coverage-history.json'` in `[tool.setu_doc]` the Coverage page charts the own lines (the donut's figure) next to
 the project's donut, each point naming the total with dependencies too. In CI it needs kcov, packaged for Ubuntu
 25.04+: on GitHub's `ubuntu-26.04` runner the apt package `kcov`, then the step with every `--python`; Setu's
 `.github/workflows/ci.yml` also fails when the committed badge or history differs from the run's (`git diff
@@ -790,7 +790,7 @@ code costs 4-26 fewer instructions per call than those on every interpreter (202
 - `.cases` is a Python file with `CASES`, a list of `(label, statement)`, and `namespace(module)`, which returns
   the names the statements use; Setu's `tool/bench.py` is one, so `bench.py` times the cases `profile` counts.
 - A line `0` is code the compiler added (no source line).
-- `profile = 'zig-out/profile.json'` in `[tool.setu_docs]` adds a Profile page to the docs site: a row per case with
+- `profile = 'zig-out/profile.json'` in `[tool.setu_doc]` adds a Profile page to the docs site: a row per case with
   a bar per interpreter (the extension's part dark); a click on a case shows its files' sources, each costly line
   with its instructions per call, shaded by them.
 

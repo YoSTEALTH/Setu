@@ -1,21 +1,21 @@
-//! The docs site's behaviour, compiled to WebAssembly (`zig build docs-web` -> `docs.wasm` in the site): all of it.
-//! `app.js` (written by `tool/setu_docs.py`) is a fixed loop that knows no element or feature: each call into this
+//! The docs site's behaviour, compiled to WebAssembly (`zig build doc-web` -> `doc.wasm` in the site): all of it.
+//! `app.js` (written by `tool/setu_doc.py`) is a fixed loop that knows no element or feature: each call into this
 //! module (`onStart`, `onEvent`, `onFetched`, `onTimer`) returns a list of commands (`Op`: bind elements, set text /
 //! HTML / attributes, listen, fetch, store, ...), which `app.js` runs in order; events, answers and fetch results come
 //! back as calls. Here: API search, the Run buttons, the docs server check, the pages' Zig code blocks, the ◐ menu, the
 //! Copy buttons, the repository link's facts, and the Coverage and Profile source views (a file's source as HTML
-//! lines, Zig highlighted with the code blocks' classes; from Liburing's `source_web.zig`). `setu_docs.py` writes every
+//! lines, Zig highlighted with the code blocks' classes; from Liburing's `source_web.zig`). `setu_doc.py` writes every
 //! element a feature needs, hidden, and the page as it is without this module (opened from disk): this module only
 //! turns them on and fills them. The one script outside it is the `<head>` one that applies the saved theme before the
 //! first paint, before this module can load. Every HTML string this module sends is escaped here. Setu builds it for
-//! a project through `addSetuDocsSteps` (Setu's `build.zig`); nothing is copied.
+//! a project through `addSetuDocSteps` (Setu's `build.zig`); nothing is copied.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
 const gpa = if (builtin.target.cpu.arch.isWasm()) std.heap.wasm_allocator else std.heap.page_allocator;
 
-/// One search entry of `search.json` (`tool/setu_docs.py` writes it).
+/// One search entry of `search.json` (`tool/setu_doc.py` writes it).
 pub const Entry = struct {
     /// Name: `read`, `File.read`, `O_CREAT`.
     n: []const u8,
@@ -27,7 +27,7 @@ pub const Entry = struct {
     s: []const u8,
 };
 
-/// One `>>>` statement of a Run result (`tool/setu_docs.py run --json <name>`).
+/// One `>>>` statement of a Run result (`tool/setu_doc.py run --json <name>`).
 pub const Step = struct {
     source: []const u8 = "",
     expected: []const u8 = "",
@@ -436,7 +436,7 @@ pub fn highlight(list: *std.ArrayList(u8), a: std.mem.Allocator, line: []const u
 }
 
 /// Append a Zig code block of a page (lines split at `\n`, a `\r` before it dropped) highlighted, each line a
-/// `<span class="ln">` as `setu_docs.py` writes them (the CSS shows a `<pre>` of those line by line), a `\n`
+/// `<span class="ln">` as `setu_doc.py` writes them (the CSS shows a `<pre>` of those line by line), a `\n`
 /// between them; line breaks at the end dropped.
 ///
 /// Example
@@ -605,7 +605,7 @@ pub fn sourceHtml(
 /// as a number.
 pub const Cost = struct { n: usize, text: []const u8, value: f64 };
 
-/// The `line:cost` pairs of `costs` (`"88:9.0,106:17.0"`, as `tool/setu_docs.py` writes them) in `buf` (room
+/// The `line:cost` pairs of `costs` (`"88:9.0,106:17.0"`, as `tool/setu_doc.py` writes them) in `buf` (room
 /// for one more than the commas); parts that are not such a pair are skipped.
 ///
 /// Example
@@ -1079,7 +1079,7 @@ fn sentences(out: *std.ArrayList([2]usize), a: std.mem.Allocator, text: []const 
 
 /// What this module knows of the page, from `onStart` on; its strings and lists are in `page_arena`.
 const Page = struct {
-    /// Served by `setu_docs.py serve` (127.0.0.1 or localhost): Run may work.
+    /// Served by `setu_doc.py serve` (127.0.0.1 or localhost): Run may work.
     local: bool = false,
     dark: bool = false,
     palette: []const u8 = "",
@@ -1160,7 +1160,7 @@ fn setHidden(h: u32, hide: bool) !void {
     if (hide) try emit(.attr, .{ h, "hidden", "" }) else try emit(.unattr, .{ h, "hidden" });
 }
 
-/// The page is loaded and `docs.wasm` with it: turn on what the page has off (written for no `docs.wasm`), bind
+/// The page is loaded and `doc.wasm` with it: turn on what the page has off (written for no `doc.wasm`), bind
 /// the elements each feature needs and listen.
 fn begin(dark: bool, host: []const u8) !void {
     page.dark = dark;
@@ -2408,7 +2408,7 @@ test "onStart" {
     try expectCommands("unattr hints_on.0 \"hidden\"\n");
     send(257, 2, "");
     try expectCommands("attr hints_off.0 \"hidden\" \"\"\nattr hints_off.1 \"hidden\" \"\"\n");
-    // a published site: no ping (`setu_docs.py serve` listens on 127.0.0.1 only)
+    // a published site: no ping (`setu_doc.py serve` listens on 127.0.0.1 only)
     resetPage();
     onStart(true, "x.github.io", 11);
     try t.expect(std.mem.find(u8, commands.items, "/api/ping") == null);

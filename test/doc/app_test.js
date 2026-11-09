@@ -1,7 +1,7 @@
-// The site's `app.js` with the fixture's `docs.wasm`, in deno, against a recording stand-in for the browser, through
+// The site's `app.js` with the fixture's `doc.wasm`, in deno, against a recording stand-in for the browser, through
 // a fixed script of events: prints what the page saw, one line per call (`tool/check_doc.py` compares it with
-// `app_test.txt`). deno has no DOM: the stand-in answers only the selectors `docs.wasm` asks for, and it covers the
-// command format and the loop; what each feature does is tested in Zig (`tool/setu_docs_web.zig`).
+// `app_test.txt`). deno has no DOM: the stand-in answers only the selectors `doc.wasm` asks for, and it covers the
+// command format and the loop; what each feature does is tested in Zig (`tool/setu_doc_web.zig`).
 //     deno run --allow-read test/doc/app_test.js test/doc/site
 const site = Deno.args[0];
 const log = [];
@@ -133,7 +133,7 @@ Object.assign(globalThis, {
   Highlight: class {},
   setTimeout: (f, ms) => { say(`timer ${ms}`); timers.push(f); },
   fetch: async (url, init) => {
-    if (url !== 'docs.wasm') say(`fetch ${url}${init ? ` ${init.method} ${JSON.stringify(init.body)}` : ''}`);
+    if (url !== 'doc.wasm') say(`fetch ${url}${init ? ` ${init.method} ${JSON.stringify(init.body)}` : ''}`);
     if (url in answers) return new Response(answers[url]);
     try {
       const type = url.endsWith('.wasm') ? 'application/wasm' : 'text/plain';
