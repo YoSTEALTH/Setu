@@ -11,7 +11,7 @@ Steps
       `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_class.so` and its generated stubs, which
       `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails).
     - With each interpreter (3.15t, 3.15, 3.14t, 3.14, and 3.16t-dev / 3.16-dev when installed): `check_abi.py`,
-      `zig build check-symbols`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tool/setu_build.py`
+      `zig build check-symbol`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels `tool/setu_build.py`
       builds (`check_wheel.py`) and the docs site `tool/setu_doc.py` builds, serves and runs the examples of
       (`check_doc.py`).
     - `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs.
@@ -150,7 +150,7 @@ def main(argv):
     for py in pythons:
         step(py)
         run(py, 'tool/check_abi.py')
-        run(ZIG, 'build', 'check-symbols', f'-Dpython={py}')  # tool/check_symbol.py, as `addSymbolCheck` runs it
+        run(ZIG, 'build', 'check-symbol', f'-Dpython={py}')  # tool/check_symbol.py, as `addSymbolCheck` runs it
         run(py, '-m', 'pytest', *pytest_args)
         run(py, 'tool/check_wheel.py', '--all')  # glibc + musl, installed and imported here
         run(py, 'tool/check_wheel.py')  # `build_wheel` (PEP 517)

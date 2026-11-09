@@ -44,4 +44,4 @@ https://yostealth.github.io/Setu/.
 - [tool/check_profile.py](tool/check_profile.py): instructions per call of `bench.py`'s cases, per Zig line
   (callgrind), run by `zig build profile` (`addProfileSteps`); `--baseline` fails a case that grew
 - [tool/check_symbol.py](tool/check_symbol.py): the extension's CPython symbols, exported by an interpreter and
-  in abi3t on 3.15+, run by `zig build check-symbols -Dpython=...` (`addSymbolCheck`)
+  in abi3t on 3.15+, run by `zig build check-symbol -Dpython=...` (`addSymbolCheck`)

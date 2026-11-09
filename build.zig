@@ -8,12 +8,12 @@
 //! zig build coverage-zig    line coverage of tool/setu_doc_web.zig's unit tests (kcov)
 //! zig build profile         instructions per call of tool/bench.py's cases, per line (callgrind; needs
 //!                           -Doptimize=fast -Dcpu=x86_64_v3; arguments after `--` go to check_profile.py)
-//! zig build check-symbols   the test extension's CPython symbols: exported by -Dpython, abi3t on 3.15+
+//! zig build check-symbol    the test extension's CPython symbols: exported by -Dpython, abi3t on 3.15+
 //!                           (tool/check_symbol.py)
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
-//!   -Dpython=<path>         the interpreter `coverage` runs pytest with, `profile` the cases, `check-symbols`
+//!   -Dpython=<path>         the interpreter `coverage` runs pytest with, `profile` the cases, `check-symbol`
 //!                           checks against (default python3)
 //!
 //! One build serves CPython 3.14, 3.14t, 3.15, 3.15t and later: the extension is `<name>.so`
@@ -27,7 +27,7 @@
 //! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
 //! `tool/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests),
 //! `addProfileSteps` (its `profile` step: callgrind over the project's cases, by `tool/check_profile.py`),
-//! `addSymbolCheck` (its `check-symbols` step, by `tool/check_symbol.py`) and `ext_suffix`.
+//! `addSymbolCheck` (its `check-symbol` step, by `tool/check_symbol.py`) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_class` / `setu_class.pyi`
 //! (`test/wheel/` packages them with `tool/setu_build.py`, for `tool/check.py`).
 
@@ -435,7 +435,7 @@ pub const SymbolCheckOptions = struct {
     python: []const u8 = "python3",
 };
 
-/// The step `check-symbols`: Setu's `tool/check_symbol.py` on `ext` as built, with `options.python`. Every
+/// The step `check-symbol`: Setu's `tool/check_symbol.py` on `ext` as built, with `options.python`. Every
 /// CPython symbol the extension imports must be exported by that interpreter and, on 3.15+, be in the stable ABI
 /// for free-threading (abi3t), so the one binary keeps loading on every version.
 ///
@@ -446,9 +446,9 @@ pub const SymbolCheckOptions = struct {
 ///
 /// Example
 ///     >>> @import("setu").addSymbolCheck(b, setu_dep, ext, .{
-///     >>>     .python = b.option([]const u8, "python", "Python for `check-symbols`") orelse "python3",
+///     >>>     .python = b.option([]const u8, "python", "Python for `check-symbol`") orelse "python3",
 ///     >>> });
-///     $ zig build check-symbols -Dpython=/opt/python/3.15t/bin/python3   # then 3.15, 3.14t, 3.14
+///     $ zig build check-symbol -Dpython=/opt/python/3.15t/bin/python3   # then 3.15, 3.14t, 3.14
 pub fn addSymbolCheck(
     b: *std.Build,
     setu_dep: *std.Build.Dependency,
@@ -465,7 +465,7 @@ fn symbolCheck(
     ext: *std.Build.Step.Compile,
     options: SymbolCheckOptions,
 ) void {
-    const step = b.step("check-symbols", "Check the extension's CPython symbols against an interpreter");
+    const step = b.step("check-symbol", "Check the extension's CPython symbols against an interpreter");
     const run = b.addSystemCommand(&.{options.python});
     run.addFileArg2(runner, .{ .make_absolute = true });
     run.addArtifactArg2(ext, .{ .make_absolute = true });

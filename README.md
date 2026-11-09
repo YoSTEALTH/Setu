@@ -39,18 +39,18 @@ src/stub.zig             # .pyi text (stub.module writes an extension's whole .p
 src/stubgen.zig          # the stub generator addStubs builds (no libpython)
 test/                    # setu_class, a test extension with a class per hook family (the model root file)
 test/wheel/              # setu_class as a project, for the tool/setu_build.py wheel checks
-test/doc/               # setu_class as a docs site, for the tool/setu_doc.py checks
-test/doc_md/            # a site of Markdown pages only (no Python module), for the same checks
-tool/setu_build.py      # the wheel build backend (PEP 517) projects copy into their tool/
-tool/setu_doc.py       # the docs site builder projects copy into their tool/
-tool/setu_doc_web.zig  # the site's behaviour (WebAssembly, zig build doc-web); app.js only runs it
-tool/check_coverage.py  # line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
+test/doc/                # setu_class as a docs site, for the tool/setu_doc.py checks
+test/doc_md/             # a site of Markdown pages only (no Python module), for the same checks
+tool/setu_build.py       # the wheel build backend (PEP 517) projects copy into their tool/
+tool/setu_doc.py         # the docs site builder projects copy into their tool/
+tool/setu_doc_web.zig    # the site's behaviour (WebAssembly, zig build doc-web); app.js only runs it
+tool/check_coverage.py   # line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
                          # and of Zig unit tests (addZigTestCoverage: zig build coverage-zig)
-tool/check_api.py       # every public runtime function compiled into setu_class (after zig build coverage)
-tool/check_profile.py   # instructions per call, per Zig line (callgrind), run by zig build profile
+tool/check_api.py        # every public runtime function compiled into setu_class (after zig build coverage)
+tool/check_profile.py    # instructions per call, per Zig line (callgrind), run by zig build profile
                          # (addProfileSteps)
-tool/check_symbol.py   # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
-                         # zig build check-symbols (addSymbolCheck)
+tool/check_symbol.py     # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
+                         # zig build check-symbol (addSymbolCheck)
 ```
 
 Commands:
@@ -58,13 +58,13 @@ Commands:
 ```sh
 zig build test                        # type-check every declaration + comptime and doc-web unit tests
 zig build develop                     # test extension (setu_class.so) + stubs into test/
-python3 tool/check_doc.py           # the docs site of test/doc/ (after develop)
-tool/check.py                        # every check, on 3.15t, 3.15, 3.14t and 3.14
-python3 tool/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
+python3 tool/check_doc.py             # the docs site of test/doc/ (after develop)
+tool/check.py                         # every check, on 3.15t, 3.15, 3.14t and 3.14
+python3 tool/bench.py --ref HEAD      # per-call cost, A/B against a commit (`-Doptimize=fast`)
 zig build coverage -Dpython=python3   # line coverage of the test extension (kcov), zig-out/coverage.json;
                                       # then tool/check_api.py
 zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call (callgrind), zig-out/profile.json
-python3 tool/setu_doc.py serve       # Setu's docs site (zig-out/site): guide, API, coverage, profile
+python3 tool/setu_doc.py serve        # Setu's docs site (zig-out/site): guide, API, coverage, profile
 ```
 
 ## For AI sessions (and other readers in a hurry)

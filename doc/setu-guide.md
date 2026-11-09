@@ -118,8 +118,8 @@ b.getInstallStep().dependOn(&b.addInstallFileWithDir(pyi, .lib, "__init__.pyi").
     .package = true,
     .cases = b.path("tool/bench_cases.py"), // `CASES` + `namespace(module)`, as Setu's tool/bench.py
 });
-@import("setu").addSymbolCheck(b, setu_dep, ext, .{ // zig build check-symbols -Dpython=... (see 11.)
-    .python = b.option([]const u8, "python", "Python for `check-symbols`") orelse "python3",
+@import("setu").addSymbolCheck(b, setu_dep, ext, .{ // zig build check-symbol -Dpython=... (see 11.)
+    .python = b.option([]const u8, "python", "Python for `check-symbol`") orelse "python3",
 });
 ```
 
@@ -704,15 +704,15 @@ What the message says: the cause.
     zig build test                          # type-check every declaration + comptime unit tests
     zig build develop                       # test/setu_class.so (every interpreter) + setu_class.pyi
     /opt/python/3.15t/bin/python3 -m pytest # then 3.15, 3.14t, 3.14: the same .so
-    tool/check.py                          # everything, offline, on all four interpreters
-    python3 tool/bench.py --ref HEAD       # per-call cost A/B against a commit
+    tool/check.py                           # everything, offline, on all four interpreters
+    python3 tool/bench.py --ref HEAD        # per-call cost A/B against a commit
     zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call, per line (callgrind);
                                                         # -Drelease with a preferred optimize mode
-    zig build check-symbols -Dpython=/opt/python/3.14/bin/python3   # CPython symbols, per interpreter
+    zig build check-symbol -Dpython=/opt/python/3.14/bin/python3   # CPython symbols, per interpreter
 
 A project using Setu runs its own `tool/check.sh`, which includes `zig build setu-build-check`,
 `setu-doc-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
-Setu it pins), and `zig build check-symbols -Dpython=<each interpreter>` (`addSymbolCheck`, Setu's
+Setu it pins), and `zig build check-symbol -Dpython=<each interpreter>` (`addSymbolCheck`, Setu's
 `tool/check_symbol.py` on the extension as built: every CPython symbol it imports is exported by that interpreter
 and, on 3.15+, in the stable ABI for free-threading (abi3t); needs `nm`, and `cc` on 3.15+).
 After a Setu bump: `zig build setu-build-sync setu-doc-sync setu-guide-sync`.
