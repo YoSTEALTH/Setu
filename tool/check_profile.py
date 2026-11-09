@@ -1,19 +1,19 @@
 '''Instructions per call of an extension's hot paths, by callgrind: each case of a cases file (a statement, as
-`tools/bench.py`'s `CASES`) runs N and 2N times under valgrind, and the difference / N is what one call costs,
+`tool/bench.py`'s `CASES`) runs N and 2N times under valgrind, and the difference / N is what one call costs,
 exactly (no timing noise), in total and per line of the extension's Zig code. `zig build profile` runs it
 (`addProfileSteps` in `build.zig`) on a fast build of the extension.
 
-    zig build profile -Doptimize=fast -Dcpu=x86_64_v3          # Setu: setu_classes + tools/bench.py's cases
+    zig build profile -Doptimize=fast -Dcpu=x86_64_v3          # Setu: setu_classes + tool/bench.py's cases
     zig build profile -Doptimize=fast -Dcpu=x86_64_v3 -- -k recv --lines 8
     zig build profile ... -- --python /opt/python/3.15t/bin/python3      # that interpreter too
     zig build profile ... -- --baseline before.json            # the change per call; fails past --tolerance
-    python3 tools/check_profile.py --name setu_classes --cases tools/bench.py <ext.so>
+    python3 tool/check_profile.py --name setu_classes --cases tool/bench.py <ext.so>
 
 Options
     --name NAME       the name the cases import the extension by: `setu_classes`; `liburing` for a package's
                       `__init__.so` (the path then `.../liburing/__init__.so`)
     --cases FILE      the cases: a Python file with `CASES`, a list of `(label, statement)`, and `namespace(module)`,
-                      the names the statements use (a dict); `tools/bench.py` is one
+                      the names the statements use (a dict); `tool/bench.py` is one
     --python PATH     run the cases under this interpreter too (after the one running this script), repeatable
     --number N        calls per run: the case runs N and 2N times (default 20000)
     --repeat R        runs of each size, the cheapest kept (default 2)
@@ -26,7 +26,7 @@ Options
                       per call (default 2)
     --jobs N          valgrind runs at a time (default: half the CPUs)
 
-The `--json` file (instructions per call; paths as `tools/check_coverage.py` shows them: relative to the current
+The `--json` file (instructions per call; paths as `tool/check_coverage.py` shows them: relative to the current
 directory, `setu/src/args.zig` for a Zig package's file, `std/math.zig` for Zig's standard library)
     {"number": 20000,
      "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "loop": 38.0,
@@ -34,7 +34,7 @@ directory, `setu/src/args.zig` for a Zig package's file, `std/math.zig` for Zig'
                                                           "files": {"src/export.zig": {"total": 20.0,
                                                                                        "lines": {"88": 4.0, ...}}}}}}}},
      "sources": {"src/export.zig": "/home/me/proj/src/export.zig", ...}}
-    `sources` gives each shown path's file (absolute), for the docs site's Profile page (`tools/setu_docs.py`).
+    `sources` gives each shown path's file (absolute), for the docs site's Profile page (`tool/setu_docs.py`).
 
 Note
     - Needs valgrind (3.25 tested), which runs no AVX-512 (SIGILL, exit 132): build the extension for a CPU without
@@ -43,7 +43,7 @@ Note
     - `total` is everything one call costs, the interpreter's part too, with the loop around it (`loop`: the cost of
       `pass`) taken out; `ext` is the part in the extension's `.so`: its own code, Setu's and std's, inlined there.
       Lines are listed for the extension only.
-    - Instructions, not time: a cache miss or a mispredicted branch counts no more than an add. `tools/bench.py`
+    - Instructions, not time: a cache miss or a mispredicted branch counts no more than an add. `tool/bench.py`
       gives the time; the two together say whether a change saves work or only moves it.
     - Each run sets `PYTHONHASHSEED=0` and disables the GC. `ext` comes out the same on every run; `total` within
       about 0.3 per call (the interpreter's memory layout). A rare one-time event in a run (millions of

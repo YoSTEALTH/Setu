@@ -1,5 +1,5 @@
 //! The docs site's behaviour, compiled to WebAssembly (`zig build docs-web` -> `docs.wasm` in the site): all of it.
-//! `app.js` (written by `tools/setu_docs.py`) is a fixed loop that knows no element or feature: each call into this
+//! `app.js` (written by `tool/setu_docs.py`) is a fixed loop that knows no element or feature: each call into this
 //! module (`onStart`, `onEvent`, `onFetched`, `onTimer`) returns a list of commands (`Op`: bind elements, set text /
 //! HTML / attributes, listen, fetch, store, ...), which `app.js` runs in order; events, answers and fetch results come
 //! back as calls. Here: API search, the Run buttons, the docs server check, the pages' Zig code blocks, the ◐ menu, the
@@ -15,7 +15,7 @@ const builtin = @import("builtin");
 
 const gpa = if (builtin.target.cpu.arch.isWasm()) std.heap.wasm_allocator else std.heap.page_allocator;
 
-/// One search entry of `search.json` (`tools/setu_docs.py` writes it).
+/// One search entry of `search.json` (`tool/setu_docs.py` writes it).
 pub const Entry = struct {
     /// Name: `read`, `File.read`, `O_CREAT`.
     n: []const u8,
@@ -27,7 +27,7 @@ pub const Entry = struct {
     s: []const u8,
 };
 
-/// One `>>>` statement of a Run result (`tools/setu_docs.py run --json <name>`).
+/// One `>>>` statement of a Run result (`tool/setu_docs.py run --json <name>`).
 pub const Step = struct {
     source: []const u8 = "",
     expected: []const u8 = "",
@@ -605,7 +605,7 @@ pub fn sourceHtml(
 /// as a number.
 pub const Cost = struct { n: usize, text: []const u8, value: f64 };
 
-/// The `line:cost` pairs of `costs` (`"88:9.0,106:17.0"`, as `tools/setu_docs.py` writes them) in `buf` (room
+/// The `line:cost` pairs of `costs` (`"88:9.0,106:17.0"`, as `tool/setu_docs.py` writes them) in `buf` (room
 /// for one more than the commas); parts that are not such a pair are skipped.
 ///
 /// Example
@@ -1591,7 +1591,7 @@ fn sayTexts(count: u32, values: []const u8) !void {
             const to = if (k + 1 == ranges.items.len) std.math.maxInt(u32) else utf16Len(text[0..range[1]]);
             // cast: below `max_units`
             try units.append(a, .{
-                .block = @intCast(block),
+                .block = @intCast(block), // cast: below `max_units`
                 .text = text[range[0]..range[1]],
                 .from = utf16Len(text[0..range[0]]),
                 .to = to,

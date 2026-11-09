@@ -1,4 +1,4 @@
-'''The fixture's example hooks (`hooks` in `pyproject.toml`): one of each kind, checked by `tools/check_docs.py`.'''
+'''The fixture's example hooks (`hooks` in `pyproject.toml`): one of each kind, checked by `tool/check_doc.py`.'''
 
 FIXTURES = {}
 

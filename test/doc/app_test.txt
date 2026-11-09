@@ -97,7 +97,7 @@ cov-pre scrollTop -20
 cov-view hidden=""
 -- click prof-row {}
 prof-view -hidden
-fetch source/test/functions.zig
+fetch source/test/function.zig
 prof-pre0 html "<span data-n=\"1\"><b class=\"pc\"></b><span class=\"kw\">const</span> a = <…"
 prof-pre0 scrollTop 400
 prof-pre1 html "<span data-n=\"90\" class=\"hot\" style=\"background:color-mix(in srgb, var…"

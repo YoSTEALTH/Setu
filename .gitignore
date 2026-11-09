@@ -10,8 +10,8 @@ __pycache__/
 test/*.so
 test/*.pyi
 
-# fixtures: what the sync steps copy in (`tools/check.sh`), and the built docs site
-test/wheel/tools/
-test/wheel/docs/
-test/docs/site/
-test/docs_md/site/
+# fixtures: what the sync steps copy in (`tool/check.sh`), and the built docs site
+test/wheel/tool/
+test/wheel/doc/
+test/doc/site/
+test/doc_md/site/

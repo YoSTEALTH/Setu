@@ -1,7 +1,7 @@
 .{
     .name = .setu,
     // year.month.day (no zero padding: semver)
-    .version = "2026.11.5",
+    .version = "2026.11.9",
     .fingerprint = 0x7deee0e42718577f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},
@@ -9,13 +9,13 @@
         "build.zig",
         "build.zig.zon",
         "src",
-        "tools/setu_build.py", // the wheel build backend projects copy (their check.sh compares)
-        "tools/setu_docs.py", // the docs site builder projects copy (`setu-docs-sync` / `setu-docs-check`)
-        "tools/setu_docs_web.zig", // its Wasm module, built by a project's `docs-web` step (`addSetuDocsSteps`)
-        "tools/check_coverage.py", // the `coverage` step's runner (`addCoverageSteps`), run from the dependency
-        "tools/check_profile.py", // the `profile` step's runner (`addProfileSteps`; imports check_coverage.py)
-        "tools/check_symbols.py", // the `check-symbols` step's runner (`addSymbolCheck`)
-        "docs/setu-guide.md", // the guide projects copy (`setu-guide-sync` / `setu-guide-check`)
+        "tool/setu_build.py", // the wheel build backend projects copy (their check.sh compares)
+        "tool/setu_docs.py", // the docs site builder projects copy (`setu-docs-sync` / `setu-docs-check`)
+        "tool/setu_docs_web.zig", // its Wasm module, built by a project's `docs-web` step (`addSetuDocsSteps`)
+        "tool/check_coverage.py", // the `coverage` step's runner (`addCoverageSteps`), run from the dependency
+        "tool/check_profile.py", // the `profile` step's runner (`addProfileSteps`; imports check_coverage.py)
+        "tool/check_symbols.py", // the `check-symbols` step's runner (`addSymbolCheck`)
+        "doc/setu-guide.md", // the guide projects copy (`setu-guide-sync` / `setu-guide-check`)
         "llms.txt",
         "LICENSE.txt",
         "README.md",

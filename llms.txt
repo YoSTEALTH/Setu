@@ -11,7 +11,7 @@ https://yostealth.github.io/Setu/.
 
 ## Guide
 
-- [docs/setu-guide.md](docs/setu-guide.md): how to write an extension with Setu (read this first)
+- [doc/setu-guide.md](doc/setu-guide.md): how to write an extension with Setu (read this first)
 - [README.md](README.md): what Setu is, the layout, the commands, wheels, docs site, releases
 
 ## Source (what to read when the guide is not enough)
@@ -28,20 +28,20 @@ https://yostealth.github.io/Setu/.
 ## Examples
 
 - [test/setu_classes.zig](test/setu_classes.zig): the model root file (`module`)
-- [test/classes.zig](test/classes.zig): one class per hook family
-- [test/functions.zig](test/functions.zig): one function per parameter type, constants, enums
+- [test/class.zig](test/class.zig): one class per hook family
+- [test/function.zig](test/function.zig): one function per parameter type, constants, enums
 - [test/class_test.py](test/class_test.py): what each of those does from Python
 
 ## Tools
 
-- [tools/check.sh](tools/check.sh): every check, offline, on all four interpreters
-- [tools/setu_build.py](tools/setu_build.py): the PEP 517 wheel backend projects copy
-- [tools/setu_docs.py](tools/setu_docs.py): the docs site builder projects copy (stdlib; HTML, `llms.txt`,
-  example runner, server); its Wasm logic is [tools/setu_docs_web.zig](tools/setu_docs_web.zig)
-- [tools/bench.py](tools/bench.py): per-call cost, A/B against a commit
-- [tools/check_coverage.py](tools/check_coverage.py): line coverage under pytest (kcov), run by `zig build
+- [tool/check.sh](tool/check.sh): every check, offline, on all four interpreters
+- [tool/setu_build.py](tool/setu_build.py): the PEP 517 wheel backend projects copy
+- [tool/setu_docs.py](tool/setu_docs.py): the docs site builder projects copy (stdlib; HTML, `llms.txt`,
+  example runner, server); its Wasm logic is [tool/setu_docs_web.zig](tool/setu_docs_web.zig)
+- [tool/bench.py](tool/bench.py): per-call cost, A/B against a commit
+- [tool/check_coverage.py](tool/check_coverage.py): line coverage under pytest (kcov), run by `zig build
   coverage` (`addCoverageSteps` in `build.zig`), and of Zig unit tests (`addZigTestCoverage`, `zig build coverage-zig`)
-- [tools/check_profile.py](tools/check_profile.py): instructions per call of `bench.py`'s cases, per Zig line
+- [tool/check_profile.py](tool/check_profile.py): instructions per call of `bench.py`'s cases, per Zig line
   (callgrind), run by `zig build profile` (`addProfileSteps`); `--baseline` fails a case that grew
-- [tools/check_symbols.py](tools/check_symbols.py): the extension's CPython symbols, exported by an interpreter and
+- [tool/check_symbols.py](tool/check_symbols.py): the extension's CPython symbols, exported by an interpreter and
   in abi3t on 3.15+, run by `zig build check-symbols -Dpython=...` (`addSymbolCheck`)

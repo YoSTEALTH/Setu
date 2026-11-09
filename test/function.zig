@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const setu = @import("setu");
-const classes = @import("classes.zig");
+const classes = @import("class.zig");
 
 const c = setu.c;
 const py = setu.py;
@@ -255,9 +255,9 @@ pub fn owned_sum(data: py.OwnedBuffer) u64 {
     return total;
 }
 
-// coverage-off: the `bench_*` functions are `tools/bench.py`'s (`zig build coverage`)
+// coverage-off: the `bench_*` functions are `tool/bench.py`'s (`zig build coverage`)
 
-/// `v` converted, nothing else: the cheapest call for `tools/bench.py` (Liburing's `io_uring_prep_nop(sqe)`).
+/// `v` converted, nothing else: the cheapest call for `tool/bench.py` (Liburing's `io_uring_prep_nop(sqe)`).
 ///
 /// Example
 ///     >>> bench_nop(Vec())
@@ -267,7 +267,7 @@ pub fn bench_nop(v: *Vec) void {
 
 /// The arguments of Liburing's `io_uring_prep_recv(sqe, sockfd, buf, flags)`
 /// (https://man7.org/linux/man-pages/man3/io_uring_prep_recv.3.html), converted and released after the call
-/// (`tools/bench.py`); returns `fd`.
+/// (`tool/bench.py`); returns `fd`.
 ///
 /// Example
 ///     >>> bench_recv(Vec(), -1, bytearray(4), 0)
@@ -290,7 +290,7 @@ var bench_kept: struct {
 } = .{};
 
 /// `bench_recv`, keeping `buf` until the next call with a second view (`take`); `buf=None` only
-/// releases (`tools/bench.py`).
+/// releases (`tool/bench.py`).
 ///
 /// Example
 ///     >>> bench_recv_take(Vec(), -1, bytearray(4))
@@ -304,7 +304,7 @@ pub fn bench_recv_take(v: *Vec, fd: i32, buf: ?py.WritableBuffer, flags: ?i32) E
 }
 
 /// `bench_recv`, keeping `buf` until the next call as it comes (`py.OwnedWritableBuffer`); `buf=None`
-/// only releases (`tools/bench.py`).
+/// only releases (`tool/bench.py`).
 ///
 /// Example
 ///     >>> bench_recv_owned(Vec(), -1, bytearray(4))
@@ -317,7 +317,7 @@ pub fn bench_recv_owned(v: *Vec, fd: i32, buf: ?py.OwnedWritableBuffer, flags: ?
 }
 
 /// The arguments of Liburing's `io_uring_prep_send(sqe, sockfd, buf, flags)`, converted and released
-/// after the call (`tools/bench.py`); returns `fd`.
+/// after the call (`tool/bench.py`); returns `fd`.
 ///
 /// Example
 ///     >>> bench_send(Vec(), -1, b'abc')

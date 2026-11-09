@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: "3.14"
 
-      # latest pip on every interpreter: `check_wheels.py` pip-installs the wheels (older pips work too)
+      # latest pip on every interpreter: `check_wheel.py` pip-installs the wheels (older pips work too)
       - name: Install tools
         run: |
           "${{ steps.py_ft.outputs.python-path }}" -m pip install -U pip pytest ruff mypy
@@ -54,21 +54,21 @@ jobs:
           "${{ steps.py314_ft.outputs.python-path }}" -m pip install -U pip pytest
           "${{ steps.py314_gil.outputs.python-path }}" -m pip install -U pip pytest
 
-      # `check_docs.py` runs the docs site's app.js with its docs.wasm in deno (test/docs/app_test.js)
+      # `check_doc.py` runs the docs site's app.js with its docs.wasm in deno (test/doc/app_test.js)
       - name: deno
         uses: denoland/setup-deno@v2
 
-      - name: tools/check.sh
+      - name: tool/check.sh
         env:
           PY_FT: ${{ steps.py_ft.outputs.python-path }}
           PY_GIL: ${{ steps.py_gil.outputs.python-path }}
           PY314_FT: ${{ steps.py314_ft.outputs.python-path }}
           PY314_GIL: ${{ steps.py314_gil.outputs.python-path }}
-        run: tools/check.sh
+        run: tool/check.sh
 
       # Line coverage on all four interpreters, merged; the committed README badge must match what this run writes
-      # (`zig build coverage` with every `--python` locally, then commit `docs/coverage-badge.json` and
-      # `docs/coverage-history.json`).
+      # (`zig build coverage` with every `--python` locally, then commit `doc/coverage-badge.json` and
+      # `doc/coverage-history.json`).
       - name: kcov
         run: sudo apt-get update && sudo apt-get install -y kcov
 
@@ -80,14 +80,14 @@ jobs:
           --python "${{ steps.py314_gil.outputs.python-path }}"
 
       - name: coverage badge and history up to date
-        run: git diff --exit-code docs/coverage-badge.json docs/coverage-history.json
+        run: git diff --exit-code doc/coverage-badge.json doc/coverage-history.json
 
-      # The docs site (`tools/setu_docs.py`), built here so its Coverage page is this run's `zig-out/coverage.json`;
+      # The docs site (`tool/setu_docs.py`), built here so its Coverage page is this run's `zig-out/coverage.json`;
       # published to GitHub Pages (Settings > Pages > Source: GitHub Actions; Settings > Environments > github-pages
       # allows `dev` and `main`) only from a push whose checks all passed.
       - name: Build the docs site
         if: github.event_name == 'push'
-        run: '"${{ steps.py_ft.outputs.python-path }}" tools/setu_docs.py'
+        run: '"${{ steps.py_ft.outputs.python-path }}" tool/setu_docs.py'
 
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name == 'push'

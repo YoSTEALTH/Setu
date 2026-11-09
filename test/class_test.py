@@ -1,4 +1,4 @@
-'''`setu.Class` protocol hooks, through the test extension `setu_classes` (`test/classes.zig`).'''
+'''`setu.Class` protocol hooks, through the test extension `setu_classes` (`test/class.zig`).'''
 
 import array
 import gc
@@ -845,7 +845,7 @@ def test_scan_filters():
     assert not hasattr(sc, 'excluded')  # `.exclude`
     assert (sc.K_ONE, sc.K_TWO) == (1, 2) and not hasattr(sc, 'OTHER')  # `.prefixes`
     assert sc.PICKED == 5 and not hasattr(sc, 'DROPPED')  # `.only`
-    assert not hasattr(sc, 'not_exported')  # `.functions = false` (a function in `classes.zig`)
+    assert not hasattr(sc, 'not_exported')  # `.functions = false` (a function in `class.zig`)
     assert not hasattr(sc, 'newSecret')  # a camelCase Zig helper is never exported
     for name in ('_Scratch', 'Scratch', '_ScratchType', '_LIMIT', 'kernel', 'picked', 'Plain'):
         assert not hasattr(sc, name)

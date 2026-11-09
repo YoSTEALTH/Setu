@@ -146,7 +146,7 @@ fn outOfRange(comptime T: type, obj: *Object, value: ?i128, n: c.ssize, comptime
 ///     OverflowError: `close(fd)` with `direct=True` = -1 is out of range 0..4294967295
 ///
 /// Note
-///     - Use it instead of `@intCast` on anything a caller can choose; `tools/check.sh`
+///     - Use it instead of `@intCast` on anything a caller can choose; `tool/check.sh`
 ///       rejects an `@intCast` without a `// cast:` reason.
 pub fn narrow(comptime T: type, value: anytype, comptime what: []const u8) Error!T {
     return std.math.cast(T, value) orelse raiseOverflowError(

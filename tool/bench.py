@@ -1,16 +1,16 @@
 '''Times Setu's per-call cost on `setu_classes` (the test extension): the argument shapes Liburing's hot
-path uses (`bench_*` in `test/functions.zig`: `prep_recv` / `prep_send` with and without a buffer, a
+path uses (`bench_*` in `test/function.zig`: `prep_recv` / `prep_send` with and without a buffer, a
 buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method, `__init__` and a
 large instance's defaults (`Slab()`). With
 `--ref`, an A/B against another commit, so a hot-path change gets a before / after without Liburing.
 
-    python3.15 tools/bench.py                     # this tree, built `-Doptimize=fast` into a temp dir
-    python3.15 tools/bench.py --ref HEAD          # A/B: HEAD (a temp worktree) vs this tree
-    python3.15 tools/bench.py --ref v2026.10.21 --cpu 2 -k recv
-    python3.15 tools/bench.py --so test/setu_classes.so     # an extension as built, no build
-    python3.15 tools/bench.py --so a/setu_classes.so --so b/setu_classes.so   # A/B of two builds
+    python3.15 tool/bench.py                     # this tree, built `-Doptimize=fast` into a temp dir
+    python3.15 tool/bench.py --ref HEAD          # A/B: HEAD (a temp worktree) vs this tree
+    python3.15 tool/bench.py --ref v2026.10.21 --cpu 2 -k recv
+    python3.15 tool/bench.py --so test/setu_classes.so     # an extension as built, no build
+    python3.15 tool/bench.py --so a/setu_classes.so --so b/setu_classes.so   # A/B of two builds
 
-    for v in 3.15 3.15t 3.14 3.14t; do /opt/python/$v/bin/python3 tools/bench.py --ref HEAD; done
+    for v in 3.15 3.15t 3.14 3.14t; do /opt/python/$v/bin/python3 tool/bench.py --ref HEAD; done
 
 Note
     - ns per call, the best of `--repeat` x `--rounds`; the builds take turns each round (interleaved),

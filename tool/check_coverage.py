@@ -5,8 +5,8 @@ With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zi
     zig build coverage                             # Setu: setu_classes + class_test.py (-Dpython=...)
     zig build coverage -- --missed -k vec          # after `--`: these options, the rest goes to pytest
     zig build coverage -- --python /opt/python/3.14/bin/python3   # 3.14's paths too, merged
-    python3 tools/check_coverage.py --name setu_classes --include src --include test <ext.so> [-- pytest args]
-    python3 tools/check_coverage.py --exe --include tools <test executable> [-- its args]
+    python3 tool/check_coverage.py --name setu_classes --include src --include test <ext.so> [-- pytest args]
+    python3 tool/check_coverage.py --exe --include tool <test executable> [-- its args]
 
 Options
     --exe             the path is a Zig test executable (`b.addTest`, a Debug build), run under kcov
@@ -502,7 +502,7 @@ def history_text(data):
 
 def source_crc(path):
     '''The CRC-32 of the file `path` (None when it can not be read): the docs site's Coverage page flags a source
-    changed since the run (`tools/setu_docs.py`).'''
+    changed since the run (`tool/setu_docs.py`).'''
     try:
         with open(path, 'rb') as f:
             return zlib.crc32(f.read())

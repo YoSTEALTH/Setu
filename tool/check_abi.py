@@ -4,8 +4,8 @@ Compiles a tiny C program against the headers of the interpreter running this
 script and compares every constant and struct size with the Zig side. Run it with
 3.14, 3.14t, 3.15 and 3.15t: the one Setu binary serves them all.
 
-    python3.15t tools/check_abi.py
-    python3.14 tools/check_abi.py
+    python3.15t tool/check_abi.py
+    python3.14 tool/check_abi.py
 
 Note
     - 3.15 renumbered some slot IDs (`PySlot`). `capi.zig` names the `PyType_Slot` /

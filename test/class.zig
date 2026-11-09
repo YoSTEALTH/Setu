@@ -150,7 +150,7 @@ pub const Vec = struct {
 };
 /// What `Vec.fill_into` keeps.
 var vec_kept: ?py.OwnedWritableBuffer = null;
-pub const VecType = setu.Class(Vec, @embedFile("classes.zig"));
+pub const VecType = setu.Class(Vec, @embedFile("class.zig"));
 
 /// A `Vec` with a label: a Setu subclass, pickled with its base's fields.
 pub const Labeled = struct {
@@ -184,7 +184,7 @@ pub const Labeled = struct {
         self.label = value;
     }
 };
-pub const LabeledType = setu.Class(Labeled, @embedFile("classes.zig"));
+pub const LabeledType = setu.Class(Labeled, @embedFile("class.zig"));
 
 /// A `Vec` with no fields of its own: no instance data of its own (no `Py_tp_extra_basicsize`).
 pub const Origin = struct {
@@ -196,7 +196,7 @@ pub const Origin = struct {
         return v.x == 0 and v.y == 0;
     }
 };
-pub const OriginType = setu.Class(Origin, @embedFile("classes.zig"));
+pub const OriginType = setu.Class(Origin, @embedFile("class.zig"));
 
 /// Only `__lt__`: still hashable (by identity), as a Python class would be.
 pub const Ordered = struct {
@@ -228,7 +228,7 @@ pub const Ordered = struct {
         self.rank = value;
     }
 };
-pub const OrderedType = setu.Class(Ordered, @embedFile("classes.zig"));
+pub const OrderedType = setu.Class(Ordered, @embedFile("class.zig"));
 
 /// An integer with every number operator, to check the slots and the reflected ones.
 pub const Num = struct {
@@ -342,7 +342,7 @@ pub const Num = struct {
         return self.v;
     }
 };
-pub const NumType = setu.Class(Num, @embedFile("classes.zig"));
+pub const NumType = setu.Class(Num, @embedFile("class.zig"));
 
 /// A fixed-size container of up to 4 objects: `len`, `[]`, `in`, `del`, iteration;
 /// generic (`Bag[int]`), with weakrefs and a `__dict__`.
@@ -424,7 +424,7 @@ pub const Bag = struct {
         return BagIterType.new(.{ .bag = self });
     }
 };
-pub const BagType = setu.Class(Bag, @embedFile("classes.zig"));
+pub const BagType = setu.Class(Bag, @embedFile("class.zig"));
 
 /// Iterates a `Bag` (its own iterator: `__next__` without `__iter__`).
 pub const BagIter = struct {
@@ -443,7 +443,7 @@ pub const BagIter = struct {
         return o;
     }
 };
-pub const BagIterType = setu.Class(BagIter, @embedFile("classes.zig"));
+pub const BagIterType = setu.Class(BagIter, @embedFile("class.zig"));
 
 /// Counts down from `start` to 1 (`__next__` returning `?u64`); `get_left()` is a method
 /// (`plain_methods`), not a property.
@@ -473,7 +473,7 @@ pub const Countdown = struct {
         return self.left;
     }
 };
-pub const CountdownType = setu.Class(Countdown, @embedFile("classes.zig"));
+pub const CountdownType = setu.Class(Countdown, @embedFile("class.zig"));
 
 /// Adds `base` to what it is called with (`__call__`).
 pub const Adder = struct {
@@ -525,7 +525,7 @@ pub const Adder = struct {
         return @intCast(c.PyTuple_Size(t)); // cast: a tuple length is non-negative
     }
 };
-pub const AdderType = setu.Class(Adder, @embedFile("classes.zig"));
+pub const AdderType = setu.Class(Adder, @embedFile("class.zig"));
 
 /// Dynamic attributes: unknown names read as their length; assignments and deletions are
 /// counted (`__getattr__`, `__setattr__`, `__delattr__`).
@@ -563,7 +563,7 @@ pub const Dyn = struct {
         return self.dels;
     }
 };
-pub const DynType = setu.Class(Dyn, @embedFile("classes.zig"));
+pub const DynType = setu.Class(Dyn, @embedFile("class.zig"));
 
 /// A descriptor holding one int: read from the class it is itself, from an instance its
 /// value; `__set__` stores, `__delete__` resets to 0.
@@ -597,7 +597,7 @@ pub const Slot = struct {
         self.value = 0;
     }
 };
-pub const SlotType = setu.Class(Slot, @embedFile("classes.zig"));
+pub const SlotType = setu.Class(Slot, @embedFile("class.zig"));
 
 /// Calls `callback()` when finalized (`__finalize__`), with its fields still set; `link` makes a
 /// reference cycle for the GC to break.
@@ -638,7 +638,7 @@ pub const Watch = struct {
         self.link = value;
     }
 };
-pub const WatchType = setu.Class(Watch, @embedFile("classes.zig"));
+pub const WatchType = setu.Class(Watch, @embedFile("class.zig"));
 
 /// An awaitable (`__poll__`) that waits once in the event loop, then gives `result`.
 pub const Later = struct {
@@ -664,7 +664,7 @@ pub const Later = struct {
         return .{ .ready = r };
     }
 };
-pub const LaterType = setu.Class(Later, @embedFile("classes.zig"));
+pub const LaterType = setu.Class(Later, @embedFile("class.zig"));
 
 /// Two ints set in `__new__` only (no `__init__`): the stub declares `__new__`. The property `swapped` comes
 /// from `getset` (`py.getter`), its stub line from `stub`; `repr` from `slots` (a C `Py_tp_repr`).
@@ -690,7 +690,7 @@ pub const Pair = struct {
         return .{ self.a, self.b };
     }
 };
-pub const PairType = setu.Class(Pair, @embedFile("classes.zig"));
+pub const PairType = setu.Class(Pair, @embedFile("class.zig"));
 
 /// `(b, a)` of the `Pair` `self`: the getter `Pair.getset` makes with `py.getter`.
 fn pairSwapped(self: *Object) struct { i64, i64 } {
@@ -708,7 +708,7 @@ fn pairRepr(self: *Object) callconv(.c) ?*Object {
 }
 
 /// A large instance whose buffer's default is `undefined`: `tp_new` writes only the defined defaults (the
-/// shape of Shakti's `SQE`; `tools/bench.py` times `Slab()`).
+/// shape of Shakti's `SQE`; `tool/bench.py` times `Slab()`).
 pub const Slab = struct {
     used: u32 = 0,
     limit: u32 = 256,
@@ -741,7 +741,7 @@ pub const Slab = struct {
         return n;
     }
 };
-pub const SlabType = setu.Class(Slab, @embedFile("classes.zig"));
+pub const SlabType = setu.Class(Slab, @embedFile("class.zig"));
 
 /// A class only Zig hands out (`hidden = true`): created, but not a module attribute and not in the
 /// stub (`make_secret` returns one, `secret_value` takes one: `Any` there).
@@ -759,7 +759,7 @@ pub const Secret = struct {
         return self.value;
     }
 };
-pub const SecretType = setu.Class(Secret, @embedFile("classes.zig"));
+pub const SecretType = setu.Class(Secret, @embedFile("class.zig"));
 
 /// `s.value`, after a Python call (`Py_IncRef` / `Py_DecRef` of `None`), so the stub generator would not
 /// link if it kept this function.
@@ -782,6 +782,6 @@ pub fn not_exported() i64 {
 pub const _Scratch = struct {
     n: i64 = 0,
 };
-pub const _ScratchType = setu.Class(_Scratch, @embedFile("classes.zig"));
+pub const _ScratchType = setu.Class(_Scratch, @embedFile("class.zig"));
 /// Skipped by the scan, like `_ScratchType`.
 pub const _LIMIT = 9;

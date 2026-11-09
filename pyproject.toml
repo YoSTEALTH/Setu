@@ -11,7 +11,7 @@ select = ["E", "F", "W"]
 [tool.ruff.format]
 quote-style = "preserve"
 
-# Setu's docs site (`python3 tools/setu_docs.py`, after `zig build develop`; `serve` for Run): the README, the
+# Setu's docs site (`python3 tool/setu_docs.py`, after `zig build develop`; `serve` for Run): the README, the
 # guide, the test extension `setu_classes` as the API Setu generates, and Setu's coverage and profile. `name` is also
 # what a project's site calls Setu (its Coverage page, Setu as a dependency).
 [tool.setu_docs]
@@ -26,11 +26,11 @@ home = 'README.md'
 edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/'
 repo = 'https://github.com/YoSTEALTH/Setu'
 coverage = 'zig-out/coverage.json'  # `zig build coverage`
-coverage_history = 'docs/coverage-history.json'  # its `.history`, committed
+coverage_history = 'doc/coverage-history.json'  # its `.history`, committed
 profile = 'zig-out/profile.json'  # `zig build profile -Doptimize=fast -Dcpu=x86_64_v3`
 
 [[tool.setu_docs.markdown]]
-file = 'docs/setu-guide.md'
+file = 'doc/setu-guide.md'
 title = 'Writing an extension'
 section = 'Guide'
 split = true  # a page per chapter
@@ -39,7 +39,7 @@ split = true  # a page per chapter
 slug = 'functions'
 title = 'Functions'
 text = "`setu_classes`' module functions: every parameter type Setu converts, as Python sees it."
-sources = ['test/functions.zig']
+sources = ['test/function.zig']
 
 [[tool.setu_docs.pages]]
 slug = 'classes'

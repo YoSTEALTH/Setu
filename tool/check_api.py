@@ -4,7 +4,7 @@ what is referenced, and kcov counts only compiled code, so a function `setu_clas
 the result, not red: a new API would read 100% untested. Setu's `zig build coverage` runs it after the coverage
 run (CI too).
 
-    python3 tools/check_api.py [zig-out/coverage.json]
+    python3 tool/check_api.py [zig-out/coverage.json]
 
 Note
     - Left out: a function whose parameters are all `comptime` (it runs at compile time: no code), what follows

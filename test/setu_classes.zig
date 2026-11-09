@@ -3,7 +3,7 @@
 //! in its `Py_mod_exec` and writes `setu_classes.pyi` from the same declaration (`zig build develop`).
 
 const setu = @import("setu");
-const classes = @import("classes.zig");
+const classes = @import("class.zig");
 const extra = @import("extra.zig");
 const hand = @import("hand.zig");
 
@@ -12,14 +12,14 @@ const py = setu.py;
 const Object = c.Object;
 
 /// The module (`py.exportModule` below, `setu.addStubs` in `build.zig`). Its docstring is the `//!` doc of
-/// `functions.zig`, the first entry with a `source`.
+/// `function.zig`, the first entry with a `source`.
 pub const module: setu.Module = .{
     .name = "setu_classes",
     .version = "0.0",
     .from = &.{
         // classes only, so no `source`; `not_exported` there is dropped by `.functions = false`
         .{ .ns = classes, .functions = false },
-        .{ .ns = @import("functions.zig"), .source = @embedFile("functions.zig") },
+        .{ .ns = @import("function.zig"), .source = @embedFile("function.zig") },
         .{ .ns = extra, .source = @embedFile("extra.zig"), .exclude = &.{"excluded"}, .enums = .int_enum },
         .{ .ns = extra.kernel, .prefixes = &.{"K_"} },
         .{ .ns = extra.picked, .only = &.{"PICKED"} },

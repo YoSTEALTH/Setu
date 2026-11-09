@@ -5,8 +5,8 @@
 # and its generated stubs, which `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14, and 3.16t-dev / 3.16-dev when installed)
 # `check_abi.py`, `zig build check-symbols`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels
-# `tools/setu_build.py` builds (`check_wheels.py`) and the docs site `tools/setu_docs.py` builds, serves and runs
-# the examples of (`check_docs.py`), then
+# `tool/setu_build.py` builds (`check_wheel.py`) and the docs site `tool/setu_docs.py` builds, serves and runs
+# the examples of (`check_doc.py`), then
 # `mypy --strict` (as 3.14 and 3.15) + `stubtest` on the test stubs. All offline.
 # Interpreters: PY_FT=... / PY_GIL=... (3.15), PY314_FT=... / PY314_GIL=..., PY316_FT=... / PY316_GIL=...
 # (the next CPython's alphas, for early warning only: skipped when missing); compiler: ZIG=...
@@ -26,7 +26,7 @@ PYTEST_ARGS=("$@")
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
 step "zig fmt"
-"$ZIG" fmt --check src test tools build.zig build.zig.zon
+"$ZIG" fmt --check src test tool build.zig build.zig.zon
 
 step "package paths"
 # Every file build.zig runs from a dependent's pinned Setu (`setu_dep.path("...")`) must ship in the package:
@@ -52,7 +52,7 @@ awk '
     }
     { prev = $0 }
     END { exit bad }
-' src/*.zig test/*.zig tools/*.zig
+' src/*.zig test/*.zig tool/*.zig
 
 step "ruff"
 "$PY_FT" -m ruff check .
@@ -61,7 +61,7 @@ step "ruff"
 step "ruff on the copied tools, as the consumers see them"
 # Liburing and Shakti lint their copies with ruff's default rules (more than Setu's E/F/W) and format for
 # Python 3.14 (`except A, B:`), so the copies must pass both without their own settings.
-copied=(tools/setu_build.py tools/setu_docs.py)
+copied=(tool/setu_build.py tool/setu_docs.py)
 "$PY_FT" -m ruff check --isolated --line-length 120 --target-version py314 "${copied[@]}"
 "$PY_FT" -m ruff format --isolated --check --line-length 120 --target-version py314 \
     --config 'format.quote-style = "preserve"' "${copied[@]}"
@@ -70,11 +70,11 @@ step "zig build test"
 "$ZIG" build test --summary all
 
 step "setu-build-sync + setu-build-check, setu-guide-sync + setu-guide-check (test/wheel)"
-# What a project using Setu runs: copy Setu's `tools/setu_build.py` and `docs/setu-guide.md` in, then compare.
+# What a project using Setu runs: copy Setu's `tool/setu_build.py` and `doc/setu-guide.md` in, then compare.
 (cd test/wheel && "$ZIG" build setu-build-sync setu-guide-sync && "$ZIG" build setu-build-check setu-guide-check)
 
-step "docs/setu-guide.md"
-"$PY_FT" tools/check_guide.py
+step "doc/setu-guide.md"
+"$PY_FT" tool/check_guide.py
 
 step "zig build develop"
 "$ZIG" build develop # test/setu_classes.so: one binary for every interpreter below
@@ -90,12 +90,12 @@ for py in "$PY316_FT" "$PY316_GIL"; do
 done
 for py in "${pythons[@]}"; do
     step "$py"
-    "$py" tools/check_abi.py
-    "$ZIG" build check-symbols -Dpython="$py" # tools/check_symbols.py, as `addSymbolCheck` runs it
+    "$py" tool/check_abi.py
+    "$ZIG" build check-symbols -Dpython="$py" # tool/check_symbols.py, as `addSymbolCheck` runs it
     "$py" -m pytest "${PYTEST_ARGS[@]}"
-    "$py" tools/check_wheels.py --all # glibc + musl, installed and imported here
-    "$py" tools/check_wheels.py       # `build_wheel` (PEP 517)
-    "$py" tools/check_docs.py         # the docs site of test/docs/: built, served, every example run
+    "$py" tool/check_wheel.py --all # glibc + musl, installed and imported here
+    "$py" tool/check_wheel.py       # `build_wheel` (PEP 517)
+    "$py" tool/check_doc.py         # the docs site of test/doc/: built, served, every example run
 done
 
 step "mypy --strict + stubtest ($PY_FT)"

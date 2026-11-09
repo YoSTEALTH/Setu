@@ -1,24 +1,24 @@
 '''Documentation site for a Zig + Setu extension: static HTML built from the imported module's docstrings (the
 `///` docs Setu turns into them), Markdown pages of the project, and a runner for the `>>>` examples.
 
-Kept in Setu (`tools/setu_docs.py`) and copied unchanged into each project that uses Setu
+Kept in Setu (`tool/setu_docs.py`) and copied unchanged into each project that uses Setu
 (`zig build setu-docs-sync` / `setu-docs-check`, see `addSetuDocsSteps` in Setu's `build.zig`). Project settings
 go in `pyproject.toml`, never in a copy. Python standard library only; the site's behaviour (search, Run, the ◐ menu,
-Copy, the repository facts, the source views) is Zig compiled to WebAssembly (Setu's `tools/setu_docs_web.zig`, built
+Copy, the repository facts, the source views) is Zig compiled to WebAssembly (Setu's `tool/setu_docs_web.zig`, built
 by the project's `zig build docs-web`), and `app.js` is a fixed loop that runs the module's commands. The HTML has
 every element those need, hidden, and is the page as it is without the module: `file://` pages can not load
 `.wasm`, so served the site has search, Run and the rest; from disk it is the static HTML.
 
 Usage (after `zig build develop`, from the project root)
-    python3 tools/setu_docs.py                    # build the site into `out` (runs `zig build docs-web`)
-    python3 tools/setu_docs.py build --out DIR    # ... somewhere else
-    python3 tools/setu_docs.py serve              # serve it on http://127.0.0.1:8000, Run buttons enabled
-    python3 tools/setu_docs.py run read           # run the `read` example, print the session
-    python3 tools/setu_docs.py run read:2         # ... only its second `Example` block
-    python3 tools/setu_docs.py run --json File.read
-    python3 tools/setu_docs.py run example/hi.py  # run an example script
-    python3 tools/setu_docs.py check              # run every example, report mismatches
-    python3 tools/setu_docs.py --config other/pyproject.toml build
+    python3 tool/setu_docs.py                    # build the site into `out` (runs `zig build docs-web`)
+    python3 tool/setu_docs.py build --out DIR    # ... somewhere else
+    python3 tool/setu_docs.py serve              # serve it on http://127.0.0.1:8000, Run buttons enabled
+    python3 tool/setu_docs.py run read           # run the `read` example, print the session
+    python3 tool/setu_docs.py run read:2         # ... only its second `Example` block
+    python3 tool/setu_docs.py run --json File.read
+    python3 tool/setu_docs.py run example/hi.py  # run an example script
+    python3 tool/setu_docs.py check              # run every example, report mismatches
+    python3 tool/setu_docs.py --config other/pyproject.toml build
 
 The settings, in `pyproject.toml` (paths relative to it):
 
@@ -30,28 +30,28 @@ The settings, in `pyproject.toml` (paths relative to it):
     version = 'build.zig.zon'       # optional: show its `.version` (default: the module's `__version__`)
     summary = 'io_uring for Python' # optional: the home page's lead and `llms.txt`'s summary
     out = 'site'                    # optional: where the site goes (the default)
-    home = 'docs/index.md'          # optional: the home page's text (default: the module docstring)
-    css = 'docs/extra.css'          # optional: appended to `style.css` (colors: `--accent`, ...)
-    favicon = 'docs/icon.svg'       # optional: the tab icon (`.svg`, `.png`, `.ico`; default: the name's letter)
+    home = 'doc/index.md'          # optional: the home page's text (default: the module docstring)
+    css = 'doc/extra.css'          # optional: appended to `style.css` (colors: `--accent`, ...)
+    favicon = 'doc/icon.svg'       # optional: the tab icon (`.svg`, `.png`, `.ico`; default: the name's letter)
     edit = 'https://github.com/me/pkg/edit/dev/'  # optional: an Edit link on Markdown pages (+ the file)
     repo = 'https://github.com/me/pkg'  # optional: the header's repository link (default: from `[project.urls]`)
     scripts = 'example'             # optional: runnable example scripts, a page of their own
     scripts_skip = ['server.py']    # optional: scripts shown but not run
     featured = 'example/hi.py'      # optional: a script on the home page, with a Run box
     runner = 'asyncio:run'          # optional: runs a coroutine an example statement returns (the default)
-    hooks = 'tools/docs_hooks.py'   # optional: fixtures and tables for the examples (below)
+    hooks = 'tool/doc_hook.py'   # optional: fixtures and tables for the examples (below)
     serial = true                   # optional: the server runs one example at a time (the default)
     timeout = 20                    # optional: seconds an example may take
     coverage = 'zig-out/coverage.json'  # optional: a Coverage page from `zig build coverage`'s result (below)
-    coverage_history = 'docs/coverage-history.json'  # optional: its history chart (`zig build coverage`'s `.history`)
+    coverage_history = 'doc/coverage-history.json'  # optional: its history chart (`zig build coverage`'s `.history`)
     coverage_runs = false           # optional: no per-interpreter counts under a file where the runs differ (true)
     session_prompt = 'sh> '         # optional: a plain / `text` code block whose lines start with it is a shell session
-    page_scripts = ['docs/listen.js']  # optional: scripts copied to the site's root, loaded (`defer`) by every page
+    page_scripts = ['doc/listen.js']  # optional: scripts copied to the site's root, loaded (`defer`) by every page
     listen = true                   # optional: a Listen bar (read the page aloud) on the home and Markdown pages
     profile = 'zig-out/profile.json'    # optional: a Profile page (`serve` only) from `zig build profile` (below)
 
     [[tool.setu_docs.markdown]]     # Markdown pages, in nav order
-    file = 'docs/install.md'
+    file = 'doc/install.md'
     title = 'Install'
     section = 'Guide'               # optional: a nav heading (consecutive pages with one share it)
     slug = 'install'                # optional: the page name (default: the file's stem)
@@ -88,7 +88,7 @@ The settings, in `pyproject.toml` (paths relative to it):
 
 A project with no Python module (a Zig one) leaves out `module` and gives `name`: the site is its Markdown pages
 (`home`, `markdown`), `static` folders, Coverage, search and the llms text; no `path`, `stub`, `runner`, `hooks` or
-`pages`. The settings can be any TOML file with this table (`--config docs/site.toml`), not only `pyproject.toml`.
+`pages`. The settings can be any TOML file with this table (`--config doc/site.toml`), not only `pyproject.toml`.
 
 The footer also reads `[project]`: `urls.Homepage` (the name links to it; else to the repository below) and
 `requires-python` (`>=3.14` shows as `CPython 3.14+`); each is left out when missing. The header's top right links
@@ -135,7 +135,7 @@ again. Setu numbers the headers in the docstring (`help()` shows `Example #1`, `
 `Example`); the page and the Markdown show them as written. `run Sqe` runs every block, `run Sqe:2` the one headed
 `Example #2`.
 
-The Coverage page (`coverage`: the JSON of Setu's `tools/check_coverage.py`, merged over the interpreters it ran)
+The Coverage page (`coverage`: the JSON of Setu's `tool/check_coverage.py`, merged over the interpreters it ran)
 shows the line coverage of the project's Zig code under its tests, a section per owner: the project's files (a
 donut, with `coverage_history` (`check_coverage.py --history`) a chart of its own lines per version beside it,
 a row per file, lowest first; where the interpreters ran different lines of a file, each one's count), then each
@@ -154,7 +154,7 @@ navigation and the footer are skipped, a table row is read as `Label: text. Labe
 the bar stays hidden without `docs.wasm` or speech voices. `session_prompt` and `page_scripts` are settings for
 projects whose pages need a prompt of their own or a script of their own.
 
-The Profile page (`profile`: the JSON of Setu's `tools/check_profile.py`) shows the instructions one call of each case
+The Profile page (`profile`: the JSON of Setu's `tool/check_profile.py`) shows the instructions one call of each case
 costs (callgrind): a row per case, a bar per interpreter, its dark part the extension's own code. A click on a case
 shows, under it, the extension's files the call runs in, costliest first, each file's source Zig highlighted, every
 costly line with its instructions per call and shaded by them (`docs.wasm` renders it), scrolled to the costliest. It
@@ -457,7 +457,7 @@ class Project:
         if 'hooks' not in self.config:
             return None
         path = self.root / self.config['hooks']
-        spec = importlib.util.spec_from_file_location(f'_setu_docs_hooks_{path.stem}', path)
+        spec = importlib.util.spec_from_file_location(f'_setu_doc_hook_{path.stem}', path)
         hooks = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hooks)
         return hooks
@@ -1007,7 +1007,7 @@ class Site:
             self.coverage = json.loads(path.read_text())
             keys = {'total', 'interpreters', 'files'}
             if not isinstance(self.coverage, dict) or not keys <= self.coverage.keys() <= keys | {'commit'}:
-                fail(f'`coverage`: {path} is not a result of `tools/check_coverage.py`')
+                fail(f'`coverage`: {path} is not a result of `tool/check_coverage.py`')
             self.coverage_date = datetime.datetime.fromtimestamp(path.stat().st_mtime).strftime('%Y-%m-%d %H:%M')
         self.coverage_history = []  # `coverage_history`'s runs, oldest first
         if (
@@ -1023,7 +1023,7 @@ class Site:
                 and ('own' not in r or isinstance(r['own'], list) and len(r['own']) == 2)
                 for r in runs
             ):
-                fail(f'`coverage_history`: {path} is not a `--history` file of `tools/check_coverage.py`')
+                fail(f'`coverage_history`: {path} is not a `--history` file of `tool/check_coverage.py`')
             self.coverage_history = runs
         self.statics = []  # `static`: (its folder, `at`, `title`)
         for static in project.config.get('static', ()):
@@ -1044,7 +1044,7 @@ class Site:
         if 'profile' in config and (path := self.project.root / config['profile']).is_file():
             self.profile = json.loads(path.read_text())
             if not isinstance(self.profile, dict) or self.profile.keys() != {'number', 'interpreters', 'sources'}:
-                fail(f'`profile`: {path} is not a result of `tools/check_profile.py`')
+                fail(f'`profile`: {path} is not a result of `tool/check_profile.py`')
             self.profile_date = datetime.datetime.fromtimestamp(path.stat().st_mtime).strftime('%Y-%m-%d %H:%M')
 
     # -- inline text
@@ -1698,7 +1698,7 @@ if (p && {THEME_NAMES!r}.includes(p)) r.dataset.palette = p; }} catch (e) {{}}</
 <div class="wrap">
 <main>
 {body}
-<footer>Generated by <code>tools/setu_docs.py</code> from the {source} of {footer_name} {version}{python}.</footer>
+<footer>Generated by <code>tool/setu_docs.py</code> from the {source} of {footer_name} {version}{python}.</footer>
 </main>
 <nav class="side">
 <div class="pages">{self.nav(current)}</div>
@@ -2422,7 +2422,7 @@ def profile_bar(result, top):
 
 
 def build_wasm(root, dest):
-    '''Build the site's Wasm module (`zig build docs-web` in `root`, from Setu's `tools/setu_docs_web.zig`)
+    '''Build the site's Wasm module (`zig build docs-web` in `root`, from Setu's `tool/setu_docs_web.zig`)
     into `dest`.
 
     Note
@@ -2811,7 +2811,7 @@ THEME_MENU = (
 )
 
 JS = r'''
-// The binding for docs.wasm (Setu's tools/setu_docs_web.zig, `zig build docs-web`), where all of the site's
+// The binding for docs.wasm (Setu's tool/setu_docs_web.zig, `zig build docs-web`), where all of the site's
 // behaviour lives. This is a fixed loop: every call into the module returns a list of commands (its `Op`s, in
 // this order: `ops` below), run here in order; events, fetch answers and timers go back into the module. It knows
 // no element, selector or feature. The page is written for no docs.wasm (opened from disk): without it, nothing

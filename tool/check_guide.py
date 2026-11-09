@@ -1,7 +1,7 @@
-'''Checks that `docs/setu-guide.md` keeps up with the source: every class hook and setting `src/class.zig`
+'''Checks that `doc/setu-guide.md` keeps up with the source: every class hook and setting `src/class.zig`
 knows, every `Module` / `From` field, and every name `src/py.zig` exports for extensions must be mentioned.
 
-    python3 tools/check_guide.py
+    python3 tool/check_guide.py
 
 Note
     - The names `INTERNAL` lists are `py.zig` exports the guide does not cover: the old method-table API
@@ -13,7 +13,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GUIDE = os.path.join(ROOT, 'docs', 'setu-guide.md')
+GUIDE = os.path.join(ROOT, 'doc', 'setu-guide.md')
 
 INTERNAL = {
     'Param', 'getter', 'methodDef', 'method_end', 'getset_end', 'Constant', 'constants', 'addConstants', 'exportFns',
@@ -58,7 +58,7 @@ def exports(py_zig):
 
 
 def main():
-    guide = read('docs', 'setu-guide.md')
+    guide = read('doc', 'setu-guide.md')
     words = set(re.findall(r'\w+', guide))
     class_zig = read('src', 'class.zig')
     want = {
@@ -72,7 +72,7 @@ def main():
     for m in missing:
         print(f'{GUIDE}: does not mention {m}')
     total = sum(map(len, want.values()))
-    print(f'{total} names checked against docs/setu-guide.md: {"OK" if not missing else f"{len(missing)} missing"}')
+    print(f'{total} names checked against doc/setu-guide.md: {"OK" if not missing else f"{len(missing)} missing"}')
     return 1 if missing else 0
 
 

@@ -1,15 +1,15 @@
 //! zig build develop         build the test extension `setu_classes` (+ its stubs) into test/
 //! zig build test            type-check every declaration, run the comptime unit tests and the tests of
-//!                           tools/setu_docs_web.zig
-//! zig build docs-web        the docs site's Wasm module (tools/setu_docs_web.zig) into zig-out/web/docs.wasm
+//!                           tool/setu_docs_web.zig
+//! zig build docs-web        the docs site's Wasm module (tool/setu_docs_web.zig) into zig-out/web/docs.wasm
 //! zig build coverage        line coverage of the test extension under class_test.py (kcov; arguments
-//!                           after `--` go to pytest), then tools/check_api.py (every public runtime
+//!                           after `--` go to pytest), then tool/check_api.py (every public runtime
 //!                           function of src/ compiled into it)
-//! zig build coverage-zig    line coverage of tools/setu_docs_web.zig's unit tests (kcov)
-//! zig build profile         instructions per call of tools/bench.py's cases, per line (callgrind; needs
+//! zig build coverage-zig    line coverage of tool/setu_docs_web.zig's unit tests (kcov)
+//! zig build profile         instructions per call of tool/bench.py's cases, per line (callgrind; needs
 //!                           -Doptimize=fast -Dcpu=x86_64_v3; arguments after `--` go to check_profile.py)
 //! zig build check-symbols   the test extension's CPython symbols: exported by -Dpython, abi3t on 3.15+
-//!                           (tools/check_symbols.py)
+//!                           (tool/check_symbols.py)
 //!
 //! Options:
 //!   -Dstrip                 drop debug info from the test extension
@@ -21,15 +21,15 @@
 //!
 //! Other projects use it as a dependency: `b.dependency("setu", .{})`, then `.module("setu")`.
 //! Their `build.zig` can also `@import("setu")` for `addStubs` (the extension's `.pyi`, from its root
-//! file's `module`), `addSetuBuildSteps` (keeping their copy of `tools/setu_build.py`, the wheel build
-//! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tools/setu_docs.py`, the documentation
-//! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `docs/setu-guide.md`, the guide
+//! file's `module`), `addSetuBuildSteps` (keeping their copy of `tool/setu_build.py`, the wheel build
+//! backend, the same as Setu's), `addSetuDocsSteps` (the same for `tool/setu_docs.py`, the documentation
+//! site builder, plus its `docs-web` step), `addSetuGuideSteps` (the same for `doc/setu-guide.md`, the guide
 //! to writing an extension), `addCoverageSteps` (its `coverage` step: kcov over the project's pytest, by
-//! `tools/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests),
-//! `addProfileSteps` (its `profile` step: callgrind over the project's cases, by `tools/check_profile.py`),
-//! `addSymbolCheck` (its `check-symbols` step, by `tools/check_symbols.py`) and `ext_suffix`.
+//! `tool/check_coverage.py`), `addZigTestCoverage` (its `coverage-zig` step: kcov over Zig unit tests),
+//! `addProfileSteps` (its `profile` step: callgrind over the project's cases, by `tool/check_profile.py`),
+//! `addSymbolCheck` (its `check-symbols` step, by `tool/check_symbols.py`) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_classes` / `setu_classes.pyi`
-//! (`test/wheel/` packages them with `tools/setu_build.py`, for `tools/check.sh`).
+//! (`test/wheel/` packages them with `tool/setu_build.py`, for `tool/check.sh`).
 
 const std = @import("std");
 
@@ -71,28 +71,28 @@ pub fn build(b: *std.Build) void {
         b.fmt("setu_classes{s}", .{ext_suffix}),
     ).step);
     develop.dependOn(&b.addInstallFileWithDir(setu_pyi, test_dir, "setu_classes.pyi").step);
-    const covered = coverage(b, b.path("tools/check_coverage.py"), setu_test, .{
+    const covered = coverage(b, b.path("tool/check_coverage.py"), setu_test, .{
         .module_name = "setu_classes",
         .include = &.{ b.path("src"), b.path("test") },
         .stub = setu_pyi, // `test_stub_matches_module` reads it next to the extension
         .python = python,
-        .badge = "docs/coverage-badge.json", // the README's badge (from all four interpreters: `--python`)
-        .history = "docs/coverage-history.json", // the docs site's history chart
+        .badge = "doc/coverage-badge.json", // the README's badge (from all four interpreters: `--python`)
+        .history = "doc/coverage-history.json", // the docs site's history chart
     });
     if (covered) |run| {
         // then: every public runtime function of `src/` compiled into `setu_classes` (kcov counts only those)
-        const api = b.addSystemCommand(&.{ python, "tools/check_api.py" });
+        const api = b.addSystemCommand(&.{ python, "tool/check_api.py" });
         api.setCwd(b.path("."));
         api.has_side_effects = true; // reads the run's zig-out/coverage.json
         api.step.dependOn(&run.step);
         b.top_level_steps.get("coverage").?.step.dependOn(&api.step);
     }
-    profile(b, b.path("tools/check_profile.py"), setu_test, .{
+    profile(b, b.path("tool/check_profile.py"), setu_test, .{
         .module_name = "setu_classes",
-        .cases = b.path("tools/bench.py"),
+        .cases = b.path("tool/bench.py"),
         .python = python,
     });
-    symbolCheck(b, b.path("tools/check_symbols.py"), setu_test, .{ .python = python });
+    symbolCheck(b, b.path("tool/check_symbols.py"), setu_test, .{ .python = python });
 
     // Compiled, never linked or run: Setu's functions call libpython, which only the interpreter provides.
     // Analysis type-checks every declaration (`refAllDecls` in each file) and runs the unit tests, which
@@ -105,48 +105,48 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Type-check every declaration, run the comptime and docs-web unit tests");
     test_step.dependOn(&tests.step);
 
-    // The docs site's Wasm module, for the fixture `test/docs/` (`tools/check_docs.py`), and its host tests.
-    const web_source = b.path("tools/setu_docs_web.zig");
+    // The docs site's Wasm module, for the fixture `test/doc/` (`tool/check_doc.py`), and its host tests.
+    const web_source = b.path("tool/setu_docs_web.zig");
     docsWeb(b, web_source);
     const web_tests = b.addTest(.{
         .root_module = b.createModule(.{ .root_source_file = web_source, .target = b.graph.host }),
     });
     test_step.dependOn(&b.addRunArtifact(web_tests).step);
-    zigTestCoverage(b, b.path("tools/check_coverage.py"), web_tests, .{
-        .include = &.{b.path("tools")},
+    zigTestCoverage(b, b.path("tool/check_coverage.py"), web_tests, .{
+        .include = &.{b.path("tool")},
         .python = python,
     });
 }
 
-/// Adds two steps to a project that keeps a copy of Setu's `tools/setu_build.py` (the wheel build
-/// backend) in its own `tools/`: `setu-build-check` (fails unless the copy is the pinned Setu's)
+/// Adds two steps to a project that keeps a copy of Setu's `tool/setu_build.py` (the wheel build
+/// backend) in its own `tool/`: `setu-build-check` (fails unless the copy is the pinned Setu's)
 /// and `setu-build-sync` (writes the pinned Setu's over it, after a Setu bump).
 ///
 /// Example
 ///     >>> // the project's build.zig (`setu` in its build.zig.zon)
 ///     >>> const setu_dep = b.dependency("setu", .{});
 ///     >>> @import("setu").addSetuBuildSteps(b, setu_dep);
-///     $ zig build setu-build-sync    # tools/setu_build.py = the pinned Setu's
-///     $ zig build setu-build-check   # in tools/check.sh: `cmp` fails if they differ
+///     $ zig build setu-build-sync    # tool/setu_build.py = the pinned Setu's
+///     $ zig build setu-build-check   # in tool/check.sh: `cmp` fails if they differ
 pub fn addSetuBuildSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    addCopySteps(b, setu_dep, "tools/setu_build.py", "setu-build");
+    addCopySteps(b, setu_dep, "tool/setu_build.py", "setu-build");
 }
 
-/// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tools/setu_docs.py`:
+/// Like `addSetuBuildSteps`, for a project that builds a documentation site with Setu's `tool/setu_docs.py`:
 /// the steps `setu-docs-check` and `setu-docs-sync`, and `docs-web`, which builds the site's Wasm module
-/// from the pinned Setu's `tools/setu_docs_web.zig` (`setu_docs.py` runs it; the Zig file is not copied).
+/// from the pinned Setu's `tool/setu_docs_web.zig` (`setu_docs.py` runs it; the Zig file is not copied).
 ///
 /// Example
 ///     >>> @import("setu").addSetuDocsSteps(b, setu_dep);
-///     $ zig build setu-docs-sync     # tools/setu_docs.py = the pinned Setu's
-///     $ zig build setu-docs-check    # in tools/check.sh: `cmp` fails if they differ
+///     $ zig build setu-docs-sync     # tool/setu_docs.py = the pinned Setu's
+///     $ zig build setu-docs-check    # in tool/check.sh: `cmp` fails if they differ
 ///     $ zig build docs-web           # zig-out/web/docs.wasm
 pub fn addSetuDocsSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    addCopySteps(b, setu_dep, "tools/setu_docs.py", "setu-docs");
-    docsWeb(b, setu_dep.path("tools/setu_docs_web.zig"));
+    addCopySteps(b, setu_dep, "tool/setu_docs.py", "setu-docs");
+    docsWeb(b, setu_dep.path("tool/setu_docs_web.zig"));
 }
 
-/// The `docs-web` step: `source` (`tools/setu_docs_web.zig`) as a wasm32 module with its `export fn`s,
+/// The `docs-web` step: `source` (`tool/setu_docs_web.zig`) as a wasm32 module with its `export fn`s,
 /// installed as `web/docs.wasm` (`zig-out/web/docs.wasm`, or under `--prefix`).
 fn docsWeb(b: *std.Build, source: std.Build.LazyPath) void {
     const web = b.addExecutable(.{
@@ -164,15 +164,15 @@ fn docsWeb(b: *std.Build, source: std.Build.LazyPath) void {
     step.dependOn(&b.addInstallFileWithDir(web.getEmittedBin(), .{ .custom = "web" }, "docs.wasm").step);
 }
 
-/// Like `addSetuBuildSteps`, for Setu's guide to writing an extension (`docs/setu-guide.md`, what a session
+/// Like `addSetuBuildSteps`, for Setu's guide to writing an extension (`doc/setu-guide.md`, what a session
 /// working on the project's bindings reads): the steps `setu-guide-check` and `setu-guide-sync`.
 ///
 /// Example
 ///     >>> @import("setu").addSetuGuideSteps(b, setu_dep);
-///     $ zig build setu-guide-sync    # docs/setu-guide.md = the pinned Setu's
-///     $ zig build setu-guide-check   # in tools/check.sh: `cmp` fails if they differ
+///     $ zig build setu-guide-sync    # doc/setu-guide.md = the pinned Setu's
+///     $ zig build setu-guide-check   # in tool/check.sh: `cmp` fails if they differ
 pub fn addSetuGuideSteps(b: *std.Build, setu_dep: *std.Build.Dependency) void {
-    addCopySteps(b, setu_dep, "docs/setu-guide.md", "setu-guide");
+    addCopySteps(b, setu_dep, "doc/setu-guide.md", "setu-guide");
 }
 
 /// The `<step>-check` / `<step>-sync` steps for the project's copy of Setu's `path` (the same path there).
@@ -280,17 +280,17 @@ pub const CoverageOptions = struct {
     /// Fail when the total line coverage is lower (percent).
     min: ?f64 = null,
     /// Also write the total (merged over the interpreters run) as a shields.io endpoint file at this path from
-    /// the project root, for a README badge: `"docs/coverage-badge.json"`, committed, read by
+    /// the project root, for a README badge: `"doc/coverage-badge.json"`, committed, read by
     /// `https://img.shields.io/endpoint?url=<its raw URL>`.
     badge: ?[]const u8 = null,
     /// Also keep the totals (and the project's own files', no dependency's: what the chart plots) per project
     /// version (`build.zig.zon`'s `.version`) in this file from the project root, for the docs site's history chart
-    /// (`coverage_history`): `"docs/coverage-history.json"`, committed; a run sets its version's entry.
+    /// (`coverage_history`): `"doc/coverage-history.json"`, committed; a run sets its version's entry.
     history: ?[]const u8 = null,
 };
 
 /// The step `coverage`: line coverage of the extension `ext`'s Zig code under the project's pytest, by kcov.
-/// It runs Setu's `tools/check_coverage.py` from the pinned Setu in the project's root on `ext` as built: pytest
+/// It runs Setu's `tool/check_coverage.py` from the pinned Setu in the project's root on `ext` as built: pytest
 /// with the extension loaded first, a per-file table, the result in `zig-out/coverage.json`.
 ///
 /// Note
@@ -321,10 +321,10 @@ pub fn addCoverageSteps(
     ext: *std.Build.Step.Compile,
     options: CoverageOptions,
 ) void {
-    _ = coverage(b, setu_dep.path("tools/check_coverage.py"), ext, options);
+    _ = coverage(b, setu_dep.path("tool/check_coverage.py"), ext, options);
 }
 
-/// `addCoverageSteps` with Setu's `tools/check_coverage.py` given (Setu's own build has no dependency). The run
+/// `addCoverageSteps` with Setu's `tool/check_coverage.py` given (Setu's own build has no dependency). The run
 /// (null when `ext` can not be measured).
 fn coverage(
     b: *std.Build,
@@ -372,14 +372,14 @@ pub const ZigTestCoverageOptions = struct {
     include: []const std.Build.LazyPath,
     /// The step's name; the result is `zig-out/<step_name>.json`.
     step_name: []const u8 = "coverage-zig",
-    /// The interpreter that runs `tools/check_coverage.py` (no pytest needed).
+    /// The interpreter that runs `tool/check_coverage.py` (no pytest needed).
     python: []const u8 = "python3",
     /// Fail when the total line coverage is lower (percent).
     min: ?f64 = null,
 };
 
 /// The step `coverage-zig` (`options.step_name`): line coverage of Zig unit tests, by kcov. It runs `tests`
-/// (a `b.addTest`) under kcov with Setu's `tools/check_coverage.py --exe`, prints the per-file table and writes
+/// (a `b.addTest`) under kcov with Setu's `tool/check_coverage.py --exe`, prints the per-file table and writes
 /// `zig-out/coverage-zig.json`, in the format of `addCoverageSteps`' `coverage.json`.
 ///
 /// Note
@@ -399,10 +399,10 @@ pub fn addZigTestCoverage(
     tests: *std.Build.Step.Compile,
     options: ZigTestCoverageOptions,
 ) void {
-    zigTestCoverage(b, setu_dep.path("tools/check_coverage.py"), tests, options);
+    zigTestCoverage(b, setu_dep.path("tool/check_coverage.py"), tests, options);
 }
 
-/// `addZigTestCoverage` with Setu's `tools/check_coverage.py` given (Setu's own build has no dependency).
+/// `addZigTestCoverage` with Setu's `tool/check_coverage.py` given (Setu's own build has no dependency).
 fn zigTestCoverage(
     b: *std.Build,
     runner: std.Build.LazyPath,
@@ -431,11 +431,11 @@ fn zigTestCoverage(
 
 /// What `addSymbolCheck` takes.
 pub const SymbolCheckOptions = struct {
-    /// The interpreter to check against (it runs `tools/check_symbols.py`): run the step once per interpreter.
+    /// The interpreter to check against (it runs `tool/check_symbols.py`): run the step once per interpreter.
     python: []const u8 = "python3",
 };
 
-/// The step `check-symbols`: Setu's `tools/check_symbols.py` on `ext` as built, with `options.python`. Every
+/// The step `check-symbols`: Setu's `tool/check_symbols.py` on `ext` as built, with `options.python`. Every
 /// CPython symbol the extension imports must be exported by that interpreter and, on 3.15+, be in the stable ABI
 /// for free-threading (abi3t), so the one binary keeps loading on every version.
 ///
@@ -455,10 +455,10 @@ pub fn addSymbolCheck(
     ext: *std.Build.Step.Compile,
     options: SymbolCheckOptions,
 ) void {
-    symbolCheck(b, setu_dep.path("tools/check_symbols.py"), ext, options);
+    symbolCheck(b, setu_dep.path("tool/check_symbols.py"), ext, options);
 }
 
-/// `addSymbolCheck` with Setu's `tools/check_symbols.py` given (Setu's own build has no dependency).
+/// `addSymbolCheck` with Setu's `tool/check_symbols.py` given (Setu's own build has no dependency).
 fn symbolCheck(
     b: *std.Build,
     runner: std.Build.LazyPath,
@@ -481,14 +481,14 @@ pub const ProfileOptions = struct {
     /// The extension is its package's `__init__.so` (`liburing/__init__.so`): the profiled build is put there too.
     package: bool = false,
     /// The cases: a Python file with `CASES`, a list of `(label, statement)`, and `namespace(module)`, the names
-    /// the statements use (Setu's `tools/bench.py` is one).
+    /// the statements use (Setu's `tool/bench.py` is one).
     cases: std.Build.LazyPath,
-    /// The interpreter that runs `tools/check_profile.py` (and the cases; more with `-- --python <path>`).
+    /// The interpreter that runs `tool/check_profile.py` (and the cases; more with `-- --python <path>`).
     python: []const u8 = "python3",
 };
 
 /// The step `profile`: instructions per call of each case (a statement calling into the extension `ext`), in total
-/// and per line of its Zig code, by callgrind. It runs Setu's `tools/check_profile.py` on `ext` as built, prints a
+/// and per line of its Zig code, by callgrind. It runs Setu's `tool/check_profile.py` on `ext` as built, prints a
 /// table per interpreter and writes `zig-out/profile.json`; with `--baseline <an earlier one>` it shows each case's
 /// change and fails when one grew.
 ///
@@ -496,7 +496,7 @@ pub const ProfileOptions = struct {
 ///     - Needs valgrind (3.25 tested); `ext.root_module` optimized (not Debug), with debug info, for a CPU without
 ///       AVX-512 (valgrind can not run it): `-Doptimize=fast -Dcpu=x86_64_v3` (else the step fails); a project with
 ///       a `preferred_optimize_mode` takes `-Drelease` instead (`--release=fast` works for both).
-///     - Counts instructions, not time: exact on every run, so a change of 1 per call shows. `tools/bench.py`
+///     - Counts instructions, not time: exact on every run, so a change of 1 per call shows. `tool/bench.py`
 ///       times the same cases.
 ///     - After `--`: the runner's `-k <text>` / `--lines <k>` (each case's costliest lines) / `--python <path>`
 ///       (that interpreter too; repeatable) / `--baseline <json>` / `--tolerance <n>` (default 2) / `--json <file>`.
@@ -505,7 +505,7 @@ pub const ProfileOptions = struct {
 ///     >>> @import("setu").addProfileSteps(b, setu_dep, ext, .{
 ///     >>>     .module_name = "liburing",
 ///     >>>     .package = true, // liburing/__init__.so
-///     >>>     .cases = b.path("tools/bench_cases.py"),
+///     >>>     .cases = b.path("tool/bench_cases.py"),
 ///     >>> });
 ///     $ zig build profile -Doptimize=fast -Dcpu=x86_64_v3                  # the table; zig-out/profile.json
 ///     $ zig build profile -Doptimize=fast -Dcpu=x86_64_v3 -- -k recv --lines 8
@@ -517,10 +517,10 @@ pub fn addProfileSteps(
     ext: *std.Build.Step.Compile,
     options: ProfileOptions,
 ) void {
-    profile(b, setu_dep.path("tools/check_profile.py"), ext, options);
+    profile(b, setu_dep.path("tool/check_profile.py"), ext, options);
 }
 
-/// `addProfileSteps` with Setu's `tools/check_profile.py` given (Setu's own build has no dependency).
+/// `addProfileSteps` with Setu's `tool/check_profile.py` given (Setu's own build has no dependency).
 fn profile(
     b: *std.Build,
     runner: std.Build.LazyPath,
@@ -556,5 +556,5 @@ fn profile(
 
 /// The extension module's suffix: `<name>.so`, the one name CPython 3.14, 3.14t, 3.15, 3.15t and
 /// later all import (`.abi3.so` is refused by 3.15t, `.abi3t.so` unknown to 3.14). The wheel is
-/// tagged `cp314.cp315-abi3.abi3t.cp314t.cp315t` (`tools/setu_build.py`).
+/// tagged `cp314.cp315-abi3.abi3t.cp314t.cp315t` (`tool/setu_build.py`).
 pub const ext_suffix = ".so";

@@ -1,12 +1,12 @@
-'''Checks `tools/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
-`setu_classes`): run by `tools/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
+'''Checks `tool/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
+`setu_classes`): run by `tool/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
 since every one of them must import the same `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel.
 
-    python3.15t tools/check_wheels.py --all   # the release wheels: glibc + musl
-    python3.14 tools/check_wheels.py          # the PEP 517 `build_wheel` hook
+    python3.15t tool/check_wheel.py --all   # the release wheels: glibc + musl
+    python3.14 tool/check_wheel.py          # the PEP 517 `build_wheel` hook
 
 Note
-    - `test/wheel/tools/setu_build.py` must be there first: `zig build setu-build-sync` (in
+    - `test/wheel/tool/setu_build.py` must be there first: `zig build setu-build-sync` (in
       `test/wheel/`) copies Setu's, the step projects use; `check.sh` runs it and `setu-build-check`.
     - `--all` builds the `[tool.setu_build]` targets of `test/wheel/pyproject.toml`
       (`x86_64-linux-gnu.2.28`, `x86_64-linux-musl`) and checks each wheel's name, `WHEEL` tags,
@@ -27,7 +27,7 @@ import zipfile
 
 SETU = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(SETU, 'test', 'wheel')
-SCRIPT = os.path.join(FIXTURE, 'tools', 'setu_build.py')
+SCRIPT = os.path.join(FIXTURE, 'tool', 'setu_build.py')
 NAME = 'setu_classes'
 VERSION = '1.2.3.post4'  # `test/wheel/build.zig.zon` `1.2.3-4`, in its PEP 440 form
 # `--all`: platform tag -> the libc the extension must link
@@ -39,7 +39,7 @@ TAG = 'cp314.cp315-abi3.abi3t.cp314t.cp315t'  # every wheel: CPython 3.14+, with
 
 
 def fail(msg):
-    raise SystemExit(f'check_wheels: {msg}')
+    raise SystemExit(f'check_wheel: {msg}')
 
 
 def check_wheel(path, platform):
@@ -180,7 +180,7 @@ def main():
         elif sys.argv[1:] == []:
             check_hook(out)
         else:
-            fail('usage: check_wheels.py [--all]')
+            fail('usage: check_wheel.py [--all]')
 
 
 if __name__ == '__main__':

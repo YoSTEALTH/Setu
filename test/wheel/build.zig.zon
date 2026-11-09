@@ -1,6 +1,6 @@
 .{
     .name = .setu_classes,
-    // what `tools/setu_build.py` puts in the wheel's name and metadata
+    // what `tool/setu_build.py` puts in the wheel's name and metadata
     .version = "1.2.3-4",
     .fingerprint = 0x5f934cb8855ca064,
     .minimum_zig_version = "0.17.0",
@@ -11,7 +11,7 @@
         "build.zig",
         "build.zig.zon",
         "src",
-        "tools",
+        "tool",
         "README.md",
         "LICENSE.txt",
     },

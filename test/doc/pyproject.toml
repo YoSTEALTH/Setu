@@ -1,5 +1,5 @@
-# The docs check's fixture (`tools/check_docs.py`): the site of Setu's test extension `setu_classes`, built with
-# `tools/setu_docs.py` into `site/`. A real project has this table in its own `pyproject.toml`.
+# The docs check's fixture (`tool/check_doc.py`): the site of Setu's test extension `setu_classes`, built with
+# `tool/setu_docs.py` into `site/`. A real project has this table in its own `pyproject.toml`.
 
 # Read for the footer only: the name links to `Homepage`, `requires-python` shows as `CPython 3.14+`.
 [project]
@@ -13,28 +13,28 @@ module = 'setu_classes'
 path = ['..']
 stub = '../setu_classes.pyi'
 summary = "Setu's test extension, as a documentation site."
-home = 'docs/index.md'
-css = 'docs/extra.css'
-favicon = 'docs/icon.svg'
-edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/test/docs/'
+home = 'doc/index.md'
+css = 'doc/extra.css'
+favicon = 'doc/icon.svg'
+edit = 'https://github.com/YoSTEALTH/Setu/edit/dev/test/doc/'
 scripts = 'example'
 scripts_skip = ['forever.py']
 featured = 'example/hi.py'
 listen = true
-hooks = 'docs_hooks.py'
+hooks = 'doc_hook.py'
 # a snapshot, not `zig build coverage`'s result: `example/` is the project's own folder, `setu/` a dependency
 coverage = 'coverage.json'
 coverage_history = 'coverage-history.json'  # three versions, by hand
-# a snapshot, not `zig build profile`'s result: a source the site reads (`../functions.zig`), one it does not find
+# a snapshot, not `zig build profile`'s result: a source the site reads (`../function.zig`), one it does not find
 profile = 'profile.json'
 
 [[tool.setu_docs.markdown]]
-file = 'docs/guide.md'
+file = 'doc/guide.md'
 title = 'Guide'
 section = 'Guide'
 
 [[tool.setu_docs.markdown]]
-file = 'docs/tour.md'
+file = 'doc/tour.md'
 title = 'Tour'
 section = 'Guide'
 split = true
@@ -43,7 +43,7 @@ split = true
 slug = 'functions'
 title = 'Functions'
 text = 'The module functions.'
-sources = ['../functions.zig']
+sources = ['../function.zig']
 
 [[tool.setu_docs.pages]]
 slug = 'classes'

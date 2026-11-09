@@ -1,9 +1,9 @@
-'''Checks `tools/setu_docs.py` on the fixture `test/docs/` (Setu's test extension as a site): docstring and
+'''Checks `tool/setu_docs.py` on the fixture `test/doc/` (Setu's test extension as a site): docstring and
 Markdown rendering, the grouping, the `llms.txt` / `llms-full.txt` text, every example (with the fixture's hooks),
 the site it writes and the server. Standard library only; needs `zig build develop` (the extension and its stub)
 and `zig` (the site's `docs.wasm`).
 
-python3 tools/check_docs.py
+python3 tool/check_doc.py
 '''
 
 import ast
@@ -25,15 +25,15 @@ import urllib.request
 from pathlib import Path
 
 SETU = Path(__file__).resolve().parent.parent
-FIXTURE = SETU / 'test' / 'docs'
-FIXTURE_MD = SETU / 'test' / 'docs_md'  # a module-less site
+FIXTURE = SETU / 'test' / 'doc'
+FIXTURE_MD = SETU / 'test' / 'doc_md'  # a module-less site
 BOX, COPY = '<div class="codebox">', '<button class="copy" type="button" hidden>Copy</button></div>'  # `code_box`
-sys.path.insert(0, str(SETU / 'tools'))
+sys.path.insert(0, str(SETU / 'tool'))
 import setu_docs  # noqa: E402
 
 
 def fail(msg):
-    raise SystemExit(f'check_docs: {msg}')
+    raise SystemExit(f'check_doc: {msg}')
 
 
 def same(what, got, want):
@@ -87,7 +87,7 @@ def check_text():
 
 def check_markdown(site):
     '''Markdown blocks and inline text, as HTML.'''
-    md = (FIXTURE / 'docs' / 'guide.md').resolve()
+    md = (FIXTURE / 'doc' / 'guide.md').resolve()
 
     config = site.project.config
 
@@ -271,7 +271,7 @@ def check_examples(project):
 
 
 def check_split(site, out, files):
-    '''`split = true` (`docs/tour.md`): a page per `##` chapter, listed in the nav under the page, with the text before
+    '''`split = true` (`doc/tour.md`): a page per `##` chapter, listed in the nav under the page, with the text before
     the first chapter and a list of them on the page; Previous / Next links; a link to a heading goes to its chapter.'''
     same(
         'chapters: a code block `##` line is no chapter, headings one level up',
@@ -375,10 +375,7 @@ def check_site(project, out):
         if text not in page:
             fail(f'functions.html lacks {text!r}')
     guide = (out / 'guide.html').read_text()
-    if (
-        'notranslate' in guide
-        or 'href="https://github.com/YoSTEALTH/Setu/edit/dev/test/docs/docs/guide.md"' not in guide
-    ):
+    if 'notranslate' in guide or 'href="https://github.com/YoSTEALTH/Setu/edit/dev/test/doc/doc/guide.md"' not in guide:
         fail('guide.html: an API meta, or no Edit link')
     if 'title="Liburing, 3.15 --tmpl: 501k"' not in guide or 'background: var(--s3)' not in guide:
         fail('guide.html: no chart')
@@ -428,7 +425,7 @@ def check_site(project, out):
     repo = '<a class="repo" href="https://github.com/YoSTEALTH/Setu"'
     if repo not in home or 'data-repo="YoSTEALTH/Setu"' not in home:
         fail('index.html: no repository link from the `[project]` homepage')
-    web = (SETU / 'tools/setu_docs_web.zig').read_text()
+    web = (SETU / 'tool/setu_docs_web.zig').read_text()
     if '"{s}/releases?per_page=10"' not in web or '/releases/latest' in web:
         fail('docs.wasm: the latest release from `releases/latest` (a 404 in the console without releases)')
     external, target = r'<a\b[^>]*href="https?://[^>]*>', r'<a\b[^>]* target='
@@ -441,7 +438,7 @@ def check_site(project, out):
         fail('constants.html: a group is not a `section` with an anchor, or not formatted')
     if '--accent: #1b6fb4' not in (out / 'style.css').read_text():
         fail('style.css: `css` not appended')
-    icon = (project.root / 'docs/icon.svg').read_bytes()
+    icon = (project.root / 'doc/icon.svg').read_bytes()
     if 'favicon.svg' not in files or (out / 'favicon.svg').read_bytes() != icon:
         fail('site: `favicon` not copied to favicon.svg')
     if '<link rel="icon" href="favicon.svg">' not in home:
@@ -498,7 +495,7 @@ def check_site(project, out):
 
 
 # What `app.js` must not use: each is logic (formatting, picking, parsing text, arithmetic), which belongs in
-# `docs.wasm` (tools/setu_docs_web.zig); `app.js` only binds it to the page.
+# `docs.wasm` (tool/setu_docs_web.zig); `app.js` only binds it to the page.
 JS_LOGIC = (
     '% .toFixed( .filter( .find( .sort( .reduce( RegExp .match( .replace( .test( .slice( .substring( '
     'parseInt parseFloat toLocaleString'
@@ -533,15 +530,15 @@ JS_STRINGS = {
 
 def check_js_binding():
     '''`app.js` is only the loop that runs `docs.wasm`'s commands: none of `JS_LOGIC` in its code (comments aside),
-    no string but `JS_STRINGS`, and an entry in `ops` per `Op` of `tools/setu_docs_web.zig`, in its order.'''
+    no string but `JS_STRINGS`, and an entry in `ops` per `Op` of `tool/setu_docs_web.zig`, in its order.'''
     code = re.sub(r'^\s*//.*$|\s//.*$', '', setu_docs.JS, flags=re.M)
     found = [x for x in JS_LOGIC if x in code]
     if found:
-        fail(f'app.js: logic belongs in docs.wasm (tools/setu_docs_web.zig), not app.js: {found}')
+        fail(f'app.js: logic belongs in docs.wasm (tool/setu_docs_web.zig), not app.js: {found}')
     strings = set(re.findall(r"'((?:[^'\\]|\\.)*)'", code)) - JS_STRINGS
     if strings:
         fail(f'app.js: names an element or a feature (docs.wasm does): {sorted(strings)}')
-    web = (SETU / 'tools/setu_docs_web.zig').read_text()
+    web = (SETU / 'tool/setu_docs_web.zig').read_text()
     enum = re.search(r'pub const Op = enum\(u8\) \{(.*?)\n\};', web, re.S).group(1)
     ops = re.findall(r'^    (\w+),$', enum, re.M)
     entries = re.findall(r'^      \(\) => .*?// (\w+)', setu_docs.JS, re.M)
@@ -614,7 +611,7 @@ def select(found, selector):
 def check_selectors(out):
     '''Every selector `docs.wasm` binds matches on the fixture's pages, and the groups that go together (a row, its
     view, its `<pre>`; a Run box's parts; a code block and its Copy button) are as many on each page.'''
-    web = (SETU / 'tools/setu_docs_web.zig').read_text()
+    web = (SETU / 'tool/setu_docs_web.zig').read_text()
     unquote = lambda text: text.replace('\\"', '"')  # noqa: E731
     top = re.findall(r'\.\{ el\.\w+, "([#.][^"]*)" \}', web)  # `bind`'s list in `begin`
     top += re.findall(r'bindAll\(el\.document, \.(\w+), "((?:[^"\\]|\\.)*)"', web)
@@ -639,15 +636,15 @@ def check_selectors(out):
 
 def check_app(out):
     '''The site's `app.js` and `docs.wasm` in deno, against a recording stand-in for the browser
-    (`test/docs/app_test.js`): what the page saw is `test/docs/app_test.txt`.'''
+    (`test/doc/app_test.js`): what the page saw is `test/doc/app_test.txt`.'''
     deno = shutil.which('deno')
     if not deno:
-        fail('deno not found: it runs test/docs/app_test.js (https://deno.com)')
+        fail('deno not found: it runs test/doc/app_test.js (https://deno.com)')
     run = subprocess.run([deno, 'run', '--allow-read', str(FIXTURE / 'app_test.js'), str(out)],
                          capture_output=True, text=True, timeout=60)  # fmt: skip
     if run.returncode:
-        fail(f'test/docs/app_test.js failed:\n{run.stderr}')
-    same('test/docs/app_test.js: what the page saw', run.stdout, (FIXTURE / 'app_test.txt').read_text())
+        fail(f'test/doc/app_test.js failed:\n{run.stderr}')
+    same('test/doc/app_test.js: what the page saw', run.stdout, (FIXTURE / 'app_test.txt').read_text())
 
 
 def check_version():
@@ -683,7 +680,7 @@ def check_site_settings(project, site, out):
         '<span class="pr">sh&gt; </span><span class="fn">zig</span> build\n<span class="com"># note</span>\n'
         '<span class="out">Built &lt;x&gt;</span>'
     )
-    config.update(coverage_runs=False, session_prompt='sh> ', page_scripts=['docs/icon.svg'])
+    config.update(coverage_runs=False, session_prompt='sh> ', page_scripts=['doc/icon.svg'])
     try:
         site.write(out)
         if 'class="runs"' in (out / 'coverage.html').read_text():
@@ -699,7 +696,7 @@ def check_site_settings(project, site, out):
         if not re.search(r'<script src="app.js"></script>\s*<script src="icon.svg" defer></script>\s*</body>',
                          (out / 'index.html').read_text()):  # fmt: skip
             fail('page_scripts: not loaded after app.js with `defer`')
-        if (out / 'icon.svg').read_bytes() != (project.root / 'docs/icon.svg').read_bytes():
+        if (out / 'icon.svg').read_bytes() != (project.root / 'doc/icon.svg').read_bytes():
             fail('page_scripts: not copied to the site root')
     finally:
         for key in ('coverage_runs', 'session_prompt', 'page_scripts'):
@@ -798,7 +795,7 @@ def check_coverage_page(project, out):
 def check_coverage_history(project):
     '''`coverage_history`: a version's entry set in place or added (`check_coverage.py --history`), the file one entry
     per line; the chart of one run; a missing file no chart, a file of another kind refused.'''
-    sys.path.insert(0, str(SETU / 'tools'))
+    sys.path.insert(0, str(SETU / 'tool'))
     import check_coverage
 
     one = check_coverage.history(None, '1.0', 9, 10, (9, 10), [('3.15', 9, 10)])
@@ -854,7 +851,7 @@ def check_coverage_commit(project):
             same('coverage: a `commit` read', setu_docs.Site(project).coverage.get('commit'), 'abc123')
         finally:
             project.config['coverage'] = snapshot
-    sys.path.insert(0, str(SETU / 'tools'))
+    sys.path.insert(0, str(SETU / 'tool'))
     import check_coverage
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -923,16 +920,16 @@ def check_profile_page(project, out):
         'profile.html: the first case\'s files (a heading and an empty `<pre>` each)',
         files,
         [
-            ('test/functions.zig', '30.0 per call', 'source/test/functions.zig', '0:2.0,25:8.0,26:20.0'),
+            ('test/function.zig', '30.0 per call', 'source/test/function.zig', '0:2.0,25:8.0,26:20.0'),
             ('setu/src/args.zig', '20.0 per call', '', '90:20.0'),
         ],
     )  # fmt: skip
     if '<td colspan="3">' not in rows[0]:
         fail('profile.html: the view\'s cell does not span the case and the 2 interpreters')
-    if site.sources.get('test/functions.zig', Path()).resolve() != (project.root / '../functions.zig').resolve():
-        fail(f'profile.html: source/test/functions.zig not served from its source ({site.sources})')
-    if (out / 'source/test/functions.zig').exists():
-        fail('site: source/test/functions.zig copied by `build` (only the Profile page shows it)')
+    if site.sources.get('test/function.zig', Path()).resolve() != (project.root / '../function.zig').resolve():
+        fail(f'profile.html: source/test/function.zig not served from its source ({site.sources})')
+    if (out / 'source/test/function.zig').exists():
+        fail('site: source/test/function.zig copied by `build` (only the Profile page shows it)')
     check_profile_paths()
     project.config['profile'], snapshot = 'missing.json', project.config['profile']
     try:
@@ -954,7 +951,7 @@ def check_profile_paths():
     page does), not through the project with `..`, which the Profile page's `source/<path>` could not fetch, nor as
     the fetched copy in the project's `zig-pkg/<name>-<hash>/`, which the Coverage page would take for the
     project's own.'''
-    sys.path.insert(0, str(SETU / 'tools'))
+    sys.path.insert(0, str(SETU / 'tool'))
     import check_coverage
     import check_profile
 
@@ -985,7 +982,7 @@ def check_server(project):
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         port = s.getsockname()[1]
-    cmd = [sys.executable, str(SETU / 'tools' / 'setu_docs.py'), '--config', str(project.pyproject), 'serve',
+    cmd = [sys.executable, str(SETU / 'tool' / 'setu_docs.py'), '--config', str(project.pyproject), 'serve',
            '--port', str(port)]  # fmt: skip
     env = {**os.environ, 'PYTHONPATH': os.pathsep.join(project.path)}
     server = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
@@ -1004,9 +1001,9 @@ def check_server(project):
             fail('the server does not serve the site')
         if b'<tr class="prof-row"' not in urllib.request.urlopen(f'{base}/profile.html').read():
             fail('the server does not make the Profile page')
-        served = urllib.request.urlopen(f'{base}/source/test/functions.zig').read()
-        if served != (project.root / '../functions.zig').read_bytes():
-            fail('the server does not serve the Profile page\'s source/test/functions.zig')
+        served = urllib.request.urlopen(f'{base}/source/test/function.zig').read()
+        if served != (project.root / '../function.zig').read_bytes():
+            fail('the server does not serve the Profile page\'s source/test/function.zig')
 
         def run(origin, target=b'vec_norm2'):
             request = urllib.request.Request(f'{base}/api/run', target, {'Origin': origin}, method='POST')
@@ -1026,7 +1023,7 @@ def check_server(project):
 
 
 def check_markdown_only(out):
-    """A module-less site (`test/docs_md/`, a Zig project's): Markdown pages, their headings in `search.json`, the
+    """A module-less site (`test/doc_md/`, a Zig project's): Markdown pages, their headings in `search.json`, the
     llms text from them, a `static` folder copied in and in the nav, no API half; the settings it may not have."""
     project = setu_docs.Project(FIXTURE_MD / 'site.toml')
     if (
@@ -1076,7 +1073,7 @@ def check_markdown_only(out):
         fail('module-less llms-full.txt: not the summary, then the home page and the Markdown pages')
     same('first_sentence: none before a list', setu_docs.first_sentence(['', '- a. b']), '')
     site = setu_docs.Site(project)
-    site.markdown_page({'file': 'docs/book.md'}, 'x', 'X', 'Hi. There.')
+    site.markdown_page({'file': 'doc/book.md'}, 'x', 'X', 'Hi. There.')
     same('a Markdown page without `#`: its title searched', site.md_entries, [{'n': 'X', 'h': 'x.html', 'p': 'X',
                                                                                 's': 'Hi.'}])  # fmt: skip
     settings = (FIXTURE_MD / 'site.toml').read_text()
@@ -1086,7 +1083,7 @@ def check_markdown_only(out):
         (("at = 'api'", "at = 'source'"), 'not a free folder name'),
         (("at = 'api'", "at = '../up'"), 'not a free folder name'),
         (("title = 'Zig API'\n", ''), 'exactly `dir`, `at` and `title`'),
-        (("dir = 'api'", "dir = 'docs'"), 'no index.html there'),
+        (("dir = 'api'", "dir = 'doc'"), 'no index.html there'),
     ):
         with tempfile.TemporaryDirectory() as tmp:
             changed = Path(tmp) / 'site.toml'
@@ -1094,7 +1091,7 @@ def check_markdown_only(out):
                 settings.replace(*change).replace("'../../build.zig.zon'", repr(str(SETU / 'build.zig.zon')))
             )
             shutil.copytree(FIXTURE_MD / 'api', Path(tmp) / 'api')
-            shutil.copytree(FIXTURE_MD / 'docs', Path(tmp) / 'docs')
+            shutil.copytree(FIXTURE_MD / 'doc', Path(tmp) / 'doc')
             shutil.copy(FIXTURE_MD / 'index.md', Path(tmp))
             try:
                 setu_docs.Site(setu_docs.Project(changed))

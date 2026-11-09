@@ -38,18 +38,18 @@ src/exception.zig        # setu.Exception: an exception class of the extension
 src/stub.zig             # .pyi text (stub.module writes an extension's whole .pyi)
 src/stubgen.zig          # the stub generator addStubs builds (no libpython)
 test/                    # setu_classes, a test extension with a class per hook family (the model root file)
-test/wheel/              # setu_classes as a project, for the tools/setu_build.py wheel checks
-test/docs/               # setu_classes as a docs site, for the tools/setu_docs.py checks
-test/docs_md/            # a site of Markdown pages only (no Python module), for the same checks
-tools/setu_build.py      # the wheel build backend (PEP 517) projects copy into their tools/
-tools/setu_docs.py       # the docs site builder projects copy into their tools/
-tools/setu_docs_web.zig  # the site's behaviour (WebAssembly, zig build docs-web); app.js only runs it
-tools/check_coverage.py  # line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
+test/wheel/              # setu_classes as a project, for the tool/setu_build.py wheel checks
+test/doc/               # setu_classes as a docs site, for the tool/setu_docs.py checks
+test/doc_md/            # a site of Markdown pages only (no Python module), for the same checks
+tool/setu_build.py      # the wheel build backend (PEP 517) projects copy into their tool/
+tool/setu_docs.py       # the docs site builder projects copy into their tool/
+tool/setu_docs_web.zig  # the site's behaviour (WebAssembly, zig build docs-web); app.js only runs it
+tool/check_coverage.py  # line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
                          # and of Zig unit tests (addZigTestCoverage: zig build coverage-zig)
-tools/check_api.py       # every public runtime function compiled into setu_classes (after zig build coverage)
-tools/check_profile.py   # instructions per call, per Zig line (callgrind), run by zig build profile
+tool/check_api.py       # every public runtime function compiled into setu_classes (after zig build coverage)
+tool/check_profile.py   # instructions per call, per Zig line (callgrind), run by zig build profile
                          # (addProfileSteps)
-tools/check_symbols.py   # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
+tool/check_symbols.py   # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
                          # zig build check-symbols (addSymbolCheck)
 ```
 
@@ -58,23 +58,23 @@ Commands:
 ```sh
 zig build test                        # type-check every declaration + comptime and docs-web unit tests
 zig build develop                     # test extension (setu_classes.so) + stubs into test/
-python3 tools/check_docs.py           # the docs site of test/docs/ (after develop)
-tools/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
-python3 tools/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
+python3 tool/check_doc.py           # the docs site of test/doc/ (after develop)
+tool/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
+python3 tool/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
 zig build coverage -Dpython=python3   # line coverage of the test extension (kcov), zig-out/coverage.json;
-                                      # then tools/check_api.py
+                                      # then tool/check_api.py
 zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call (callgrind), zig-out/profile.json
-python3 tools/setu_docs.py serve       # Setu's docs site (zig-out/site): guide, API, coverage, profile
+python3 tool/setu_docs.py serve       # Setu's docs site (zig-out/site): guide, API, coverage, profile
 ```
 
 ## For AI sessions (and other readers in a hurry)
 
-`llms.txt` is the index to read first; `docs/setu-guide.md` is the guide to writing an extension: the rules,
+`llms.txt` is the index to read first; `doc/setu-guide.md` is the guide to writing an extension: the rules,
 every parameter type, every class hook signature, every compile error Setu raises. A project using Setu keeps a
-copy of the guide at `docs/setu-guide.md` (`zig build setu-guide-sync` / `setu-guide-check`, see
+copy of the guide at `doc/setu-guide.md` (`zig build setu-guide-sync` / `setu-guide-check`, see
 `addSetuGuideSteps`), so a session working on its bindings finds it inside the project.
-`tools/check_guide.py` keeps the guide in step with the source. A project's own docs site gets `llms.txt` and
-`llms-full.txt` for its Python API from `tools/setu_docs.py`.
+`tool/check_guide.py` keeps the guide in step with the source. A project's own docs site gets `llms.txt` and
+`llms-full.txt` for its Python API from `tool/setu_docs.py`.
 
 ## An extension: one `module` declaration
 
@@ -120,14 +120,14 @@ that name; camelCase `pub fn`s are Zig-only helpers. So snake_case function name
 not a slip from Zig's camelCase rule: they are the Python names. Hooks keep their Python names too
 (`__init__`, `__repr__`).
 
-## Wheels: `tools/setu_build.py`
+## Wheels: `tool/setu_build.py`
 
 A PEP 517 build backend (no setuptools) that builds a Zig + Setu extension's wheels with `zig build`.
 A backend must sit in the project's own tree, so each project keeps a byte-identical copy in its
-`tools/`, never edited there: what differs per project goes in `[tool.setu_build]` in its
+`tool/`, never edited there: what differs per project goes in `[tool.setu_build]` in its
 `pyproject.toml` (the keys are listed in the script's docstring). Setu tests the script itself:
-`tools/check.sh` builds the glibc and musl wheels of `test/wheel/` and pip-installs them on every
-interpreter (`tools/check_wheels.py`).
+`tool/check.sh` builds the glibc and musl wheels of `test/wheel/` and pip-installs them on every
+interpreter (`tool/check_wheel.py`).
 
 A project keeps its copy in step with the Setu it pins with two `zig build` steps, from its
 `build.zig` (`setu` must be in its `build.zig.zon`):
@@ -137,30 +137,30 @@ const setu_dep = b.dependency("setu", .{});
 @import("setu").addSetuBuildSteps(b, setu_dep);
 ```
 
-`zig build setu-build-sync` copies the pinned Setu's `tools/setu_build.py` into `tools/` (run it after
+`zig build setu-build-sync` copies the pinned Setu's `tool/setu_build.py` into `tool/` (run it after
 bumping Setu); `zig build setu-build-check` fails if the copy differs (run it in the project's checks).
 
-## Docs site: `tools/setu_docs.py`
+## Docs site: `tool/setu_docs.py`
 
 A static HTML site built by Setu's own builder, Python's standard library only: the API pages from the imported
 module's docstrings (the `///` docs; typed signatures from the `.pyi`), grouped by a `[tool.setu_docs]` table in
 the project's `pyproject.toml` (the keys are in the script's docstring), the project's Markdown pages, the
 constants, its example scripts, `llms.txt` / `llms-full.txt`, and a runner for the `>>>` examples
 (`setu_docs.py check`; project fixtures in a hooks file). Everything the pages do (search, Run, the theme menu,
-Copy, the source views) is Zig compiled to WebAssembly (`tools/setu_docs_web.zig`); `setu_docs.py serve` serves
+Copy, the source views) is Zig compiled to WebAssembly (`tool/setu_docs_web.zig`); `setu_docs.py serve` serves
 the site on 127.0.0.1 with Run buttons that run an example and show its session (only on examples that can run:
 none that read a name nothing defines; the published site has no Run buttons). A Markdown table after a
 `<!-- chart -->` line becomes a colored bar chart (GitHub shows the table). The project keeps a byte-identical copy
-of `setu_docs.py` in `tools/`, like `setu_build.py`, in step with `addSetuDocsSteps` (`zig build setu-docs-sync` /
+of `setu_docs.py` in `tool/`, like `setu_build.py`, in step with `addSetuDocsSteps` (`zig build setu-docs-sync` /
 `setu-docs-check`), which also adds `zig build docs-web` (the Wasm module, from the pinned Setu; `setu_docs.py` runs
 it). A Zig project with no Python module gets the same site from its Markdown pages (no `module`, a `name`; a
-`static` folder such as Zig's autodoc output copied in). `test/docs/` is a working model, `test/docs_md/` a
-module-less one (`tools/check_docs.py`). The workflow runs `zig build develop` (the extension
-and its stub), then `python tools/setu_docs.py` (writes `site/`), and uploads `site/` to GitHub Pages.
+`static` folder such as Zig's autodoc output copied in). `test/doc/` is a working model, `test/doc_md/` a
+module-less one (`tool/check_doc.py`). The workflow runs `zig build develop` (the extension
+and its stub), then `python tool/setu_docs.py` (writes `site/`), and uploads `site/` to GitHub Pages.
 
 ## Releases
 
 Versions are `<year>.<month>.<day>[-<n>]`, no zero padding: `2026.10.20` for a day's first release, then
 `2026.10.20-2`, `2026.10.20-3`, ... Tags are `v<version>` (the `build.zig.zon` version). Each tag's notes say whether
-`tools/setu_build.py` changed since the previous tag: if it did, projects run `zig build setu-build-sync`
-after bumping to it. `git diff --quiet <previous tag> <tag> -- tools/setu_build.py` tells (exit 1: changed).
+`tool/setu_build.py` changed since the previous tag: if it did, projects run `zig build setu-build-sync`
+after bumping to it. `git diff --quiet <previous tag> <tag> -- tool/setu_build.py` tells (exit 1: changed).

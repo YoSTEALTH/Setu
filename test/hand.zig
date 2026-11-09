@@ -1,11 +1,11 @@
-//! `bench_nop` and `bench_recv` of `functions.zig` written by hand against the C API, the way a C extension would:
+//! `bench_nop` and `bench_recv` of `function.zig` written by hand against the C API, the way a C extension would:
 //! `_hand_nop` and `_hand_recv` (the `_` keeps them out of the stub and the docs). `zig build profile` runs both
-//! next to Setu's (`tools/bench.py`), so the instructions per call compare Setu's generated code with code written
+//! next to Setu's (`tool/bench.py`), so the instructions per call compare Setu's generated code with code written
 //! for the job (the performance rule: generated code costs the same as hand-written). Same arguments, keywords and
 //! errors as Setu's, nothing more: `METH_FASTCALL | METH_KEYWORDS`, positional or keyword, ints range-checked.
 
 const setu = @import("setu");
-const classes = @import("classes.zig");
+const classes = @import("class.zig");
 
 const c = setu.c;
 const Object = c.Object;

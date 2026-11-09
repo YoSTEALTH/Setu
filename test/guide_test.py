@@ -1,4 +1,4 @@
-'''The Python sessions of `docs/setu-guide.md` (its `pycon` blocks), run with `doctest` against `setu_classes`.
+'''The Python sessions of `doc/setu-guide.md` (its `pycon` blocks), run with `doctest` against `setu_classes`.
 
 The guide calls the module `pkg`, the reader's package (`from pkg import ...`, `pkg.ExtraError: ...`): each block is
 read with `setu_classes` in its place.
@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-GUIDE = pathlib.Path(__file__).parent.parent / 'docs' / 'setu-guide.md'
+GUIDE = pathlib.Path(__file__).parent.parent / 'doc' / 'setu-guide.md'
 BLOCKS = [
     re.sub(r'^(>>> from |)pkg\b', r'\1setu_classes', b, flags=re.M)
     for b in re.findall(r'^```pycon\n(.*?)^```$', GUIDE.read_text(), re.M | re.S)

@@ -1,8 +1,8 @@
 // The site's `app.js` with the fixture's `docs.wasm`, in deno, against a recording stand-in for the browser, through
-// a fixed script of events: prints what the page saw, one line per call (`tools/check_docs.py` compares it with
+// a fixed script of events: prints what the page saw, one line per call (`tool/check_doc.py` compares it with
 // `app_test.txt`). deno has no DOM: the stand-in answers only the selectors `docs.wasm` asks for, and it covers the
-// command format and the loop; what each feature does is tested in Zig (`tools/setu_docs_web.zig`).
-//     deno run --allow-read test/docs/app_test.js test/docs/site
+// command format and the loop; what each feature does is tested in Zig (`tool/setu_docs_web.zig`).
+//     deno run --allow-read test/doc/app_test.js test/doc/site
 const site = Deno.args[0];
 const log = [];
 const say = line => log.push(line);
@@ -65,7 +65,7 @@ const covRow = el('cov-row', { 'data-src': 'source/example/vec.zig', 'data-hit':
 const covView = el('cov-view', { hidden: '' }), covPre = el('cov-pre', {}, '', covView);
 const profRow = el('prof-row'), profView = el('prof-view', { hidden: '' });
 profView.kids.pre = [
-  el('prof-pre0', { 'data-src': 'source/test/functions.zig', 'data-lines': '25:8.0' }, '', profView),
+  el('prof-pre0', { 'data-src': 'source/test/function.zig', 'data-lines': '25:8.0' }, '', profView),
   el('prof-pre1', { 'data-src': '', 'data-lines': '90:20.0' }, '', profView),
 ];
 // the Listen bar, a paragraph of two sentences and a table row; a speech engine that queues what it is told
@@ -113,7 +113,7 @@ const answers = {
   '/api/run': '{"ok": true, "steps": [{"source": "vec_norm2(Vec(3, 4))", "got": "25", "status": "ok"}]}',
   'https://api.github.com/repos/YoSTEALTH/Setu': '{"stargazers_count": 1250, "forks_count": 3}',
   'https://api.github.com/repos/YoSTEALTH/Setu/releases?per_page=10': '[{"tag_name": "v2026.10.28"}]',
-  'source/test/functions.zig': 'const a = 1;\nconst b = 2;\n',  // a Profile source: `serve` has it, not the site
+  'source/test/function.zig': 'const a = 1;\nconst b = 2;\n',  // a Profile source: `serve` has it, not the site
 };
 const storage = (name, kept) => ({
   getItem: key => kept[key] ?? null,
