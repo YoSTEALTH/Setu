@@ -1,4 +1,4 @@
-'''Times Setu's per-call cost on `setu_classes` (the test extension): the argument shapes Liburing's hot
+'''Times Setu's per-call cost on `setu_class` (the test extension): the argument shapes Liburing's hot
 path uses (`bench_*` in `test/function.zig`: `prep_recv` / `prep_send` with and without a buffer, a
 buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method, `__init__` and a
 large instance's defaults (`Slab()`). With
@@ -7,8 +7,8 @@ large instance's defaults (`Slab()`). With
     python3.15 tool/bench.py                     # this tree, built `-Doptimize=fast` into a temp dir
     python3.15 tool/bench.py --ref HEAD          # A/B: HEAD (a temp worktree) vs this tree
     python3.15 tool/bench.py --ref v2026.10.21 --cpu 2 -k recv
-    python3.15 tool/bench.py --so test/setu_classes.so     # an extension as built, no build
-    python3.15 tool/bench.py --so a/setu_classes.so --so b/setu_classes.so   # A/B of two builds
+    python3.15 tool/bench.py --so test/setu_class.so     # an extension as built, no build
+    python3.15 tool/bench.py --so a/setu_class.so --so b/setu_class.so   # A/B of two builds
 
     for v in 3.15 3.15t 3.14 3.14t; do /opt/python/$v/bin/python3 tool/bench.py --ref HEAD; done
 
@@ -61,7 +61,7 @@ def build(tree, out):
     prefix = os.path.join(out, 'zig-out')  # `develop` installs into `<prefix>/../test`
     cmd = [zig, 'build', 'develop', '-Doptimize=fast', '-p', prefix]
     subprocess.run(cmd, cwd=tree, check=True)
-    return os.path.join(out, 'test', 'setu_classes.so')
+    return os.path.join(out, 'test', 'setu_class.so')
 
 
 def build_name(so):
@@ -72,10 +72,10 @@ def build_name(so):
 
 def load(path, tag):
     '''The extension at `path` as a module of its own (two builds load side by side).'''
-    spec = importlib.util.spec_from_file_location('setu_classes', path)
+    spec = importlib.util.spec_from_file_location('setu_class', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    sys.modules.pop('setu_classes', None)
+    sys.modules.pop('setu_class', None)
     module.__tag__ = tag
     return module
 

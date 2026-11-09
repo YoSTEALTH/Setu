@@ -496,7 +496,7 @@ const sample = struct {
 
 test "paramList: plain parameters, `?T` defaulting to `None`" {
     comptime {
-        const plist = paramList(sample.args_sample_plain, 0, "args_sample_plain", @embedFile("args.zig"));
+        const plist = paramList(sample.args_sample_plain, 0, "args_sample_plain", @embedFile("arg.zig"));
         testing.expectTexts(paramNames(plist), &.{ "fd", "name", "size" });
         testing.expect(plist[0].default == null and plist[1].default == null, "`fd` and `name` required");
         testing.expectText(plist[2].default.?, "None");
@@ -507,7 +507,7 @@ test "paramList: plain parameters, `?T` defaulting to `None`" {
 
 test "paramList: an argument struct's fields, defaults as Python source, `KwOnly`" {
     comptime {
-        const plist = paramList(sample.args_sample_struct, 1, "args_sample_struct", @embedFile("args.zig"));
+        const plist = paramList(sample.args_sample_struct, 1, "args_sample_struct", @embedFile("arg.zig"));
         testing.expectTexts(paramNames(plist), &.{ "path", "flags", "_", "dir_fd", "mode" });
         testing.expectText(plist[0].default.?, "None");
         testing.expectText(plist[1].default.?, "0");
@@ -521,7 +521,7 @@ test "paramList: an argument struct's fields, defaults as Python source, `KwOnly
 
 test "paramList: `Rest` makes the parameters before it positional-only, `Kwargs` takes none" {
     comptime {
-        const plist = paramList(sample.args_sample_rest, 0, "args_sample_rest", @embedFile("args.zig"));
+        const plist = paramList(sample.args_sample_rest, 0, "args_sample_rest", @embedFile("arg.zig"));
         testing.expectTexts(paramNames(plist), &.{ "", "_", "sep" });
         testing.expect(plist[0].kind == .positional_only and leadCount(plist) == 1, "`func` positional-only");
         testing.expect(positionalCount(plist) == 1, "`sep` keyword-only");

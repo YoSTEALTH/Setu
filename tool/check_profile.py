@@ -3,14 +3,14 @@
 exactly (no timing noise), in total and per line of the extension's Zig code. `zig build profile` runs it
 (`addProfileSteps` in `build.zig`) on a fast build of the extension.
 
-    zig build profile -Doptimize=fast -Dcpu=x86_64_v3          # Setu: setu_classes + tool/bench.py's cases
+    zig build profile -Doptimize=fast -Dcpu=x86_64_v3          # Setu: setu_class + tool/bench.py's cases
     zig build profile -Doptimize=fast -Dcpu=x86_64_v3 -- -k recv --lines 8
     zig build profile ... -- --python /opt/python/3.15t/bin/python3      # that interpreter too
     zig build profile ... -- --baseline before.json            # the change per call; fails past --tolerance
-    python3 tool/check_profile.py --name setu_classes --cases tool/bench.py <ext.so>
+    python3 tool/check_profile.py --name setu_class --cases tool/bench.py <ext.so>
 
 Options
-    --name NAME       the name the cases import the extension by: `setu_classes`; `liburing` for a package's
+    --name NAME       the name the cases import the extension by: `setu_class`; `liburing` for a package's
                       `__init__.so` (the path then `.../liburing/__init__.so`)
     --cases FILE      the cases: a Python file with `CASES`, a list of `(label, statement)`, and `namespace(module)`,
                       the names the statements use (a dict); `tool/bench.py` is one
@@ -27,7 +27,7 @@ Options
     --jobs N          valgrind runs at a time (default: half the CPUs)
 
 The `--json` file (instructions per call; paths as `tool/check_coverage.py` shows them: relative to the current
-directory, `setu/src/args.zig` for a Zig package's file, `std/math.zig` for Zig's standard library)
+directory, `setu/src/arg.zig` for a Zig package's file, `std/math.zig` for Zig's standard library)
     {"number": 20000,
      "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "loop": 38.0,
                                "cases": {"bench_nop(v)": {"total": 151.2, "ext": 48.0,
@@ -211,12 +211,12 @@ EXT = None  # the extension's object path, as callgrind names it (set in `main`)
 
 def display(path):
     '''A source path as the report shows it (`shown`, std's files as `std/...`). Normalized first: callgrind names a
-    dependency's file through the project (`<project>/../setu/src/args.zig`), which is `setu/src/args.zig`, not a path
+    dependency's file through the project (`<project>/../setu/src/arg.zig`), which is `setu/src/arg.zig`, not a path
     with `..` (the docs site fetches `source/<path>`, which a browser would resolve elsewhere).'''
     path = os.path.normpath(path)
     cwd = os.getcwd() + os.sep
     if path.startswith(cwd):
-        return shown(path[len(cwd) :])  # a fetched package's file in `zig-pkg/`: `setu/src/args.zig` too
+        return shown(path[len(cwd) :])  # a fetched package's file in `zig-pkg/`: `setu/src/arg.zig` too
     path = shown(path)
     if os.path.isabs(path) and '/std/' in path:
         return 'std/' + path.rpartition('/std/')[2]

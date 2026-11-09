@@ -1,17 +1,17 @@
-# The docs check's fixture (`tool/check_doc.py`): the site of Setu's test extension `setu_classes`, built with
+# The docs check's fixture (`tool/check_doc.py`): the site of Setu's test extension `setu_class`, built with
 # `tool/setu_doc.py` into `site/`. A real project has this table in its own `pyproject.toml`.
 
 # Read for the footer only: the name links to `Homepage`, `requires-python` shows as `CPython 3.14+`.
 [project]
-name = 'setu_classes'
+name = 'setu_class'
 version = '0.0'
 requires-python = '>=3.14'
 urls = { Homepage = 'https://github.com/YoSTEALTH/Setu' }
 
 [tool.setu_doc]
-module = 'setu_classes'
+module = 'setu_class'
 path = ['..']
-stub = '../setu_classes.pyi'
+stub = '../setu_class.pyi'
 summary = "Setu's test extension, as a documentation site."
 home = 'doc/index.md'
 css = 'doc/extra.css'

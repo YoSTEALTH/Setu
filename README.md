@@ -37,19 +37,19 @@ src/class.zig            # setu.Class: a struct becomes a Python type
 src/exception.zig        # setu.Exception: an exception class of the extension
 src/stub.zig             # .pyi text (stub.module writes an extension's whole .pyi)
 src/stubgen.zig          # the stub generator addStubs builds (no libpython)
-test/                    # setu_classes, a test extension with a class per hook family (the model root file)
-test/wheel/              # setu_classes as a project, for the tool/setu_build.py wheel checks
-test/doc/               # setu_classes as a docs site, for the tool/setu_doc.py checks
+test/                    # setu_class, a test extension with a class per hook family (the model root file)
+test/wheel/              # setu_class as a project, for the tool/setu_build.py wheel checks
+test/doc/               # setu_class as a docs site, for the tool/setu_doc.py checks
 test/doc_md/            # a site of Markdown pages only (no Python module), for the same checks
 tool/setu_build.py      # the wheel build backend (PEP 517) projects copy into their tool/
 tool/setu_doc.py       # the docs site builder projects copy into their tool/
 tool/setu_doc_web.zig  # the site's behaviour (WebAssembly, zig build doc-web); app.js only runs it
 tool/check_coverage.py  # line coverage under pytest (kcov), run by zig build coverage (addCoverageSteps)
                          # and of Zig unit tests (addZigTestCoverage: zig build coverage-zig)
-tool/check_api.py       # every public runtime function compiled into setu_classes (after zig build coverage)
+tool/check_api.py       # every public runtime function compiled into setu_class (after zig build coverage)
 tool/check_profile.py   # instructions per call, per Zig line (callgrind), run by zig build profile
                          # (addProfileSteps)
-tool/check_symbols.py   # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
+tool/check_symbol.py   # CPython symbols exported by an interpreter, abi3t on 3.15+, run by
                          # zig build check-symbols (addSymbolCheck)
 ```
 
@@ -57,7 +57,7 @@ Commands:
 
 ```sh
 zig build test                        # type-check every declaration + comptime and doc-web unit tests
-zig build develop                     # test extension (setu_classes.so) + stubs into test/
+zig build develop                     # test extension (setu_class.so) + stubs into test/
 python3 tool/check_doc.py           # the docs site of test/doc/ (after develop)
 tool/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
 python3 tool/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
@@ -109,7 +109,7 @@ const pyi = @import("setu").addStubs(b, setu_dep, .{ .root_source_file = b.path(
 ```
 
 `_`-named declarations, camelCase `pub fn`s, plain structs and lowercase values are skipped; a name
-found twice is a compile error. `src/scan.zig` (top) has the rules, `test/setu_classes.zig` an example of
+found twice is a compile error. `src/scan.zig` (top) has the rules, `test/setu_class.zig` an example of
 each filter (`.only`, `.exclude`, `.prefixes`, `.functions = false`).
 
 ## Naming

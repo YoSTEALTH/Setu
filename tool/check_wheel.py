@@ -1,5 +1,5 @@
 '''Checks `tool/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
-`setu_classes`): run by `tool/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
+`setu_class`): run by `tool/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
 since every one of them must import the same `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel.
 
     python3.15t tool/check_wheel.py --all   # the release wheels: glibc + musl
@@ -28,7 +28,7 @@ import zipfile
 SETU = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(SETU, 'test', 'wheel')
 SCRIPT = os.path.join(FIXTURE, 'tool', 'setu_build.py')
-NAME = 'setu_classes'
+NAME = 'setu_class'
 VERSION = '1.2.3.post4'  # `test/wheel/build.zig.zon` `1.2.3-4`, in its PEP 440 form
 # `--all`: platform tag -> the libc the extension must link
 PLATFORMS = {

@@ -1,6 +1,6 @@
-//! `setu_classes`: the test-only extension module, and Setu's model root file. `module` lists its
+//! `setu_class`: the test-only extension module, and Setu's model root file. `module` lists its
 //! files once: Setu finds their functions, classes, exceptions, constants and `IntEnum`s, creates them
-//! in its `Py_mod_exec` and writes `setu_classes.pyi` from the same declaration (`zig build develop`).
+//! in its `Py_mod_exec` and writes `setu_class.pyi` from the same declaration (`zig build develop`).
 
 const setu = @import("setu");
 const classes = @import("class.zig");
@@ -14,7 +14,7 @@ const Object = c.Object;
 /// The module (`py.exportModule` below, `setu.addStubs` in `build.zig`). Its docstring is the `//!` doc of
 /// `function.zig`, the first entry with a `source`.
 pub const module: setu.Module = .{
-    .name = "setu_classes",
+    .name = "setu_class",
     .version = "0.0",
     .from = &.{
         // classes only, so no `source`; `not_exported` there is dropped by `.functions = false`
@@ -26,7 +26,7 @@ pub const module: setu.Module = .{
     },
     // trampolines the stub generator must drop, not link (as `Secret.read`'s default; see `setu.addStubs`)
     // and `bench_nop` / `bench_recv` written by hand (`hand.zig`), which `zig build profile` compares them with
-    .methods = &(py.exportFns(by_hand, @embedFile("setu_classes.zig")) ++ hand.methods),
+    .methods = &(py.exportFns(by_hand, @embedFile("setu_class.zig")) ++ hand.methods),
     .init = init,
     .stub_extra =
     \\initialized: bool

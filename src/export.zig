@@ -19,7 +19,7 @@ const c = @import("capi.zig");
 const py = @import("py.zig");
 const toPython = @import("convert.zig").toPython;
 const setString = @import("raise.zig").setString;
-const args_zig = @import("args.zig");
+const args_zig = @import("arg.zig");
 const source_zig = @import("source.zig");
 const class_zig = @import("class.zig");
 const scan_zig = @import("scan.zig");
@@ -259,7 +259,7 @@ pub fn constants(comptime M: type) []const Constant {
 ///     >>> point.__version__, point.Point(1, 2).norm2()
 ///     ('1.0', 5)
 pub const Module = struct {
-    /// The module name: the extension file's name without its suffix (`setu_classes`).
+    /// The module name: the extension file's name without its suffix (`setu_class`).
     name: [:0]const u8,
     /// The docstring; `null`: the `//!` doc of the first `from` entry with a `source` (if any).
     doc: ?[:0]const u8 = null,

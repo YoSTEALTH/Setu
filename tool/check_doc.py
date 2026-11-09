@@ -209,9 +209,9 @@ def check_api(project):
 
 def check_llms(project):
     '''`llms.txt` / `llms-full.txt` text from the fixture's stub.'''
-    full = setu_doc.llms_full(project.stub, 'setu_classes')
+    full = setu_doc.llms_full(project.stub, 'setu_class')
     for text in (
-        '# setu_classes\n',
+        '# setu_class\n',
         '\n## @disjoint_base class Vec\n',
         '\n### def __init__(self, x: int = ..., y: int = ...) -> None\n',
         '\n### @property def link(self) -> object\n',
@@ -226,7 +226,7 @@ def check_llms(project):
         if text not in full:
             fail(f'llms-full.txt lacks {text!r}')
     index = setu_doc.llms_index(project.config)
-    for text in ('# setu_classes\n', "> Setu's test extension", '- [Guide](guide.html)', '- [Classes](classes.html):',
+    for text in ('# setu_class\n', "> Setu's test extension", '- [Guide](guide.html)', '- [Classes](classes.html):',
                  'llms-full.txt'):  # fmt: skip
         if text not in index:
             fail(f'llms.txt lacks {text!r}')
@@ -260,7 +260,7 @@ def check_examples(project):
     finally:
         del project.blocks
     result = setu_doc.run_target(project, 'example/hi.py')
-    if not result['ok'] or 'hi from setu_classes' not in result['output']:
+    if not result['ok'] or 'hi from setu_class' not in result['output']:
         fail(f'example/hi.py: {result}')
     for target in ('example/forever.py', '/etc/passwd.py', 'nothing', 'vec_scale:0', 'vec_scale:3', 'vec_scale:x'):
         try:
@@ -414,7 +414,7 @@ def check_site(project, out):
     home = (out / 'index.html').read_text()
     if 'data-target="example/hi.py"' not in home or 'href="guide.html"' not in home:
         fail('index.html: no featured script, or no link to the guide')
-    footer = 'of <a href="https://github.com/YoSTEALTH/Setu" target="_blank" rel="noopener">setu_classes</a> 0.0'
+    footer = 'of <a href="https://github.com/YoSTEALTH/Setu" target="_blank" rel="noopener">setu_class</a> 0.0'
     if f'{footer} (CPython 3.14+).</footer>' not in home:
         fail('index.html: footer without the `[project]` homepage or `requires-python`, or not in a new tab')
     project.homepage, homepage = '', project.homepage
@@ -731,11 +731,11 @@ def check_coverage_page(project, out):
     file, no page.'''
     page = (out / 'coverage.html').read_text()
     for text, why in (
-        ('<h2 id="setu_classes">setu_classes<a', 'no section of the own files'),
-        ('aria-label="setu_classes: 90.0% covered"', 'no donut of the own files'),
+        ('<h2 id="setu_class">setu_class<a', 'no section of the own files'),
+        ('aria-label="setu_class: 90.0% covered"', 'no donut of the own files'),
         ('<h2 id="dep-setu">Setu<a', 'no section of the dependency, by its display name (its pyproject.toml)'),
-        ('aria-label="Setu run by setu_classes&#x27;s tests: 66.7% covered"', 'no donut of the dependency'),
-        ('aria-label="setu_classes + Setu: 81.2% covered"', 'no donut of both'),
+        ('aria-label="Setu run by setu_class&#x27;s tests: 66.7% covered"', 'no donut of the dependency'),
+        ('aria-label="setu_class + Setu: 81.2% covered"', 'no donut of both'),
         ('CPython 3.15 and CPython 3.14', 'not the interpreters'),
         ('CPython 3.14: <b>81.2%</b>, 13 / 16 lines', 'not a run on its own'),
         (
@@ -750,7 +750,7 @@ def check_coverage_page(project, out):
             'the own file: not a viewer row (its source found, not changed)',
         ),
         (
-            '<tr class="src-row" data-src="source/setu/src/args.zig" data-hit="10, 13-15" data-miss="11-12" '
+            '<tr class="src-row" data-src="source/setu/src/arg.zig" data-hit="10, 13-15" data-miss="11-12" '
             'data-stale="1"',
             "the dependency's file: not a viewer row (found through build.zig.zon), or not flagged changed",
         ),
@@ -772,7 +772,7 @@ def check_coverage_page(project, out):
         fail(f'coverage.html: {len(views)} hidden, empty view rows (all 4 columns), not 2 (one per viewer row)')
     if page.index('example/vec.zig') > page.index('id="dep-setu"'):
         fail('coverage.html: the own file not before the dependency')
-    for path, real in (('example/vec.zig', 'example/vec.zig'), ('setu/src/args.zig', '../../src/args.zig')):
+    for path, real in (('example/vec.zig', 'example/vec.zig'), ('setu/src/arg.zig', '../../src/arg.zig')):
         copy = out / 'source' / path
         if not copy.is_file() or copy.read_bytes() != (project.root / real).read_bytes():
             fail(f'site: source/{path} is not a copy of its source')
@@ -921,7 +921,7 @@ def check_profile_page(project, out):
         files,
         [
             ('test/function.zig', '30.0 per call', 'source/test/function.zig', '0:2.0,25:8.0,26:20.0'),
-            ('setu/src/args.zig', '20.0 per call', '', '90:20.0'),
+            ('setu/src/arg.zig', '20.0 per call', '', '90:20.0'),
         ],
     )  # fmt: skip
     if '<td colspan="3">' not in rows[0]:
@@ -996,7 +996,7 @@ def check_server(project):
                 time.sleep(0.1)
         else:
             fail('the server did not start')
-        same('ping', ping['module'], 'setu_classes')
+        same('ping', ping['module'], 'setu_class')
         if b'id="vec_norm2"' not in urllib.request.urlopen(f'{base}/functions.html').read():
             fail('the server does not serve the site')
         if b'<tr class="prof-row"' not in urllib.request.urlopen(f'{base}/profile.html').read():

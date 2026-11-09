@@ -14,7 +14,7 @@
         "tool/setu_doc_web.zig", // its Wasm module, built by a project's `doc-web` step (`addSetuDocSteps`)
         "tool/check_coverage.py", // the `coverage` step's runner (`addCoverageSteps`), run from the dependency
         "tool/check_profile.py", // the `profile` step's runner (`addProfileSteps`; imports check_coverage.py)
-        "tool/check_symbols.py", // the `check-symbols` step's runner (`addSymbolCheck`)
+        "tool/check_symbol.py", // the `check-symbols` step's runner (`addSymbolCheck`)
         "doc/setu-guide.md", // the guide projects copy (`setu-guide-sync` / `setu-guide-check`)
         "llms.txt",
         "LICENSE.txt",

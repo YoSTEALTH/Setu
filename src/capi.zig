@@ -9,7 +9,7 @@
 //! build free of `Python.h` and translate-c.
 //!
 //! Only what both 3.14 exports and the 3.15 stable ABI (abi3t, PEP 803) has is declared;
-//! `tool/check_symbols.py` checks the built extension. The rest is a `@compileError` saying why.
+//! `tool/check_symbol.py` checks the built extension. The rest is a `@compileError` saying why.
 //! On 3.15+ the module comes from `PySlot`s (PEP 793), on 3.14 from a `PyModuleDef`.
 //!
 //! Numeric constants are copied from the headers. `tool/check_abi.py` compares them against

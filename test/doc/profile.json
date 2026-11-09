@@ -4,8 +4,8 @@
                                                       "files": {"test/function.zig": {"total": 30.0,
                                                                                        "lines": {"0": 2.0, "25": 8.0,
                                                                                                  "26": 20.0}},
-                                                                "setu/src/args.zig": {"total": 20.0,
-                                                                                      "lines": {"90": 20.0}}}},
+                                                                "setu/src/arg.zig": {"total": 20.0,
+                                                                                     "lines": {"90": 20.0}}}},
                                      "Vec(1, 2)": {"total": 400.0, "ext": 100.0,
                                                    "files": {"test/function.zig": {"total": 100.0,
                                                                                     "lines": {"5": 50.0,
@@ -14,4 +14,4 @@
                            "cases": {"vec_norm2(v)": {"total": 220.0, "ext": 50.0,
                                                       "files": {"test/function.zig": {"total": 50.0,
                                                                                        "lines": {"26": 50.0}}}}}}},
- "sources": {"test/function.zig": "../function.zig", "setu/src/args.zig": "/nonexistent/args.zig"}}
+ "sources": {"test/function.zig": "../function.zig", "setu/src/arg.zig": "/nonexistent/arg.zig"}}

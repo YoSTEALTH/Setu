@@ -48,7 +48,7 @@ pub const stubgen = py.stubgen;
 
 test {
     @import("std").testing.refAllDecls(@This());
-    _ = @import("args.zig");
+    _ = @import("arg.zig");
     _ = @import("class.zig");
     _ = @import("convert.zig");
     _ = @import("exception.zig");

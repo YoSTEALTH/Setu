@@ -11,7 +11,7 @@ Where things are: `setu.py` (the one namespace to use: references, conversions, 
 `setu.c` (the C API, hand-declared, every object opaque), `setu.Class`, `setu.Exception`, `setu.Module`,
 `setu.From`, `setu.CallArgs`, `setu.Visit`, `setu.Send`, `setu.Poll`. The test extension `test/` of Setu
 has one class per hook family (`test/class.zig`), one function per parameter type (`test/function.zig`)
-and the model root file (`test/setu_classes.zig`); `test/class_test.py` shows what each does from Python.
+and the model root file (`test/setu_class.zig`); `test/class_test.py` shows what each does from Python.
 
 ## 1. The ten rules
 
@@ -43,7 +43,7 @@ and the model root file (`test/setu_classes.zig`); `test/class_test.py` shows wh
 
 ## 2. The module
 
-The root file (`test/setu_classes.zig` is the model):
+The root file (`test/setu_class.zig` is the model):
 
 ```zig
 const setu = @import("setu");
@@ -159,7 +159,7 @@ a literal (`str`), `py.Bytes` (`bytes`), `*Object` (a new reference, taken), tup
 other slices (`list`). `py.toPython(value)` does this conversion by hand (`null` with an exception set on
 failure); `try py.new(value)` the same as `Error!*Object`.
 
-From here on the examples are Setu's test extension `setu_classes` (`test/`): a Zig block is its code, the Python
+From here on the examples are Setu's test extension `setu_class` (`test/`): a Zig block is its code, the Python
 block after it a session with it, which `test/guide_test.py` runs on every interpreter. The sessions call the module
 `pkg`, standing for your package (`from pkg import read`).
 
@@ -653,7 +653,7 @@ all four interpreters):
 - Reference points: Shakti's `loop_bench` nop serial ~204 ns, batch ~129 ns, `SQE()` ~48 ns; Liburing's
   `prep_recv(sqe, -1, bytearray)` ~22 ns.
 
-When touching `src/class.zig` / `src/export.zig` / `src/convert.zig` / `src/args.zig`: `python3 tool/bench.py
+When touching `src/class.zig` / `src/export.zig` / `src/convert.zig` / `src/arg.zig`: `python3 tool/bench.py
 --ref HEAD` before claiming a change is neutral, and `zig build profile` (section 11) before and after: instructions
 per call are exact on every run, so a change of one instruction shows, and `--lines` says which line it is on. Time
 and instructions together tell a change that saves work from one that only moves it (a stall costs time, not
@@ -702,7 +702,7 @@ What the message says: the cause.
 ## 11. Checks
 
     zig build test                          # type-check every declaration + comptime unit tests
-    zig build develop                       # test/setu_classes.so (every interpreter) + setu_classes.pyi
+    zig build develop                       # test/setu_class.so (every interpreter) + setu_class.pyi
     /opt/python/3.15t/bin/python3 -m pytest # then 3.15, 3.14t, 3.14: the same .so
     tool/check.sh                          # everything, offline, on all four interpreters
     python3 tool/bench.py --ref HEAD       # per-call cost A/B against a commit
@@ -713,7 +713,7 @@ What the message says: the cause.
 A project using Setu runs its own `tool/check.sh`, which includes `zig build setu-build-check`,
 `setu-doc-check` and `setu-guide-check` (its copies of Setu's script, docs helpers and this guide match the
 Setu it pins), and `zig build check-symbols -Dpython=<each interpreter>` (`addSymbolCheck`, Setu's
-`tool/check_symbols.py` on the extension as built: every CPython symbol it imports is exported by that interpreter
+`tool/check_symbol.py` on the extension as built: every CPython symbol it imports is exported by that interpreter
 and, on 3.15+, in the stable ABI for free-threading (abi3t); needs `nm`, and `cc` on 3.15+).
 After a Setu bump: `zig build setu-build-sync setu-doc-sync setu-guide-sync`.
 
@@ -721,7 +721,7 @@ Line coverage: `zig build coverage [-Dpython=...] [-- --missed --partial pytest 
 prints a per-file table, with `--missed` the lines that never ran, with `--partial` the yellow ones, and writes the
 numbers to `zig-out/coverage.json` (totals, per interpreter, per file and line, each file's CRC-32; the format is in
 `tool/check_coverage.py`). Files are named relative to the project, a dependency's as `<package>/<path>`
-(`setu/src/args.zig`), wherever it lives. kcov's own output (an HTML report, XML, JSON: some 70 files per interpreter)
+(`setu/src/arg.zig`), wherever it lives. kcov's own output (an HTML report, XML, JSON: some 70 files per interpreter)
 goes to a temporary directory, removed after the run; `-- --html DIR` keeps its HTML report. On the docs site (`coverage
 = 'zig-out/coverage.json'`) the Coverage page has a section per owner (the project, then each dependency), and a click
 on a file shows its source, Zig highlighted, the missed lines red; a source changed since the run (its CRC-32) is

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs every Setu check: zig fmt, package paths, int casts, ruff (also on the copied tools with the consumers' rules),
 # `zig build test`, the `setu-build-sync` / `setu-build-check` and `setu-guide-*` steps on the wheel fixture
-# `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_classes.so`
+# `test/wheel/`, `check_guide.py`, `zig build develop` (the one `setu_class.so`
 # and its generated stubs, which `ruff check` lints with flake8-pyi: an unused import or a `__repr__` fails),
 # then with each interpreter (3.15t, 3.15, 3.14t, 3.14, and 3.16t-dev / 3.16-dev when installed)
 # `check_abi.py`, `zig build check-symbols`, pytest, the `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheels
@@ -77,12 +77,12 @@ step "doc/setu-guide.md"
 "$PY_FT" tool/check_guide.py
 
 step "zig build develop"
-"$ZIG" build develop # test/setu_classes.so: one binary for every interpreter below
+"$ZIG" build develop # test/setu_class.so: one binary for every interpreter below
 
 step "ruff check (generated stubs)"
 # gitignored, so `ruff check .` above skips it; flake8-pyi too (PYI021: the docstrings are on purpose)
-"$PY_FT" -m ruff check --extend-select PYI --extend-ignore PYI021 test/setu_classes.pyi
-"$PY_FT" -m ruff format --check test/setu_classes.pyi
+"$PY_FT" -m ruff check --extend-select PYI --extend-ignore PYI021 test/setu_class.pyi
+"$PY_FT" -m ruff format --check test/setu_class.pyi
 
 pythons=("$PY_FT" "$PY_GIL" "$PY314_FT" "$PY314_GIL")
 for py in "$PY316_FT" "$PY316_GIL"; do
@@ -91,7 +91,7 @@ done
 for py in "${pythons[@]}"; do
     step "$py"
     "$py" tool/check_abi.py
-    "$ZIG" build check-symbols -Dpython="$py" # tool/check_symbols.py, as `addSymbolCheck` runs it
+    "$ZIG" build check-symbols -Dpython="$py" # tool/check_symbol.py, as `addSymbolCheck` runs it
     "$py" -m pytest "${PYTEST_ARGS[@]}"
     "$py" tool/check_wheel.py --all # glibc + musl, installed and imported here
     "$py" tool/check_wheel.py       # `build_wheel` (PEP 517)
@@ -100,9 +100,9 @@ done
 
 step "mypy --strict + stubtest ($PY_FT)"
 if "$PY_FT" -c 'import mypy' 2>/dev/null; then
-    (cd test && MYPYPATH=. "$PY_FT" -m mypy --strict --python-version 3.14 setu_classes.pyi)
-    (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy --strict setu_classes.pyi)
-    (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy.stubtest setu_classes)
+    (cd test && MYPYPATH=. "$PY_FT" -m mypy --strict --python-version 3.14 setu_class.pyi)
+    (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy --strict setu_class.pyi)
+    (cd test && PYTHONPATH=. MYPYPATH=. "$PY_FT" -m mypy.stubtest setu_class)
 else
     echo "skipped: mypy is not installed for $PY_FT"
 fi

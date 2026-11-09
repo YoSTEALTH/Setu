@@ -10,7 +10,7 @@ const classes = @import("class.zig");
 const c = setu.c;
 const Object = c.Object;
 
-/// The module's entries for the two functions (`Module.methods` in `setu_classes.zig`).
+/// The module's entries for the two functions (`Module.methods` in `setu_class.zig`).
 pub const methods = [_]c.MethodDef{
     .{ .name = "_hand_nop", .meth = @as(c.FastCallKw, &nop), .flags = fastcall, .doc = null },
     .{ .name = "_hand_recv", .meth = @as(c.FastCallKw, &recv), .flags = fastcall, .doc = null },

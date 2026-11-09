@@ -140,7 +140,7 @@ shows the line coverage of the project's Zig code under its tests, a section per
 donut, with `coverage_history` (`check_coverage.py --history`) a chart of its own lines per version beside it,
 a row per file, lowest first; where the interpreters ran different lines of a file, each one's count), then each
 dependency's (a file whose path does not
-start with a directory of the project, Setu's `setu/src/args.zig`): how much of it the project's tests run, the
+start with a directory of the project, Setu's `setu/src/arg.zig`): how much of it the project's tests run, the
 total with the project's code, each interpreter's run, its files. A dependency shows as the `name` in the
 `[tool.setu_doc]` of its own `pyproject.toml` (Setu's: `Setu`), else as its package name. A click on a file's row
 shows its source under it, Zig highlighted, covered lines green and missed red (`doc.wasm` renders it; static, on

@@ -12,14 +12,14 @@ select = ["E", "F", "W"]
 quote-style = "preserve"
 
 # Setu's docs site (`python3 tool/setu_doc.py`, after `zig build develop`; `serve` for Run): the README, the
-# guide, the test extension `setu_classes` as the API Setu generates, and Setu's coverage and profile. `name` is also
+# guide, the test extension `setu_class` as the API Setu generates, and Setu's coverage and profile. `name` is also
 # what a project's site calls Setu (its Coverage page, Setu as a dependency).
 [tool.setu_doc]
 name = 'Setu'
-version = 'build.zig.zon'  # Setu's version, not `setu_classes`' placeholder `0.0`
-module = 'setu_classes'
+version = 'build.zig.zon'  # Setu's version, not `setu_class`' placeholder `0.0`
+module = 'setu_class'
 path = ['test']
-stub = 'test/setu_classes.pyi'
+stub = 'test/setu_class.pyi'
 summary = 'Zig <-> CPython bindings: one binary for CPython 3.14, 3.14t, 3.15, 3.15t and later.'
 out = 'zig-out/site'
 home = 'README.md'
@@ -38,7 +38,7 @@ split = true  # a page per chapter
 [[tool.setu_doc.pages]]
 slug = 'functions'
 title = 'Functions'
-text = "`setu_classes`' module functions: every parameter type Setu converts, as Python sees it."
+text = "`setu_class`' module functions: every parameter type Setu converts, as Python sees it."
 sources = ['test/function.zig']
 
 [[tool.setu_doc.pages]]

@@ -1,6 +1,6 @@
-//! The exceptions of `setu_classes` (`setu.Exception`) and the functions that raise them, an
+//! The exceptions of `setu_class` (`setu.Exception`) and the functions that raise them, an
 //! `IntEnum`, and what the `Module.from` filters drop (`.exclude`, `.prefixes`, `.only`; see
-//! `setu_classes.zig`). `class_test.py` drives them.
+//! `setu_class.zig`). `class_test.py` drives them.
 
 const setu = @import("setu");
 

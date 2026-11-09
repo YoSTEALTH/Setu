@@ -109,7 +109,7 @@ Object.assign(doc.kids, {
 });
 
 const answers = {
-  '/api/ping': '{"module": "setu_classes", "version": "1.2.3", "python": "3.15"}',
+  '/api/ping': '{"module": "setu_class", "version": "1.2.3", "python": "3.15"}',
   '/api/run': '{"ok": true, "steps": [{"source": "vec_norm2(Vec(3, 4))", "got": "25", "status": "ok"}]}',
   'https://api.github.com/repos/YoSTEALTH/Setu': '{"stargazers_count": 1250, "forks_count": 3}',
   'https://api.github.com/repos/YoSTEALTH/Setu/releases?per_page=10': '[{"tag_name": "v2026.10.28"}]',

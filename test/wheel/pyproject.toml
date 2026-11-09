@@ -1,8 +1,8 @@
-# The wheel check's fixture (`tool/check.sh`): Setu's test extension `setu_classes` as a project that
+# The wheel check's fixture (`tool/check.sh`): Setu's test extension `setu_class` as a project that
 # `tool/setu_build.py` builds wheels for. Not published (Setu's build.zig.zon leaves `test/` out).
 
 [project]
-name = "setu_classes"
+name = "setu_class"
 description = "Setu's test extension, packaged by tool/setu_build.py for the wheel checks."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.14"

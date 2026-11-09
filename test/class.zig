@@ -1,4 +1,4 @@
-//! The classes of `setu_classes` (`setu_classes.zig`), a test-only extension with one `setu.Class`
+//! The classes of `setu_class` (`setu_class.zig`), a test-only extension with one `setu.Class`
 //! per protocol hook family that Shakti itself does not use (comparisons, numbers, containers,
 //! `__call__`, iterators, attributes, descriptors, static / class methods, class attributes,
 //! weakrefs, `__dict__`, pickling, generics, `__finalize__`). `class_test.py` drives it.

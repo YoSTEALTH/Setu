@@ -2,16 +2,16 @@
 table. `zig build coverage` runs it (`addCoverageSteps` in `build.zig`), with the Debug build of the extension.
 With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zig build coverage-zig`).
 
-    zig build coverage                             # Setu: setu_classes + class_test.py (-Dpython=...)
+    zig build coverage                             # Setu: setu_class + class_test.py (-Dpython=...)
     zig build coverage -- --missed -k vec          # after `--`: these options, the rest goes to pytest
     zig build coverage -- --python /opt/python/3.14/bin/python3   # 3.14's paths too, merged
-    python3 tool/check_coverage.py --name setu_classes --include src --include test <ext.so> [-- pytest args]
+    python3 tool/check_coverage.py --name setu_class --include src --include test <ext.so> [-- pytest args]
     python3 tool/check_coverage.py --exe --include tool <test executable> [-- its args]
 
 Options
     --exe             the path is a Zig test executable (`b.addTest`, a Debug build), run under kcov
                       with the arguments after `--`; no pytest, `--name` or `--python`
-    --name NAME       the name the tests import the extension by: `setu_classes`; `liburing` for a package's
+    --name NAME       the name the tests import the extension by: `setu_class`; `liburing` for a package's
                       `__init__.so` (the path then `.../liburing/__init__.so`: a package, as normally imported);
                       `pkg.ext` inside a package (whose `from .ext import ...` then gets this build, bound to the
                       package as by a normal import)
@@ -38,11 +38,11 @@ Options
     Arguments that are none of these (and all after a `--`) go to pytest (with `--exe`: to the executable).
 
 The `--json` file (paths as in the table: relative to the current directory, `<package>/<path>` for a Zig
-package's file outside it or in its `zig-pkg/`, `setu/src/args.zig`; `hits` of `possible` addresses ran)
+package's file outside it or in its `zig-pkg/`, `setu/src/arg.zig`; `hits` of `possible` addresses ran)
     {"total": {"covered": 1025, "lines": 1028},
      "interpreters": {"3.15": {"python": "/opt/python/3.15/bin/python3", "covered": 1019, "lines": 1028,
-                               "files": {"src/args.zig": [94, 94], ...}}, ...},
-     "files": {"src/args.zig": {"covered": 94, "lines": 94, "crc32": 1234567890, "hits": {"318": [2, 2], ...}},
+                               "files": {"src/arg.zig": [94, 94], ...}}, ...},
+     "files": {"src/arg.zig": {"covered": 94, "lines": 94, "crc32": 1234567890, "hits": {"318": [2, 2], ...}},
                ...}}
     `crc32` is the source's CRC-32 when it was measured: the docs site flags a file changed since.
     `commit` (only when the measured files in the git work tree are as committed, so their lines are the commit's):
@@ -558,7 +558,7 @@ def result(runs, files, sources):
 def shown(path):
     '''`path` as the table and `--json` show it: relative to the current directory when under it (kcov strips
     that), else `<package>/<path in it>` for a file of a Zig package (`.name` of the nearest `build.zig.zon` above
-    it: `setu/src/args.zig`, wherever the dependency lives: a path dependency, or a fetched one in the project's
+    it: `setu/src/arg.zig`, wherever the dependency lives: a path dependency, or a fetched one in the project's
     `zig-pkg/<name>-<hash>/`), else as is.'''
     if not os.path.isabs(path):
         if not is_package(path):
@@ -577,7 +577,7 @@ def shown(path):
 
 def is_package(path):
     '''Whether kcov's `path` is a Zig package's file: outside the current directory (absolute), or a fetched one in
-    its `zig-pkg/` (`zig-pkg/setu-<hash>/src/args.zig`), not the project's own.'''
+    its `zig-pkg/` (`zig-pkg/setu-<hash>/src/arg.zig`), not the project's own.'''
     return os.path.isabs(path) or path.startswith('zig-pkg' + os.sep)
 
 

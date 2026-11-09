@@ -2,8 +2,8 @@
 must be exported by the interpreter running this script, and (3.15+) be in the stable ABI for
 free-threading (abi3t, PEP 803), so the binary keeps loading on later versions.
 
-    python3.14 tool/check_symbols.py test/setu_classes.so    # exported by 3.14?
-    python3.15t tool/check_symbols.py test/setu_classes.so   # exported by 3.15t, and in abi3t?
+    python3.14 tool/check_symbol.py test/setu_class.so    # exported by 3.14?
+    python3.15t tool/check_symbol.py test/setu_class.so   # exported by 3.15t, and in abi3t?
 
 Note
     - The extension links nothing from libpython: its symbols resolve at import, so a symbol
@@ -51,7 +51,7 @@ def not_stable(symbols):
 
 def main():
     if len(sys.argv) != 2:
-        raise SystemExit('usage: check_symbols.py <extension.so>')
+        raise SystemExit('usage: check_symbol.py <extension.so>')
     symbols = imported(sys.argv[1])
     bad = [f'not exported by this interpreter: {s}' for s in not_exported(symbols)]
     stable = sys.version_info >= (3, 15)

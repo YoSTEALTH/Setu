@@ -35,7 +35,7 @@
 //! any other Zig error becomes `RuntimeError` (or `MemoryError`).
 //!
 //! The code is split by concern; this file is the one to import (`setu.py`):
-//! `raise.zig` (exceptions), `convert.zig` (values), `args.zig` (parameters, argument
+//! `raise.zig` (exceptions), `convert.zig` (values), `arg.zig` (parameters, argument
 //! parsing), `source.zig` (reading the Zig source at comptime), `export.zig` (trampolines,
 //! method tables, the module).
 
@@ -114,7 +114,7 @@ pub inline fn newNotImplemented() *Object {
 
 const raise_zig = @import("raise.zig");
 const convert = @import("convert.zig");
-const args_zig = @import("args.zig");
+const args_zig = @import("arg.zig");
 const export_zig = @import("export.zig");
 
 pub const raise = raise_zig.raise;
