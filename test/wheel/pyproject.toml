@@ -1,4 +1,4 @@
-# The wheel check's fixture (`tool/check.sh`): Setu's test extension `setu_class` as a project that
+# The wheel check's fixture (`tool/check.py`): Setu's test extension `setu_class` as a project that
 # `tool/setu_build.py` builds wheels for. Not published (Setu's build.zig.zon leaves `test/` out).
 
 [project]

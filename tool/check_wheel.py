@@ -1,5 +1,5 @@
 '''Checks `tool/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
-`setu_class`): run by `tool/check.sh`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
+`setu_class`): run by `tool/check.py`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
 since every one of them must import the same `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel.
 
     python3.15t tool/check_wheel.py --all   # the release wheels: glibc + musl
@@ -7,7 +7,7 @@ since every one of them must import the same `cp314.cp315-abi3.abi3t.cp314t.cp31
 
 Note
     - `test/wheel/tool/setu_build.py` must be there first: `zig build setu-build-sync` (in
-      `test/wheel/`) copies Setu's, the step projects use; `check.sh` runs it and `setu-build-check`.
+      `test/wheel/`) copies Setu's, the step projects use; `check.py` runs it and `setu-build-check`.
     - `--all` builds the `[tool.setu_build]` targets of `test/wheel/pyproject.toml`
       (`x86_64-linux-gnu.2.28`, `x86_64-linux-musl`) and checks each wheel's name, `WHEEL` tags,
       files, `RECORD` hashes, `METADATA`, and the extension's `NEEDED` libc (`readelf -d`); the

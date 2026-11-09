@@ -1,7 +1,7 @@
 //! The wheel check's fixture: `setu_class` (Setu's test extension) laid out the way
 //! `tool/setu_build.py` expects a project (`[project].name`, `src/<name>/`, `build.zig.zon`'s
 //! version, `zig build --prefix` installing the extension as the package: `lib/__init__.so` and `lib/__init__.pyi`).
-//! `tool/check.sh` syncs the script into `tool/` here and builds wheels with it.
+//! `tool/check.py` syncs the script into `tool/` here and builds wheels with it.
 //!
 //!   zig build setu-build-sync    copy Setu's tool/setu_build.py into tool/
 //!   zig build setu-build-check   check that tool/setu_build.py is Setu's copy

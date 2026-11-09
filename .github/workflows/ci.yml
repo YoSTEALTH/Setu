@@ -58,13 +58,13 @@ jobs:
       - name: deno
         uses: denoland/setup-deno@v2
 
-      - name: tool/check.sh
+      - name: tool/check.py
         env:
           PY_FT: ${{ steps.py_ft.outputs.python-path }}
           PY_GIL: ${{ steps.py_gil.outputs.python-path }}
           PY314_FT: ${{ steps.py314_ft.outputs.python-path }}
           PY314_GIL: ${{ steps.py314_gil.outputs.python-path }}
-        run: tool/check.sh
+        run: tool/check.py
 
       # Line coverage on all four interpreters, merged; the committed README badge must match what this run writes
       # (`zig build coverage` with every `--python` locally, then commit `doc/coverage-badge.json` and

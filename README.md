@@ -59,7 +59,7 @@ Commands:
 zig build test                        # type-check every declaration + comptime and doc-web unit tests
 zig build develop                     # test extension (setu_class.so) + stubs into test/
 python3 tool/check_doc.py           # the docs site of test/doc/ (after develop)
-tool/check.sh                        # every check, on 3.15t, 3.15, 3.14t and 3.14
+tool/check.py                        # every check, on 3.15t, 3.15, 3.14t and 3.14
 python3 tool/bench.py --ref HEAD     # per-call cost, A/B against a commit (`-Doptimize=fast`)
 zig build coverage -Dpython=python3   # line coverage of the test extension (kcov), zig-out/coverage.json;
                                       # then tool/check_api.py
@@ -126,7 +126,7 @@ A PEP 517 build backend (no setuptools) that builds a Zig + Setu extension's whe
 A backend must sit in the project's own tree, so each project keeps a byte-identical copy in its
 `tool/`, never edited there: what differs per project goes in `[tool.setu_build]` in its
 `pyproject.toml` (the keys are listed in the script's docstring). Setu tests the script itself:
-`tool/check.sh` builds the glibc and musl wheels of `test/wheel/` and pip-installs them on every
+`tool/check.py` builds the glibc and musl wheels of `test/wheel/` and pip-installs them on every
 interpreter (`tool/check_wheel.py`).
 
 A project keeps its copy in step with the Setu it pins with two `zig build` steps, from its

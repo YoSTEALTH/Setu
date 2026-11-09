@@ -23,7 +23,7 @@ and the model root file (`test/setu_class.zig`); `test/class_test.py` shows what
 3. Give an int parameter the exact type the kernel or callee takes (`fd: i32`, `flags: u32`): Setu raises
    `OverflowError` naming the parameter. A value no parameter type can bound goes through
    `` py.narrow(T, v, "`f(x)`") ``. Every `@intCast` / `@truncate` carries a `// cast: <why it fits>` comment
-   on its line or the line above (`tool/check.sh` checks).
+   on its line or the line above (`tool/check.py` checks).
 4. `?T` is optional: omitted or `None` gives `null`. A positional parameter after one with a default needs a
    default too (compile error); make it keyword-only after `_: py.KwOnly`.
 5. Return `Error!R` and raise with `return py.raise*(...)`. `error.PythonError` means "an exception is
@@ -631,7 +631,7 @@ del TYPE_CHECKING
 type's range, also past 64 bits. So the parameter type is the check: `fd: i32`, `len: u32`, `offset: u64`.
 When one value is read as two types or checked against state, `const index = try py.narrow(u32, fd,
 "`close(fd)` with `direct=True`");`. `@intCast` / `@truncate` are for values the code itself bounds, each
-with a `// cast: <why it fits>` comment (`tool/check.sh` rejects one without). Constants wider than
+with a `// cast: <why it fits>` comment (`tool/check.py` rejects one without). Constants wider than
 `c_long` are fine (`pub const ALL_ONES: u64 = maxInt(u64)`).
 
 ## 9. Performance
@@ -704,7 +704,7 @@ What the message says: the cause.
     zig build test                          # type-check every declaration + comptime unit tests
     zig build develop                       # test/setu_class.so (every interpreter) + setu_class.pyi
     /opt/python/3.15t/bin/python3 -m pytest # then 3.15, 3.14t, 3.14: the same .so
-    tool/check.sh                          # everything, offline, on all four interpreters
+    tool/check.py                          # everything, offline, on all four interpreters
     python3 tool/bench.py --ref HEAD       # per-call cost A/B against a commit
     zig build profile -Doptimize=fast -Dcpu=x86_64_v3   # instructions per call, per line (callgrind);
                                                         # -Drelease with a preferred optimize mode

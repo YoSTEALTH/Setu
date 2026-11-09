@@ -29,7 +29,7 @@
 //! `addProfileSteps` (its `profile` step: callgrind over the project's cases, by `tool/check_profile.py`),
 //! `addSymbolCheck` (its `check-symbols` step, by `tool/check_symbol.py`) and `ext_suffix`.
 //! The test extension and its stubs are the named lazy paths `setu_class` / `setu_class.pyi`
-//! (`test/wheel/` packages them with `tool/setu_build.py`, for `tool/check.sh`).
+//! (`test/wheel/` packages them with `tool/setu_build.py`, for `tool/check.py`).
 
 const std = @import("std");
 

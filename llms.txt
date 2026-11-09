@@ -34,7 +34,7 @@ https://yostealth.github.io/Setu/.
 
 ## Tools
 
-- [tool/check.sh](tool/check.sh): every check, offline, on all four interpreters
+- [tool/check.py](tool/check.py): every check, offline, on all four interpreters
 - [tool/setu_build.py](tool/setu_build.py): the PEP 517 wheel backend projects copy
 - [tool/setu_doc.py](tool/setu_doc.py): the docs site builder projects copy (stdlib; HTML, `llms.txt`,
   example runner, server); its Wasm logic is [tool/setu_doc_web.zig](tool/setu_doc_web.zig)
