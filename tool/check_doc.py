@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Checks `tool/setu_doc.py` on the fixture `test/doc/` (Setu's test extension as a site): docstring and
 Markdown rendering, the grouping, the `llms.txt` / `llms-full.txt` text, every example (with the fixture's hooks),
 the site it writes and the server. Standard library only; needs `zig build develop` (the extension and its stub)

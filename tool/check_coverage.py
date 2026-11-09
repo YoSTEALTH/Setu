@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Line coverage of an extension's Zig code: pytest under kcov, with the extension loaded first, then a per-file
 table. `zig build coverage` runs it (`addCoverageSteps` in `build.zig`), with the Debug build of the extension.
 With `--exe`, kcov over a Zig test executable instead (`addZigTestCoverage`: `zig build coverage-zig`).

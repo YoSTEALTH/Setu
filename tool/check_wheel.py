@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Checks `tool/setu_build.py` on the fixture project `test/wheel/` (Setu's test extension
 `setu_class`): run by `tool/check.py`, offline, with each interpreter (3.14, 3.14t, 3.15, 3.15t),
 since every one of them must import the same `cp314.cp315-abi3.abi3t.cp314t.cp315t` wheel.

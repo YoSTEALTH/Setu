@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Checks that the test extension compiles every public runtime function of Setu: each `pub fn` in `src/*.zig`
 that takes a runtime parameter (or none) must have a line in `zig build coverage`'s result. Zig compiles only
 what is referenced, and kcov counts only compiled code, so a function `setu_class` never calls is missing from

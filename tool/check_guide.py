@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Checks that `doc/setu-guide.md` keeps up with the source: every class hook and setting `src/class.zig`
 knows, every `Module` / `From` field, and every name `src/py.zig` exports for extensions must be mentioned.
 

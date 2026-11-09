@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Documentation site for a Zig + Setu extension: static HTML built from the imported module's docstrings (the
 `///` docs Setu turns into them), Markdown pages of the project, and a runner for the `>>>` examples.
 

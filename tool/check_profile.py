@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Instructions per call of an extension's hot paths, by callgrind: each case of a cases file (a statement, as
 `tool/bench.py`'s `CASES`) runs N and 2N times under valgrind, and the difference / N is what one call costs,
 exactly (no timing noise), in total and per line of the extension's Zig code. `zig build profile` runs it

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''PEP 517 build backend: builds a Zig + Setu extension's wheel with `zig build`, no setuptools.
 
 Kept in Setu (`tool/setu_build.py`) and copied unchanged into each project that uses Setu: the package name

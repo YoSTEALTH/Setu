@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Check the hand-written CPython constants in `src/capi.zig`.
 
 Compiles a tiny C program against the headers of the interpreter running this

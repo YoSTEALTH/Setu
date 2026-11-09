@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Times Setu's per-call cost on `setu_class` (the test extension): the argument shapes Liburing's hot
 path uses (`bench_*` in `test/function.zig`: `prep_recv` / `prep_send` with and without a buffer, a
 buffer kept with `take()` or as `py.OwnedWritableBuffer`), plus a property, a method, `__init__` and a

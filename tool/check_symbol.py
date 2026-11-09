@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''Checks that an extension uses only what one Setu binary may: every CPython symbol it imports
 must be exported by the interpreter running this script, and (3.15+) be in the stable ABI for
 free-threading (abi3t, PEP 803), so the binary keeps loading on later versions.
